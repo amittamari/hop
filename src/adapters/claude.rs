@@ -28,6 +28,8 @@ struct Line {
     is_meta: Option<bool>,
     #[serde(rename = "toolUseResult")]
     tool_use_result: Option<serde_json::Value>,
+    #[serde(rename = "gitBranch")]
+    git_branch: Option<String>,
     message: Option<Message>,
 }
 
@@ -57,6 +59,78 @@ const COMMAND_PREFIXES: [&str; 5] = [
     "<local-command-stdout>",
     "<local-command-caveat>",
 ];
+
+struct Extracted {
+    messages: Vec<crate::core::Message>,
+    directory: String,
+    branch: Option<String>,
+    first_ts: Option<i64>,
+}
+
+impl ClaudeAdapter {
+    fn extract(&self, path: &Path) -> Result<Extracted> {
+        use crate::core::{split_blocks, Message, Role};
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let mut directory = String::new();
+        let mut branch: Option<String> = None;
+        let mut first_ts: Option<i64> = None;
+        let mut messages: Vec<Message> = Vec::new();
+
+        for line in raw.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut buf = line.as_bytes().to_vec();
+            let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+            if directory.is_empty() {
+                if let Some(cwd) = &parsed.cwd {
+                    directory = cwd.clone();
+                }
+            }
+            if branch.is_none() {
+                if let Some(b) = parsed.git_branch.as_deref() {
+                    if !b.trim().is_empty() {
+                        branch = Some(b.to_string());
+                    }
+                }
+            }
+            let kind = parsed.kind.as_deref().unwrap_or("");
+            let is_user = kind == "user";
+            let is_assistant = kind == "assistant";
+            if !is_user && !is_assistant {
+                continue;
+            }
+            if parsed.is_meta == Some(true) || parsed.tool_use_result.is_some() {
+                continue;
+            }
+            let text = parsed
+                .message
+                .as_ref()
+                .and_then(|m| m.content.as_ref())
+                .and_then(|c| extract_text(c, is_user));
+            let Some(text) = text else { continue };
+            if text.trim().is_empty() {
+                continue;
+            }
+            if first_ts.is_none() {
+                first_ts = parsed.timestamp.as_deref().and_then(parse_ts_secs);
+            }
+            let blocks = split_blocks(&text);
+            if blocks.is_empty() {
+                continue;
+            }
+            messages.push(Message {
+                role: if is_user { Role::User } else { Role::Agent },
+                blocks,
+            });
+        }
+        Ok(Extracted { messages, directory, branch, first_ts })
+    }
+}
 
 impl Adapter for ClaudeAdapter {
     fn id(&self) -> AgentId {
@@ -94,81 +168,35 @@ impl Adapter for ClaudeAdapter {
     }
 
     fn parse(&self, path: &Path) -> Result<Session> {
+        use crate::core::{flatten_messages, Role};
         let id = path
             .file_stem()
             .and_then(|s| s.to_str())
             .context("session file has no stem")?
             .to_string();
-
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-
-        let mut directory = String::new();
-        let mut title: Option<String> = None;
-        let mut first_ts: Option<i64> = None;
-        let mut content = String::new();
-        let mut message_count: u32 = 0;
-
-        for line in raw.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let mut buf = line.as_bytes().to_vec();
-            let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
-                Ok(l) => l,
-                Err(_) => continue, // skip malformed line, non-fatal
-            };
-
-            if directory.is_empty() {
-                if let Some(cwd) = &parsed.cwd {
-                    directory = cwd.clone();
-                }
-            }
-
-            let kind = parsed.kind.as_deref().unwrap_or("");
-            let is_user = kind == "user";
-            let is_assistant = kind == "assistant";
-            if !is_user && !is_assistant {
-                continue;
-            }
-            if parsed.is_meta == Some(true) || parsed.tool_use_result.is_some() {
-                continue;
-            }
-
-            let text = parsed
-                .message
-                .as_ref()
-                .and_then(|m| m.content.as_ref())
-                .and_then(|c| extract_text(c, is_user));
-            let Some(text) = text else { continue };
-            if text.trim().is_empty() {
-                continue;
-            }
-
-            if first_ts.is_none() {
-                first_ts = parsed.timestamp.as_deref().and_then(parse_ts_secs);
-            }
-            if title.is_none() && is_user {
-                title = Some(truncate_title(&text, TITLE_MAX));
-            }
-            if !content.is_empty() {
-                content.push('\n');
-            }
-            content.push_str(text.trim());
-            message_count += 1;
-        }
-
+        let ex = self.extract(path)?;
+        let title = ex
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .and_then(|m| m.blocks.iter().find_map(|b| match b {
+                crate::core::Block::Prose(s) => Some(s.as_str()),
+                _ => None,
+            }))
+            .map(|t| truncate_title(t, TITLE_MAX))
+            .unwrap_or_else(|| "(untitled)".to_string());
+        let content = flatten_messages(&ex.messages);
         Ok(Session {
             id,
             agent: AgentId::Claude,
-            title: title.unwrap_or_else(|| "(untitled)".to_string()),
-            directory,
-            timestamp: first_ts.unwrap_or(0),
+            title,
+            directory: ex.directory,
+            timestamp: ex.first_ts.unwrap_or(0),
             content,
-            message_count,
-            mtime: 0, // filled by engine from ScanEntry
+            message_count: ex.messages.len() as u32,
+            mtime: 0,
             yolo: false,
-            branch: None,
+            branch: ex.branch,
             repo_url: None,
         })
     }
@@ -186,8 +214,8 @@ impl Adapter for ClaudeAdapter {
         }
     }
 
-    fn transcript(&self, _path: &Path) -> Result<Vec<crate::core::Message>> {
-        Ok(Vec::new())
+    fn transcript(&self, path: &Path) -> Result<Vec<crate::core::Message>> {
+        Ok(self.extract(path)?.messages)
     }
 
     fn supports_yolo(&self) -> bool {
