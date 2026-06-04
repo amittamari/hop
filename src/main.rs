@@ -64,12 +64,16 @@ fn run_tui(
             let now = jiff::Timestamp::now().as_second();
             terminal.draw(|f| view::render(f, &app, now))?;
 
-            // fold in any streamed sessions
-            while let Ok(update) = updates.try_recv() {
-                if let Update::Refresh = update {
-                    engine.reload()?;
-                    engine.search()?;
-                    sync_results_into_app(engine, &mut app);
+            // fold in any streamed sessions — but freeze the list while a modal is
+            // open so the row the user is confirming can't shift under them. Queued
+            // updates stay in the channel and are drained once the modal closes.
+            if !app.modal_open() {
+                while let Ok(update) = updates.try_recv() {
+                    if let Update::Refresh = update {
+                        engine.reload()?;
+                        engine.search()?;
+                        sync_results_into_app(engine, &mut app);
+                    }
                 }
             }
 
@@ -91,7 +95,8 @@ fn run_tui(
             }
 
             // run the debounced search once the keystroke stream goes quiet
-            if engine.search_due() {
+            // (also frozen while a modal is open)
+            if !app.modal_open() && engine.search_due() {
                 engine.search()?;
                 sync_results_into_app(engine, &mut app);
             }

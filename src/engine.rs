@@ -55,14 +55,6 @@ impl Engine {
         self.last_keystroke = Some(Instant::now());
     }
 
-    /// True if enough time has elapsed since the last keystroke to query.
-    pub fn debounce_ready(&self) -> bool {
-        match self.last_keystroke {
-            Some(t) => t.elapsed() >= DEBOUNCE,
-            None => true,
-        }
-    }
-
     /// True when a query change is pending and its debounce interval has elapsed,
     /// i.e. it's time to actually run the search. Returns false once `search()`
     /// has consumed the pending change (it clears `last_keystroke`).

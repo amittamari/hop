@@ -34,7 +34,6 @@ struct Line {
 #[derive(Deserialize)]
 struct Payload {
     // session_meta
-    id: Option<String>,
     cwd: Option<String>,
     // turn_context
     approval_policy: Option<String>,
@@ -72,7 +71,15 @@ impl Adapter for CodexAdapter {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        let mut id = String::new();
+        // Codex's session id is the uuid embedded in the filename, which also
+        // equals session_meta.payload.id. Deriving it from the filename keeps the
+        // scan() key (also filename-derived) identical to the indexed id, so
+        // incremental sync diffs and prunes correctly.
+        let id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(session_id_from_filename)
+            .unwrap_or_else(|| "unknown".to_string());
         let mut directory = String::new();
         let mut title: Option<String> = None;
         let mut first_ts: Option<i64> = None;
@@ -98,9 +105,6 @@ impl Adapter for CodexAdapter {
 
             match parsed.kind.as_str() {
                 "session_meta" => {
-                    if let Some(i) = p.id {
-                        id = i;
-                    }
                     if let Some(c) = p.cwd {
                         directory = c;
                     }
@@ -135,15 +139,6 @@ impl Adapter for CodexAdapter {
                 }
                 _ => {}
             }
-        }
-
-        if id.is_empty() {
-            // fall back to the filename-derived uuid
-            id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .map(session_id_from_filename)
-                .unwrap_or_else(|| "unknown".to_string());
         }
 
         Ok(Session {
