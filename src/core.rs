@@ -1,5 +1,93 @@
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    User,
+    Agent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Block {
+    Prose(String),
+    Code { lang: Option<String>, text: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Message {
+    pub role: Role,
+    pub blocks: Vec<Block>,
+}
+
+/// Split a text body into prose and fenced-code blocks. ```` ```lang ```` opens a
+/// code block; a line that is exactly ``` (after trim) closes it. Empty prose runs
+/// are dropped. Trailing/leading blank lines within prose are trimmed.
+pub fn split_blocks(text: &str) -> Vec<Block> {
+    let mut out: Vec<Block> = Vec::new();
+    let mut prose: Vec<&str> = Vec::new();
+    let mut code: Vec<&str> = Vec::new();
+    let mut lang: Option<String> = None;
+    let mut in_code = false;
+
+    let flush_prose = |prose: &mut Vec<&str>, out: &mut Vec<Block>| {
+        let joined = prose.join("\n");
+        let trimmed = joined.trim();
+        if !trimmed.is_empty() {
+            out.push(Block::Prose(trimmed.to_string()));
+        }
+        prose.clear();
+    };
+
+    for line in text.lines() {
+        let t = line.trim_end();
+        if let Some(rest) = t.trim_start().strip_prefix("```") {
+            if in_code {
+                out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
+                code.clear();
+                in_code = false;
+            } else {
+                flush_prose(&mut prose, &mut out);
+                let l = rest.trim();
+                lang = if l.is_empty() { None } else { Some(l.to_string()) };
+                in_code = true;
+            }
+            continue;
+        }
+        if in_code {
+            code.push(line);
+        } else {
+            prose.push(line);
+        }
+    }
+    if in_code {
+        // unterminated fence: keep what we have as code
+        out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
+    } else {
+        flush_prose(&mut prose, &mut out);
+    }
+    out
+}
+
+/// Flatten messages into a single newline-joined string for the search index.
+pub fn flatten_messages(msgs: &[Message]) -> String {
+    let mut out = String::new();
+    for m in msgs {
+        for b in &m.blocks {
+            let t = match b {
+                Block::Prose(s) => s.trim(),
+                Block::Code { text, .. } => text.trim(),
+            };
+            if t.is_empty() {
+                continue;
+            }
+            if !out.is_empty() {
+                out.push('\n');
+            }
+            out.push_str(t);
+        }
+    }
+    out
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentId {
     Claude,
@@ -112,5 +200,39 @@ mod tests {
         assert_eq!(truncate_title("hello world", 5), "hell…");
         // collapses internal whitespace/newlines
         assert_eq!(truncate_title("a\n  b\tc", 100), "a b c");
+    }
+
+    #[test]
+    fn split_blocks_separates_fenced_code() {
+        let input = "before\n```rust\nfn x() {}\n```\nafter";
+        let blocks = split_blocks(input);
+        assert_eq!(blocks, vec![
+            Block::Prose("before".into()),
+            Block::Code { lang: Some("rust".into()), text: "fn x() {}".into() },
+            Block::Prose("after".into()),
+        ]);
+    }
+
+    #[test]
+    fn split_blocks_plain_prose_is_single_block() {
+        assert_eq!(split_blocks("just text"), vec![Block::Prose("just text".into())]);
+    }
+
+    #[test]
+    fn split_blocks_unlabeled_fence_has_no_lang() {
+        let blocks = split_blocks("```\nraw\n```");
+        assert_eq!(blocks, vec![Block::Code { lang: None, text: "raw".into() }]);
+    }
+
+    #[test]
+    fn flatten_messages_joins_prose_and_code() {
+        let msgs = vec![
+            Message { role: Role::User, blocks: vec![Block::Prose("hi".into())] },
+            Message { role: Role::Agent, blocks: vec![
+                Block::Prose("fixed".into()),
+                Block::Code { lang: Some("rust".into()), text: "let x=1;".into() },
+            ]},
+        ];
+        assert_eq!(flatten_messages(&msgs), "hi\nfixed\nlet x=1;");
     }
 }
