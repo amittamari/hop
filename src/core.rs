@@ -39,24 +39,27 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
 
     for line in text.lines() {
         let t = line.trim_end();
-        if let Some(rest) = t.trim_start().strip_prefix("```") {
-            if in_code {
+        if in_code {
+            // A closing fence is a line of only backticks (>=3) after trimming;
+            // any other line — including indented backtick examples — is captured verbatim.
+            let trimmed = t.trim();
+            if trimmed.len() >= 3 && trimmed.chars().all(|c| c == '`') {
                 out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
                 code.clear();
                 in_code = false;
             } else {
-                flush_prose(&mut prose, &mut out);
-                let l = rest.trim();
-                lang = if l.is_empty() { None } else { Some(l.to_string()) };
-                in_code = true;
+                code.push(line); // preserve indentation for code
             }
             continue;
         }
-        if in_code {
-            code.push(line);
-        } else {
-            prose.push(line);
+        if let Some(rest) = t.trim_start().strip_prefix("```") {
+            flush_prose(&mut prose, &mut out);
+            let l = rest.trim();
+            lang = if l.is_empty() { None } else { Some(l.to_string()) };
+            in_code = true;
+            continue;
         }
+        prose.push(line);
     }
     if in_code {
         // unterminated fence: keep what we have as code
@@ -222,6 +225,19 @@ mod tests {
     fn split_blocks_unlabeled_fence_has_no_lang() {
         let blocks = split_blocks("```\nraw\n```");
         assert_eq!(blocks, vec![Block::Code { lang: None, text: "raw".into() }]);
+    }
+
+    #[test]
+    fn split_blocks_empty_input_is_empty() {
+        assert_eq!(split_blocks(""), vec![]);
+    }
+
+    #[test]
+    fn split_blocks_unterminated_fence_kept_as_code() {
+        assert_eq!(
+            split_blocks("```rust\nlet x=1;"),
+            vec![Block::Code { lang: Some("rust".into()), text: "let x=1;".into() }]
+        );
     }
 
     #[test]
