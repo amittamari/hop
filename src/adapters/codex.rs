@@ -21,6 +21,76 @@ impl CodexAdapter {
     fn session_roots(&self) -> Vec<PathBuf> {
         vec![self.root.join("sessions"), self.root.join("archived_sessions")]
     }
+
+    fn extract(&self, path: &Path) -> Result<Extracted> {
+        use crate::core::{split_blocks, Message, Role};
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let mut directory = String::new();
+        let mut branch = None;
+        let mut repo_url = None;
+        let mut first_ts: Option<i64> = None;
+        let mut messages: Vec<Message> = Vec::new();
+        let mut yolo = false;
+
+        for line in raw.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let mut buf = line.as_bytes().to_vec();
+            let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
+                Ok(l) => l,
+                Err(_) => continue,
+            };
+            if first_ts.is_none() {
+                if let Some(ts) = parsed.timestamp.as_deref() {
+                    first_ts = parse_ts_secs(ts);
+                }
+            }
+            let Some(p) = parsed.payload else { continue };
+            match parsed.kind.as_str() {
+                "session_meta" => {
+                    if let Some(c) = p.cwd {
+                        directory = c;
+                    }
+                    if let Some(g) = p.git {
+                        branch = g.branch.filter(|b| !b.trim().is_empty());
+                        repo_url = g.repository_url.filter(|u| !u.trim().is_empty());
+                    }
+                }
+                "turn_context" => {
+                    let never = p.approval_policy.as_deref() == Some("never");
+                    let danger = p.sandbox_policy.as_ref().map(|s| s.kind.as_str())
+                        == Some("danger-full-access");
+                    if never && danger {
+                        yolo = true;
+                    }
+                }
+                "event_msg" => {
+                    let sub = p.sub.as_deref().unwrap_or("");
+                    let is_user = sub == "user_message";
+                    let is_agent = sub == "agent_message";
+                    if !is_user && !is_agent {
+                        continue;
+                    }
+                    let Some(text) = p.message else { continue };
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    let blocks = split_blocks(&text);
+                    if blocks.is_empty() {
+                        continue;
+                    }
+                    messages.push(Message {
+                        role: if is_user { Role::User } else { Role::Agent },
+                        blocks,
+                    });
+                }
+                _ => {}
+            }
+        }
+        Ok(Extracted { messages, directory, branch, repo_url, first_ts, yolo })
+    }
 }
 
 #[derive(Deserialize)]
@@ -35,6 +105,7 @@ struct Line {
 struct Payload {
     // session_meta
     cwd: Option<String>,
+    git: Option<Git>,
     // turn_context
     approval_policy: Option<String>,
     sandbox_policy: Option<SandboxPolicy>,
@@ -45,9 +116,24 @@ struct Payload {
 }
 
 #[derive(Deserialize)]
+struct Git {
+    branch: Option<String>,
+    repository_url: Option<String>,
+}
+
+#[derive(Deserialize)]
 struct SandboxPolicy {
     #[serde(rename = "type")]
     kind: String,
+}
+
+struct Extracted {
+    messages: Vec<crate::core::Message>,
+    directory: String,
+    branch: Option<String>,
+    repo_url: Option<String>,
+    first_ts: Option<i64>,
+    yolo: bool,
 }
 
 impl Adapter for CodexAdapter {
@@ -68,91 +154,36 @@ impl Adapter for CodexAdapter {
     }
 
     fn parse(&self, path: &Path) -> Result<Session> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
-
-        // Codex's session id is the uuid embedded in the filename, which also
-        // equals session_meta.payload.id. Deriving it from the filename keeps the
-        // scan() key (also filename-derived) identical to the indexed id, so
-        // incremental sync diffs and prunes correctly.
+        use crate::core::{flatten_messages, Block, Role};
         let id = path
             .file_stem()
             .and_then(|s| s.to_str())
             .map(session_id_from_filename)
             .unwrap_or_else(|| "unknown".to_string());
-        let mut directory = String::new();
-        let mut title: Option<String> = None;
-        let mut first_ts: Option<i64> = None;
-        let mut content = String::new();
-        let mut message_count: u32 = 0;
-        let mut yolo = false;
-
-        for line in raw.lines() {
-            if line.trim().is_empty() {
-                continue;
-            }
-            let mut buf = line.as_bytes().to_vec();
-            let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
-                Ok(l) => l,
-                Err(_) => continue,
-            };
-            if first_ts.is_none() {
-                if let Some(ts) = parsed.timestamp.as_deref() {
-                    first_ts = parse_ts_secs(ts);
-                }
-            }
-            let Some(p) = parsed.payload else { continue };
-
-            match parsed.kind.as_str() {
-                "session_meta" => {
-                    if let Some(c) = p.cwd {
-                        directory = c;
-                    }
-                }
-                "turn_context" => {
-                    let never = p.approval_policy.as_deref() == Some("never");
-                    let danger =
-                        p.sandbox_policy.as_ref().map(|s| s.kind.as_str()) == Some("danger-full-access");
-                    if never && danger {
-                        yolo = true;
-                    }
-                }
-                "event_msg" => {
-                    let sub = p.sub.as_deref().unwrap_or("");
-                    let is_user = sub == "user_message";
-                    let is_agent = sub == "agent_message";
-                    if !is_user && !is_agent {
-                        continue;
-                    }
-                    let Some(text) = p.message else { continue };
-                    if text.trim().is_empty() {
-                        continue;
-                    }
-                    if title.is_none() && is_user {
-                        title = Some(truncate_title(&text, TITLE_MAX));
-                    }
-                    if !content.is_empty() {
-                        content.push('\n');
-                    }
-                    content.push_str(text.trim());
-                    message_count += 1;
-                }
-                _ => {}
-            }
-        }
-
+        let ex = self.extract(path)?;
+        let title = ex
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .and_then(|m| m.blocks.iter().find_map(|b| match b {
+                Block::Prose(s) => Some(s.as_str()),
+                _ => None,
+            }))
+            .map(|t| truncate_title(t, TITLE_MAX))
+            .unwrap_or_else(|| "(untitled)".to_string());
+        let content = flatten_messages(&ex.messages);
         Ok(Session {
             id,
             agent: AgentId::Codex,
-            title: title.unwrap_or_else(|| "(untitled)".to_string()),
-            directory,
-            timestamp: first_ts.unwrap_or(0),
+            title,
+            directory: ex.directory,
+            timestamp: ex.first_ts.unwrap_or(0),
             content,
-            message_count,
+            message_count: ex.messages.len() as u32,
             mtime: 0,
-            yolo,
-            branch: None,
-            repo_url: None,
+            yolo: ex.yolo,
+            branch: ex.branch,
+            repo_url: ex.repo_url,
         })
     }
 
@@ -169,8 +200,8 @@ impl Adapter for CodexAdapter {
         }
     }
 
-    fn transcript(&self, _path: &Path) -> Result<Vec<crate::core::Message>> {
-        Ok(Vec::new())
+    fn transcript(&self, path: &Path) -> Result<Vec<crate::core::Message>> {
+        Ok(self.extract(path)?.messages)
     }
 
     fn supports_yolo(&self) -> bool {
