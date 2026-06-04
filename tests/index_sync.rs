@@ -15,6 +15,8 @@ fn sess(id: &str, title: &str, content: &str, agent: AgentId, ts: i64, mtime: i6
         message_count: 1,
         mtime,
         yolo: false,
+        branch: None,
+        repo_url: None,
     }
 }
 

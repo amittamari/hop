@@ -148,6 +148,10 @@ pub struct Session {
     /// Source file mtime, unix milliseconds (drives incremental sync).
     pub mtime: i64,
     pub yolo: bool,
+    /// Git branch at session time, captured from conversation data when present.
+    pub branch: Option<String>,
+    /// Git remote URL when the agent records it (Codex). None otherwise.
+    pub repo_url: Option<String>,
 }
 
 /// Collapse whitespace runs to single spaces and truncate to `max` chars

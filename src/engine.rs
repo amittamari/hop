@@ -212,6 +212,9 @@ mod tests {
         fn resume_command(&self, s: &Session, _yolo: bool) -> Vec<String> {
             vec!["echo".into(), s.id.clone()]
         }
+        fn transcript(&self, _path: &Path) -> anyhow::Result<Vec<crate::core::Message>> {
+            Ok(Vec::new())
+        }
         fn supports_yolo(&self) -> bool { true }
     }
 
@@ -220,6 +223,7 @@ mod tests {
             id: id.into(), agent: AgentId::Claude, title: title.into(),
             directory: "/d".into(), timestamp: 100, content: title.into(),
             message_count: 1, mtime: 10, yolo: false,
+            branch: None, repo_url: None,
         }
     }
 

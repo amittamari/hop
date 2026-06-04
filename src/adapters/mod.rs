@@ -14,6 +14,9 @@ pub trait Adapter: Send + Sync {
     fn scan(&self) -> Result<HashMap<SessionId, ScanEntry>>;
     /// Full parse of one session file.
     fn parse(&self, path: &Path) -> Result<Session>;
+    /// Re-parse a session file into structured, internals-filtered messages for
+    /// the preview. Shares the same extractor as `parse`.
+    fn transcript(&self, path: &Path) -> Result<Vec<crate::core::Message>>;
     /// argv for resuming this session (program + args).
     fn resume_command(&self, s: &Session, yolo: bool) -> Vec<String>;
     fn supports_yolo(&self) -> bool;

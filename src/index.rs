@@ -245,6 +245,8 @@ impl SearchIndex {
             message_count: get_u64(self.f.message_count) as u32,
             mtime: get_u64(self.f.mtime) as i64,
             yolo: get_u64(self.f.yolo) != 0,
+            branch: None,
+            repo_url: None,
         }
     }
 }

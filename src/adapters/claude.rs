@@ -168,6 +168,8 @@ impl Adapter for ClaudeAdapter {
             message_count,
             mtime: 0, // filled by engine from ScanEntry
             yolo: false,
+            branch: None,
+            repo_url: None,
         })
     }
 
@@ -182,6 +184,10 @@ impl Adapter for ClaudeAdapter {
         } else {
             vec!["claude".into(), "--resume".into(), s.id.clone()]
         }
+    }
+
+    fn transcript(&self, _path: &Path) -> Result<Vec<crate::core::Message>> {
+        Ok(Vec::new())
     }
 
     fn supports_yolo(&self) -> bool {

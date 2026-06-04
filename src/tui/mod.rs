@@ -172,6 +172,7 @@ mod tests {
             id: id.into(), agent: AgentId::Claude, title: id.into(),
             directory: "/d".into(), timestamp: 1, content: String::new(),
             message_count: 0, mtime: 0, yolo: false,
+            branch: None, repo_url: None,
         }
     }
 

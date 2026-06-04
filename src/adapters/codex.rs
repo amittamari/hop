@@ -151,6 +151,8 @@ impl Adapter for CodexAdapter {
             message_count,
             mtime: 0,
             yolo,
+            branch: None,
+            repo_url: None,
         })
     }
 
@@ -165,6 +167,10 @@ impl Adapter for CodexAdapter {
         } else {
             vec!["codex".into(), "resume".into(), s.id.clone()]
         }
+    }
+
+    fn transcript(&self, _path: &Path) -> Result<Vec<crate::core::Message>> {
+        Ok(Vec::new())
     }
 
     fn supports_yolo(&self) -> bool {

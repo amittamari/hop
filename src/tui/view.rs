@@ -105,6 +105,7 @@ mod tests {
             id: "a".into(), agent: AgentId::Claude, title: "fix auth".into(),
             directory: "/w".into(), timestamp: 0, content: "hello".into(),
             message_count: 1, mtime: 0, yolo: false,
+            branch: None, repo_url: None,
         }]);
         let backend = TestBackend::new(60, 6);
         let mut term = Terminal::new(backend).unwrap();
