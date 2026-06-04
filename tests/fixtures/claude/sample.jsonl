@@ -1,0 +1,6 @@
+{"type":"user","sessionId":"sample","cwd":"/Users/me/work/api","timestamp":"2026-06-04T13:20:16.361Z","isMeta":null,"message":{"role":"user","content":"fix the auth refresh token bug"}}
+{"type":"system","subtype":"local_command","level":"info","content":"<local-command-stdout>noise</local-command-stdout>"}
+{"type":"user","sessionId":"sample","cwd":"/Users/me/work/api","timestamp":"2026-06-04T13:20:17.000Z","message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+{"type":"assistant","sessionId":"sample","timestamp":"2026-06-04T13:20:46.621Z","message":{"role":"assistant","content":[{"type":"text","text":"The refresh token was dropped on retry."},{"type":"tool_use","name":"Bash","id":"toolu_x"}]}}
+{"type":"user","sessionId":"sample","toolUseResult":"ok","timestamp":"2026-06-04T13:20:50.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_x","content":"done"}]}}
+{"type":"user","sessionId":"sample","isMeta":true,"timestamp":"2026-06-04T13:20:51.000Z","message":{"role":"user","content":"meta note"}}

@@ -809,6 +809,7 @@ dependencies = [
  "jiff",
  "ratatui",
  "serde",
+ "serde_json",
  "simd-json",
  "tantivy",
  "tempfile",
