@@ -25,6 +25,8 @@ simd-json = "0.17"
 jiff = "0.2"
 directories = "6"
 toml = "0.8"
+syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
+pulldown-cmark = { version = "0.12", default-features = false }
 
 [dev-dependencies]
 tempfile = "3"
