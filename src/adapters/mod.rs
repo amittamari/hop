@@ -18,3 +18,11 @@ pub trait Adapter: Send + Sync {
     fn resume_command(&self, s: &Session, yolo: bool) -> Vec<String>;
     fn supports_yolo(&self) -> bool;
 }
+
+/// Default v1 adapters, honoring config data-dir overrides.
+pub fn default_adapters(cfg: &crate::config::Config) -> Vec<Box<dyn Adapter>> {
+    vec![
+        Box::new(claude::ClaudeAdapter::new(cfg.data_dir(AgentId::Claude))),
+        Box::new(codex::CodexAdapter::new(cfg.data_dir(AgentId::Codex))),
+    ]
+}
