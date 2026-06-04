@@ -1,1 +1,242 @@
-// placeholder
+use crate::core::AgentId;
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct AgentFilter {
+    pub include: Vec<AgentId>,
+    pub exclude: Vec<AgentId>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DirFilter {
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DateFilter {
+    Today,
+    Yesterday,
+    LastWeek,
+    LastMonth,
+    /// Newer than `now - secs`.
+    Within(i64),
+    /// Older than `now - secs`.
+    OlderThan(i64),
+}
+
+impl DateFilter {
+    /// Inclusive (min, max) timestamp bounds in unix seconds; `None` = unbounded.
+    pub fn range(self, now: i64) -> (Option<i64>, Option<i64>) {
+        const D: i64 = 86_400;
+        match self {
+            DateFilter::Today => (Some(now - D), Some(now)),
+            DateFilter::Yesterday => (Some(now - 2 * D), Some(now - D)),
+            DateFilter::LastWeek => (Some(now - 7 * D), Some(now)),
+            DateFilter::LastMonth => (Some(now - 30 * D), Some(now)),
+            DateFilter::Within(s) => (Some(now - s), Some(now)),
+            DateFilter::OlderThan(s) => (None, Some(now - s)),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ParsedQuery {
+    pub free_text: String,
+    pub agents: AgentFilter,
+    pub dirs: DirFilter,
+    pub date: Option<DateFilter>,
+}
+
+pub fn parse(input: &str) -> ParsedQuery {
+    let mut q = ParsedQuery::default();
+    let mut free: Vec<&str> = Vec::new();
+
+    for tok in input.split_whitespace() {
+        // A leading '-' or '!' negates the entire keyword token.
+        let (negated, body) = match tok.strip_prefix(['-', '!']) {
+            Some(rest) if rest.contains(':') => (true, rest),
+            _ => (false, tok),
+        };
+
+        if let Some((key, val)) = body.split_once(':') {
+            match key {
+                "agent" => parse_agent(val, negated, &mut q.agents),
+                "dir" => {
+                    if negated {
+                        q.dirs.exclude.push(val.to_string());
+                    } else {
+                        q.dirs.include.push(val.to_string());
+                    }
+                }
+                "date" => {
+                    if let Some(df) = parse_date(val) {
+                        q.date = Some(df);
+                    }
+                }
+                _ => free.push(tok),
+            }
+        } else {
+            free.push(tok);
+        }
+    }
+
+    q.free_text = free.join(" ");
+    q
+}
+
+fn parse_agent(val: &str, token_negated: bool, out: &mut AgentFilter) {
+    for part in val.split(',') {
+        let (neg, name) = match part.strip_prefix('!') {
+            Some(rest) => (true, rest),
+            None => (false, part),
+        };
+        let neg = neg ^ token_negated;
+        if let Some(agent) = AgentId::from_slug(name) {
+            if neg {
+                out.exclude.push(agent);
+            } else {
+                out.include.push(agent);
+            }
+        }
+    }
+}
+
+fn parse_date(val: &str) -> Option<DateFilter> {
+    match val {
+        "today" => return Some(DateFilter::Today),
+        "yesterday" => return Some(DateFilter::Yesterday),
+        "week" => return Some(DateFilter::LastWeek),
+        "month" => return Some(DateFilter::LastMonth),
+        _ => {}
+    }
+    let (older, rest) = match val.strip_prefix('>') {
+        Some(r) => (true, r),
+        None => (false, val.strip_prefix('<').unwrap_or(val)),
+    };
+    let secs = parse_duration(rest)?;
+    Some(if older {
+        DateFilter::OlderThan(secs)
+    } else {
+        DateFilter::Within(secs)
+    })
+}
+
+fn parse_duration(s: &str) -> Option<i64> {
+    let (num, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit())?);
+    let n: i64 = num.parse().ok()?;
+    let mult = match unit {
+        "h" => 3_600,
+        "d" => 86_400,
+        "w" => 604_800,
+        _ => return None,
+    };
+    Some(n * mult)
+}
+
+/// Tab autocomplete for the last whitespace-delimited token.
+/// Returns the full completed input string, or `None` if nothing to complete.
+pub fn autocomplete(input: &str) -> Option<String> {
+    let last = input.split_whitespace().last()?;
+    let prefix_len = input.len() - last.len();
+    let prefix = &input[..prefix_len];
+
+    let completion = if let Some(partial) = last.strip_prefix("agent:") {
+        complete_value(partial, &["claude", "codex"]).map(|v| format!("agent:{v}"))
+    } else if let Some(partial) = last.strip_prefix("date:") {
+        complete_value(partial, &["today", "yesterday", "week", "month"])
+            .map(|v| format!("date:{v}"))
+    } else {
+        None
+    }?;
+
+    Some(format!("{prefix}{completion}"))
+}
+
+fn complete_value(partial: &str, candidates: &[&str]) -> Option<String> {
+    if partial.is_empty() {
+        return None;
+    }
+    let matches: Vec<&&str> = candidates.iter().filter(|c| c.starts_with(partial)).collect();
+    // Only complete when unambiguous and not already complete.
+    match matches.as_slice() {
+        [only] if **only != partial => Some((**only).to_string()),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::AgentId;
+
+    #[test]
+    fn plain_free_text() {
+        let q = parse("auth refresh token");
+        assert_eq!(q.free_text, "auth refresh token");
+        assert!(q.agents.include.is_empty() && q.agents.exclude.is_empty());
+        assert!(q.dirs.include.is_empty() && q.dirs.exclude.is_empty());
+        assert!(q.date.is_none());
+    }
+
+    #[test]
+    fn agent_multi_value_and_negation() {
+        let q = parse("agent:claude,!codex login");
+        assert_eq!(q.agents.include, vec![AgentId::Claude]);
+        assert_eq!(q.agents.exclude, vec![AgentId::Codex]);
+        assert_eq!(q.free_text, "login");
+    }
+
+    #[test]
+    fn agent_token_negation_prefix() {
+        let q = parse("-agent:codex");
+        assert_eq!(q.agents.exclude, vec![AgentId::Codex]);
+        assert!(q.agents.include.is_empty());
+    }
+
+    #[test]
+    fn dir_filters_include_and_exclude() {
+        let q = parse("dir:api -dir:vendor bug");
+        assert_eq!(q.dirs.include, vec!["api".to_string()]);
+        assert_eq!(q.dirs.exclude, vec!["vendor".to_string()]);
+        assert_eq!(q.free_text, "bug");
+    }
+
+    #[test]
+    fn date_keywords_and_comparisons() {
+        assert_eq!(parse("date:today").date, Some(DateFilter::Today));
+        assert_eq!(parse("date:yesterday").date, Some(DateFilter::Yesterday));
+        assert_eq!(parse("date:week").date, Some(DateFilter::LastWeek));
+        assert_eq!(parse("date:month").date, Some(DateFilter::LastMonth));
+        assert_eq!(parse("date:<1h").date, Some(DateFilter::Within(3600)));
+        assert_eq!(parse("date:<2d").date, Some(DateFilter::Within(2 * 86400)));
+        assert_eq!(parse("date:>1w").date, Some(DateFilter::OlderThan(7 * 86400)));
+    }
+
+    #[test]
+    fn date_range_windows() {
+        let now = 1_000_000i64;
+        assert_eq!(DateFilter::Today.range(now), (Some(now - 86400), Some(now)));
+        assert_eq!(
+            DateFilter::Yesterday.range(now),
+            (Some(now - 2 * 86400), Some(now - 86400))
+        );
+        assert_eq!(DateFilter::Within(3600).range(now), (Some(now - 3600), Some(now)));
+        assert_eq!(DateFilter::OlderThan(3600).range(now), (None, Some(now - 3600)));
+    }
+
+    #[test]
+    fn autocomplete_agent_value() {
+        assert_eq!(autocomplete("agent:cl").as_deref(), Some("agent:claude"));
+        assert_eq!(autocomplete("bug agent:co").as_deref(), Some("bug agent:codex"));
+        // already complete -> no suggestion
+        assert_eq!(autocomplete("agent:claude"), None);
+        // free text -> no suggestion
+        assert_eq!(autocomplete("auth"), None);
+    }
+
+    #[test]
+    fn autocomplete_date_value() {
+        assert_eq!(autocomplete("date:to").as_deref(), Some("date:today"));
+        assert_eq!(autocomplete("date:y").as_deref(), Some("date:yesterday"));
+    }
+}
