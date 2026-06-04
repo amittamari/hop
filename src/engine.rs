@@ -63,6 +63,13 @@ impl Engine {
         }
     }
 
+    /// True when a query change is pending and its debounce interval has elapsed,
+    /// i.e. it's time to actually run the search. Returns false once `search()`
+    /// has consumed the pending change (it clears `last_keystroke`).
+    pub fn search_due(&self) -> bool {
+        self.last_keystroke.is_some_and(|t| t.elapsed() >= DEBOUNCE)
+    }
+
     pub fn search(&mut self) -> Result<()> {
         let now = jiff::Timestamp::now().as_second();
         self.results = self.index.search(&self.parsed, now, self.limit)?;
