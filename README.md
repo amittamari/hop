@@ -123,4 +123,4 @@ For deeper technical context, explore the following documentation files:
 * **`AGENTS.md`** — Overview of contributor and agent context.
 * **`docs/PROJECT.md`** — Core project goals and scope.
 * **`docs/ARCHITECTURE.md`** — System design and internals.
-* **`docs/specs/`, `docs/reviews/`, `docs/plans/**` — Dated specifications, review artifacts, and execution roadmaps.
+* **`docs/specs/`, `docs/reviews/`, `docs/plans/`** — Dated specifications, review artifacts, and execution roadmaps.
