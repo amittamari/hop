@@ -2,6 +2,7 @@
 //! rows; slow enrichers resolve in the background (see `service`).
 
 pub mod gh_pr;
+pub mod service;
 
 use crate::core::Session;
 use std::path::Path;
