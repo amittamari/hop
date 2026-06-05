@@ -1,4 +1,4 @@
-use crate::columns::default_columns;
+use crate::columns::Column;
 use crate::enrich::Enricher;
 use crate::tui::{help, results_list, theme, App};
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -26,6 +26,7 @@ pub fn render(
     f: &mut Frame,
     app: &App,
     now: i64,
+    columns: &[Column],
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     preview_lines: &[Line<'static>],
@@ -37,10 +38,12 @@ pub fn render(
         .split(f.area());
 
     // search input
+    let total = app.results().len();
+    let pos = if total == 0 { 0 } else { app.selected() + 1 };
     let header = Line::from(vec![
         Span::raw("❯ "),
         Span::raw(app.query().to_string()),
-        Span::raw(format!("   {}/{}", app.results().len(), app.results().len())).fg(theme::DIM),
+        Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
 
@@ -57,7 +60,7 @@ pub fn render(
     };
 
     // column grid
-    let cols = default_columns();
+    let cols = columns;
     let list_inner_w = list_area.width.saturating_sub(if preview_area.is_some() { 1 } else { 0 });
     let layout = results_list::layout_for(&cols, list_inner_w);
     let items: Vec<ListItem> = app
@@ -135,9 +138,10 @@ mod tests {
         let lines = crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude);
         let base = crate::tui::preview::first_match_line(&lines, app.query()).unwrap_or(0) as u16;
 
+        let cols = crate::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render(f, &app, 100, &enr, &resolved, &lines, base)).unwrap();
+        term.draw(|f| render(f, &app, 100, &cols, &enr, &resolved, &lines, base)).unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("CLAUDE"));

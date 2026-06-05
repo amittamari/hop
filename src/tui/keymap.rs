@@ -30,8 +30,6 @@ pub fn chord_action(key: &KeyEvent) -> Option<Action> {
         (KeyCode::Char('u'), true) => Some(Action::ScrollPreview(-8)),
         (KeyCode::Char('d'), true) => Some(Action::ScrollPreview(8)),
         (KeyCode::Char('y'), true) => Some(Action::Resume { index: 0, yolo: true }), // index filled by App
-        (KeyCode::PageUp, _) => Some(Action::ScrollPreview(-8)),
-        (KeyCode::PageDown, _) => Some(Action::ScrollPreview(8)),
         (KeyCode::Char('['), false) => Some(Action::ResizePreview(-1)),
         (KeyCode::Char(']'), false) => Some(Action::ResizePreview(1)),
         (KeyCode::Char('?'), false) => Some(Action::Help),

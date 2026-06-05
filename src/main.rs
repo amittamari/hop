@@ -9,7 +9,7 @@ use hop::enrich::gh_pr::GhPrEnricher;
 use hop::enrich::service::{EnrichRequest, EnrichmentService};
 use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
-use hop::tui::{preview, view, Action, App};
+use hop::tui::{preview, Action, App};
 use ratatui::crossterm::event::{self, Event};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -52,8 +52,15 @@ fn main() -> Result<()> {
     // background sync streams new sessions in
     let (updates, _handle) = Engine::spawn_background_sync(dir.clone(), bg_adapters);
 
-    let fast_enrichers: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
     let pr_enabled = !config.columns.disabled.iter().any(|d| d == "pr");
+    // Enrichers passed to the renderer for cell metadata. GhPrEnricher is included
+    // so the Slow "pr" column can read the resolved map; its resolve() is never
+    // called on the UI thread (the Slow branch only reads `resolved`).
+    let mut render_enrichers: Vec<Box<dyn Enricher>> =
+        vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+    if pr_enabled {
+        render_enrichers.push(Box::new(GhPrEnricher));
+    }
     let service = if pr_enabled {
         Some(EnrichmentService::spawn(vec![Box::new(GhPrEnricher)], enrich_cache_path()))
     } else {
@@ -69,7 +76,7 @@ fn main() -> Result<()> {
     let pending = run_tui(
         &mut engine,
         updates,
-        &fast_enrichers,
+        &render_enrichers,
         service.as_ref(),
         &config,
         init_preview,
@@ -91,7 +98,7 @@ fn main() -> Result<()> {
 fn run_tui(
     engine: &mut Engine,
     updates: std::sync::mpsc::Receiver<Update>,
-    fast_enrichers: &[Box<dyn Enricher>],
+    render_enrichers: &[Box<dyn Enricher>],
     service: Option<&EnrichmentService>,
     config: &Config,
     init_preview: (bool, u16),
@@ -103,6 +110,11 @@ fn run_tui(
     app.set_keymap(hop::tui::keymap::Preset::from_str(&config.keymap));
     app.set_preview(init_preview.0, init_preview.1);
     sync_results_into_app(engine, &mut app);
+
+    let columns: Vec<hop::columns::Column> = hop::columns::default_columns()
+        .into_iter()
+        .filter(|c| !config.columns.disabled.iter().any(|d| d == c.id))
+        .collect();
 
     // slow-enrichment state
     let mut resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -147,7 +159,7 @@ fn run_tui(
 
             let now = jiff::Timestamp::now().as_second();
             terminal.draw(|f| {
-                view::render(f, &app, now, fast_enrichers, &resolved, &preview_lines, preview_base)
+                hop::tui::view::render(f, &app, now, &columns, render_enrichers, &resolved, &preview_lines, preview_base)
             })?;
 
             // request PR enrichment for visible rows (cap to first ~200), dedup'd.

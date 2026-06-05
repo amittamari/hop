@@ -120,9 +120,6 @@ impl ClaudeAdapter {
                 first_ts = parsed.timestamp.as_deref().and_then(parse_ts_secs);
             }
             let blocks = split_blocks(&text);
-            if blocks.is_empty() {
-                continue;
-            }
             messages.push(Message {
                 role: if is_user { Role::User } else { Role::Agent },
                 blocks,

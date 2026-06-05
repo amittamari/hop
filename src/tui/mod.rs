@@ -173,6 +173,18 @@ impl App {
                 self.preview_scroll = 0;
                 Action::None
             }
+            KeyCode::PageDown => {
+                if !self.results.is_empty() {
+                    self.selected = (self.selected + 10).min(self.results.len() - 1);
+                }
+                self.preview_scroll = 0;
+                Action::None
+            }
+            KeyCode::PageUp => {
+                self.selected = self.selected.saturating_sub(10);
+                self.preview_scroll = 0;
+                Action::None
+            }
             KeyCode::Enter => self.activate(false),
             KeyCode::Tab => {
                 if let Some(completed) = crate::query::autocomplete(&self.query) {

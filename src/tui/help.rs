@@ -11,7 +11,7 @@ pub fn lines(preset: Preset) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(Span::raw("Navigation")),
         Line::from("  ↑/↓        move selection"),
-        Line::from("  PgUp/PgDn  page list / scroll preview"),
+        Line::from("  PgUp/PgDn  page list"),
         Line::from("  Ctrl+U/D   scroll preview"),
         Line::from(""),
         Line::from(Span::raw("Preview")),

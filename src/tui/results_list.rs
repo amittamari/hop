@@ -120,4 +120,21 @@ mod tests {
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("⟳"));
     }
+
+    #[test]
+    fn pr_cell_reads_resolved_with_full_enricher_list() {
+        let cols = default_columns();
+        let layout = layout_for(&cols, 120);
+        let enr: Vec<Box<dyn Enricher>> = vec![
+            Box::new(RepoEnricher),
+            Box::new(BranchEnricher),
+            Box::new(crate::enrich::gh_pr::GhPrEnricher),
+        ];
+        let mut resolved = HashMap::new();
+        resolved.insert(("a".to_string(), "pr"), Some("#42".to_string()));
+        let line = row_line(&sess(), &layout, &cols, &enr, &resolved, 0);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("#42"));   // resolved PR rendered
+        assert!(text.contains("feat/auth")); // fast branch still rendered
+    }
 }
