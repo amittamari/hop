@@ -112,6 +112,7 @@ fn run_tui(
     app.set_query(engine.query().to_string());
     app.set_keymap(hop::tui::keymap::Preset::from_str(&config.keymap));
     app.set_preview(init_preview.0, init_preview.1);
+    app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);
 
     let columns = hop::columns::configured_columns(

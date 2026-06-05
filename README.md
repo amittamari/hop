@@ -30,8 +30,8 @@ header rather than as a column. Claude titles prefer the recorded `aiTitle`/summ
 when present, then fall back to the first real user prompt. The `PR` column is resolved
 in the background via the `gh` CLI and cached on disk, so it never blocks the UI (`⟳`
 while resolving, `—` if none).
-Narrow terminals drop columns by priority (PR → BRANCH → REPO → TIME → MSGS); the title
-always survives.
+Narrow terminals drop columns by priority (PR → MSGS → TIME → BRANCH → REPO); the title
+always survives, but repo and branch get useful width before the title expands.
 
 ## Query syntax
 
@@ -70,6 +70,7 @@ keymap = "search"   # default; or "modal" for a vim-style navigate mode (Esc to 
 [preview]
 visible = true
 width_pct = 50
+metadata_header = true
 
 [columns]
 disabled = []       # e.g. ["pr"] to turn off the background GitHub PR column

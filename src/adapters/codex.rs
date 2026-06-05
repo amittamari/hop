@@ -77,9 +77,9 @@ impl CodexAdapter {
                         continue;
                     }
                     let Some(text) = p.message else { continue };
-                    if text.trim().is_empty() {
+                    let Some(text) = clean_event_message(&text) else {
                         continue;
-                    }
+                    };
                     let blocks = split_blocks(&text);
                     messages.push(Message {
                         role: if is_user { Role::User } else { Role::Agent },
@@ -98,6 +98,81 @@ impl CodexAdapter {
             yolo,
         })
     }
+}
+
+const COMMAND_PREFIXES: [&str; 5] = [
+    "<command-name>",
+    "<command-message>",
+    "<command-args>",
+    "<local-command-stdout>",
+    "<local-command-caveat>",
+];
+
+const DROP_XML_BLOCKS: [(&str, &str); 2] = [
+    ("<environment_context", "</environment_context>"),
+    ("<system-reminder", "</system-reminder>"),
+];
+
+fn clean_event_message(text: &str) -> Option<String> {
+    let mut lines = Vec::new();
+    let mut skip_external_agent_block = false;
+    let mut skip_xml_until: Option<&'static str> = None;
+
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+
+        if let Some(end) = skip_xml_until {
+            if trimmed.contains(end) {
+                skip_xml_until = None;
+            }
+            continue;
+        }
+
+        if skip_external_agent_block {
+            if trimmed.starts_with("[/external_agent_") {
+                skip_external_agent_block = false;
+            }
+            continue;
+        }
+
+        if trimmed.starts_with("[external_agent_") {
+            if !trimmed.contains("[/external_agent_") {
+                skip_external_agent_block = true;
+            }
+            continue;
+        }
+
+        if COMMAND_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
+            continue;
+        }
+
+        if let Some((_, end)) = DROP_XML_BLOCKS
+            .iter()
+            .find(|(start, _)| trimmed.starts_with(start))
+        {
+            if !trimmed.contains(end) {
+                skip_xml_until = Some(*end);
+            }
+            continue;
+        }
+
+        lines.push(strip_codex_wrappers(line));
+    }
+
+    let cleaned = lines.join("\n");
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn strip_codex_wrappers(line: &str) -> String {
+    line.replace("<context>", "")
+        .replace("</context>", "")
+        .replace("<user_instructions>", "")
+        .replace("</user_instructions>", "")
 }
 
 #[derive(Deserialize)]

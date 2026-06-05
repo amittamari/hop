@@ -83,3 +83,47 @@ fn codex_transcript_roles_and_filters_internals() {
     assert_eq!(msgs[0].role, Role::User);
     assert_eq!(msgs[1].role, Role::Agent);
 }
+
+#[test]
+fn codex_filters_event_message_tags_and_external_tool_blocks() {
+    use hop::core::{Block, Role};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp
+        .path()
+        .join("rollout-2026-06-04T10-00-00-tagsample.jsonl");
+    std::fs::write(
+        &file,
+        concat!(
+            r#"{"type":"session_meta","timestamp":"2026-06-04T10:00:00.000Z","payload":{"id":"tagsample","cwd":"/w"}}"#,
+            "\n",
+            r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:01.000Z","payload":{"type":"user_message","message":"<context>check last commit</context>\n- top\n  - nested"}}"#,
+            "\n",
+            r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:02.000Z","payload":{"type":"user_message","message":"<command-name>/clear</command-name>"}}"#,
+            "\n",
+            r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:03.000Z","payload":{"type":"agent_message","message":"[external_agent_tool_call: Bash]\ndescription: list files\ncommand: ls\n[/external_agent_tool_call]\nDone after tool."}}"#,
+            "\n",
+            r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:04.000Z","payload":{"type":"agent_message","message":"<environment_context>\n<cwd>/w</cwd>\n</environment_context>"}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let adapter = CodexAdapter::new(PathBuf::from("/unused"));
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.title, "check last commit - top - nested");
+    assert_eq!(s.message_count, 2);
+    assert!(s.content.contains("check last commit"));
+    assert!(s.content.contains("Done after tool."));
+    assert!(!s.content.contains("<context>"));
+    assert!(!s.content.contains("external_agent_tool_call"));
+    assert!(!s.content.contains("<command-name>"));
+    assert!(!s.content.contains("environment_context"));
+
+    let msgs = adapter.transcript(&file).unwrap();
+    assert_eq!(msgs[0].role, Role::User);
+    assert!(matches!(
+        msgs[0].blocks.first(),
+        Some(Block::Prose(text)) if text.contains("  - nested")
+    ));
+}

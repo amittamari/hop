@@ -67,6 +67,8 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
     let mut bold = false;
     let mut italic = false;
     let mut in_item = false;
+    let mut list_depth = 0usize;
+    let mut item_line_start = false;
 
     let flush = |spans: &mut Vec<Span<'static>>, lines: &mut Vec<Line<'static>>| {
         lines.push(Line::from(std::mem::take(spans)));
@@ -83,18 +85,34 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
             Event::End(TagEnd::Strong) => bold = false,
             Event::Start(Tag::Emphasis) => italic = true,
             Event::End(TagEnd::Emphasis) => italic = false,
+            Event::Start(Tag::List(_)) => {
+                if in_item && !spans.is_empty() {
+                    flush(&mut spans, &mut lines);
+                }
+                list_depth += 1;
+            }
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+            }
             Event::Start(Tag::Item) => {
                 in_item = true;
-                spans.push(Span::raw("• "));
+                item_line_start = false;
+                spans.push(Span::raw(format!(
+                    "{}• ",
+                    "  ".repeat(list_depth.saturating_sub(1))
+                )));
             }
             Event::End(TagEnd::Item) => {
                 in_item = false;
+                item_line_start = false;
                 flush(&mut spans, &mut lines);
             }
             Event::End(TagEnd::Paragraph) => flush(&mut spans, &mut lines),
             Event::SoftBreak | Event::HardBreak => {
                 if in_item {
-                    spans.push(Span::raw(" "));
+                    flush(&mut spans, &mut lines);
+                    spans.push(Span::raw("  ".repeat(list_depth)));
+                    item_line_start = true;
                 } else {
                     flush(&mut spans, &mut lines);
                 }
@@ -106,6 +124,18 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
                 ));
             }
             Event::Text(t) => {
+                let mut text = t.to_string();
+                if item_line_start {
+                    item_line_start = false;
+                    let trimmed = text.trim_start();
+                    if let Some(rest) = trimmed
+                        .strip_prefix("- ")
+                        .or_else(|| trimmed.strip_prefix("* "))
+                    {
+                        spans.push(Span::raw("• "));
+                        text = rest.to_string();
+                    }
+                }
                 let mut style = Style::default();
                 if bold {
                     style = style.add_modifier(Modifier::BOLD);
@@ -113,7 +143,7 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
                 if italic {
                     style = style.add_modifier(Modifier::ITALIC);
                 }
-                spans.push(Span::styled(t.to_string(), style));
+                spans.push(Span::styled(text, style));
             }
             _ => {}
         }
@@ -339,6 +369,22 @@ mod tests {
             .join("\n");
         assert!(joined.contains("• one"));
         assert!(joined.contains("• two"));
+    }
+
+    #[test]
+    fn nested_prose_bullets_are_indented() {
+        let lines = render_prose("- one\n  - two");
+        let rendered: Vec<String> = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(rendered.iter().any(|line| line == "• one"));
+        assert!(rendered.iter().any(|line| line == "  • two"));
     }
 
     #[test]

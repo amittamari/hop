@@ -10,6 +10,8 @@ pub struct PreviewConfig {
     pub visible: bool,
     #[serde(default = "default_width_pct")]
     pub width_pct: u16,
+    #[serde(default = "default_true")]
+    pub metadata_header: bool,
 }
 
 fn default_true() -> bool {
@@ -24,6 +26,7 @@ impl Default for PreviewConfig {
         PreviewConfig {
             visible: true,
             width_pct: 50,
+            metadata_header: true,
         }
     }
 }
@@ -166,6 +169,7 @@ mod tests {
         let cfg = Config::default();
         assert!(cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 50);
+        assert!(cfg.preview.metadata_header);
         assert_eq!(cfg.keymap, "search");
     }
 
@@ -176,10 +180,12 @@ mod tests {
             [preview]
             visible = false
             width_pct = 40
+            metadata_header = false
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
         assert!(!cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 40);
+        assert!(!cfg.preview.metadata_header);
         assert_eq!(cfg.keymap, "modal");
     }
 

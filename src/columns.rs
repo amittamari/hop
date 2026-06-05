@@ -34,16 +34,16 @@ pub fn default_columns() -> Vec<Column> {
             id: "repo",
             header: "REPO",
             align: Align::Left,
-            priority: 30,
-            min_width: 8,
+            priority: 10,
+            min_width: 14,
             flex: false,
         },
         Column {
             id: "branch",
             header: "BRANCH",
             align: Align::Left,
-            priority: 40,
-            min_width: 10,
+            priority: 20,
+            min_width: 18,
             flex: false,
         },
         Column {
@@ -51,14 +51,14 @@ pub fn default_columns() -> Vec<Column> {
             header: "TITLE",
             align: Align::Left,
             priority: u8::MAX,
-            min_width: 12,
+            min_width: 10,
             flex: true,
         },
         Column {
             id: "msgs",
             header: "MSGS",
             align: Align::Right,
-            priority: 10,
+            priority: 40,
             min_width: 4,
             flex: false,
         },
@@ -74,7 +74,7 @@ pub fn default_columns() -> Vec<Column> {
             id: "time",
             header: "TIME",
             align: Align::Right,
-            priority: 20,
+            priority: 30,
             min_width: 4,
             flex: false,
         },
@@ -190,16 +190,16 @@ mod tests {
     }
 
     #[test]
-    fn pr_drops_before_repo_when_narrow() {
+    fn volatile_columns_drop_before_repo_and_branch_when_narrow() {
         let cols = default_columns();
-        // width that forces some drops but not all
-        let layout = solve_layout(&cols, 40);
+        // width that forces some drops but still has room for the context columns
+        let layout = solve_layout(&cols, 58);
         let ids: Vec<&str> = layout.iter().map(|&(i, _)| cols[i].id).collect();
-        // pr (priority 50) drops before branch (40) / repo (30)
-        if !ids.contains(&"repo") {
-            assert!(!ids.contains(&"pr"));
-        }
+        assert!(ids.contains(&"repo"));
+        assert!(ids.contains(&"branch"));
         assert!(ids.contains(&"title") && ids.contains(&"agent"));
+        assert!(!ids.contains(&"pr"));
+        assert!(!ids.contains(&"msgs"));
     }
 
     #[test]

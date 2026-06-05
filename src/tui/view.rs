@@ -1,13 +1,15 @@
 use crate::columns::Column;
+use crate::core::Session;
 use crate::enrich::Enricher;
 use crate::tui::{help, results_list, theme, App};
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::Stylize;
+use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
+use std::path::Path;
 
 /// Relative-time label from a unix-seconds timestamp.
 pub fn rel_time(ts: i64, now: i64) -> String {
@@ -103,10 +105,27 @@ pub fn render(
 
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
+        let selected = app.results().get(app.selected());
+        let (header_area, transcript_area) =
+            if app.preview_header_visible() && selected.is_some() && area.height >= 3 {
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Length(2), Constraint::Min(1)])
+                    .split(area);
+                (Some(chunks[0]), chunks[1])
+            } else {
+                (None, area)
+            };
+        if let (Some(header_area), Some(session)) = (header_area, selected) {
+            f.render_widget(
+                Paragraph::new(preview_header_lines(session, now, resolved)),
+                header_area,
+            );
+        }
         let scroll = match_base.saturating_add(app.preview_scroll());
         f.render_widget(
             Paragraph::new(preview_lines.to_vec()).scroll((scroll, 0)),
-            area,
+            transcript_area,
         );
     }
 
@@ -114,7 +133,7 @@ pub fn render(
     let footer = if app.modal_open() {
         "tab toggle yolo · enter confirm · esc cancel"
     } else {
-        "↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · [ ] size · ? help · esc quit"
+        "↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · ctrl+u/d scroll · [ ] size · ? help · esc quit"
     };
     f.render_widget(Paragraph::new(footer).fg(theme::DIM), chunks[2]);
 
@@ -122,6 +141,75 @@ pub fn render(
     if app.help_open() {
         help::render(f, app.keymap_preset());
     }
+}
+
+fn preview_header_lines(
+    s: &Session,
+    now: i64,
+    resolved: &HashMap<(String, &'static str), Option<String>>,
+) -> Vec<Line<'static>> {
+    let repo = repo_label(s);
+    let branch = s.branch.as_deref().unwrap_or("—");
+    let pr = resolved
+        .get(&(s.document_key(), "pr"))
+        .and_then(|v| v.as_deref());
+    let msgs = if s.message_count == 0 {
+        "— msgs".to_string()
+    } else {
+        format!("{} msgs", s.message_count)
+    };
+
+    let mut first = vec![
+        Span::styled(
+            s.agent.badge(),
+            Style::default()
+                .fg(theme::agent_color(s.agent))
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::styled(repo, Style::default().fg(theme::DIM)),
+        Span::raw("  "),
+        Span::styled(branch.to_string(), Style::default().fg(theme::DIM)),
+        Span::raw("  "),
+    ];
+    if let Some(pr) = pr {
+        first.push(Span::styled(
+            pr.to_string(),
+            Style::default().fg(theme::ACCENT),
+        ));
+        first.push(Span::raw("  "));
+    }
+    first.extend([
+        Span::styled(msgs, Style::default().fg(theme::DIM)),
+        Span::raw("  "),
+        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme::DIM)),
+    ]);
+
+    vec![
+        Line::from(first),
+        Line::from(vec![
+            Span::raw(s.title.clone()),
+            Span::styled(
+                format!(" · {}", s.directory),
+                Style::default().fg(theme::DIM),
+            ),
+        ]),
+    ]
+}
+
+fn repo_label(s: &Session) -> String {
+    if let Some(name) = s
+        .repo_url
+        .as_deref()
+        .and_then(crate::enrich::repo_name_from_url)
+    {
+        return name;
+    }
+    Path::new(&s.directory)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "—".to_string())
 }
 
 pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Range<usize> {
@@ -208,6 +296,7 @@ mod tests {
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("fix auth"));
         assert!(text.contains("feat/auth"));
+        assert!(text.contains("/work/api"));
     }
 
     #[test]

@@ -49,6 +49,7 @@ pub struct App {
     yolo_supported: Vec<bool>,
     preview_visible: bool,
     preview_width_pct: u16,
+    preview_header_visible: bool,
     preview_scroll: u16,
     help_open: bool,
     keymap: keymap::Preset,
@@ -65,6 +66,7 @@ impl App {
             yolo_supported: Vec::new(),
             preview_visible: true,
             preview_width_pct: 50,
+            preview_header_visible: true,
             preview_scroll: 0,
             help_open: false,
             keymap: keymap::Preset::Search,
@@ -123,6 +125,9 @@ impl App {
     pub fn preview_width_pct(&self) -> u16 {
         self.preview_width_pct
     }
+    pub fn preview_header_visible(&self) -> bool {
+        self.preview_header_visible
+    }
     pub fn preview_scroll(&self) -> u16 {
         self.preview_scroll
     }
@@ -138,6 +143,9 @@ impl App {
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
         self.preview_width_pct = width_pct.clamp(20, 80);
+    }
+    pub fn set_preview_header(&mut self, visible: bool) {
+        self.preview_header_visible = visible;
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
@@ -173,13 +181,7 @@ impl App {
                 _ => Action::None,
             };
         }
-        // `[`, `]`, `?` act as chords only when the query is empty (else they type).
-        let ambiguous = matches!(key.code, KeyCode::Char('[' | ']' | '?'))
-            && !key.modifiers.contains(KeyModifiers::CONTROL);
-        if ambiguous && !self.query.is_empty() {
-            // fall through to query editing below
-        } else if let Some(act) = keymap::chord_action(&key) {
-            // Unambiguous chords (Ctrl-chords, paging, and brackets/? when query empty).
+        if let Some(act) = keymap::chord_action(&key) {
             return self.apply_chord(act);
         }
         // Modal preset: navigate mode consumes letter keys.
@@ -488,12 +490,15 @@ mod tests {
     }
 
     #[test]
-    fn brackets_type_into_query_when_query_nonempty() {
+    fn chords_work_when_query_nonempty() {
         let mut app = app_with(1);
         app.handle_key(key(KeyCode::Char('a')));
-        let act = app.handle_key(key(KeyCode::Char('[')));
-        assert_eq!(act, Action::Search);
-        assert_eq!(app.query(), "a[");
+        let before = app.preview_width_pct();
+        assert_eq!(app.handle_key(key(KeyCode::Char('['))), Action::None);
+        assert!(app.preview_width_pct() < before);
+        assert_eq!(app.query(), "a");
+        assert_eq!(app.handle_key(key(KeyCode::Char('?'))), Action::None);
+        assert!(app.help_open());
     }
 
     #[test]
