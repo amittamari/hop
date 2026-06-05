@@ -2,6 +2,8 @@
 //! (pulldown-cmark), and assembling messages into scrollable, match-highlighted
 //! lines.
 
+use crate::core::{AgentId, Block, Message, Role};
+use crate::tui::theme;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -122,9 +124,166 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
     lines
 }
 
+/// Render a full transcript into lines, applying query-term highlighting.
+pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<Line<'static>> {
+    let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+    let mut out: Vec<Line<'static>> = Vec::new();
+
+    for (mi, m) in msgs.iter().enumerate() {
+        if mi > 0 {
+            out.push(Line::from(""));
+        }
+        match m.role {
+            Role::User => {
+                for b in &m.blocks {
+                    match b {
+                        Block::Prose(s) => {
+                            let mut prose = render_prose(s);
+                            prefix_first(&mut prose, "› ", theme::ACCENT);
+                            out.extend(prose);
+                        }
+                        Block::Code { lang, text } => {
+                            out.extend(highlight_code(text, lang.as_deref()));
+                        }
+                    }
+                }
+            }
+            Role::Agent => {
+                out.push(Line::from(vec![
+                    Span::styled("● ", Style::default().fg(theme::agent_color(agent))),
+                    Span::styled(
+                        agent.badge(),
+                        Style::default().fg(theme::agent_color(agent)).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+                for b in &m.blocks {
+                    match b {
+                        Block::Prose(s) => {
+                            let mut prose = render_prose(s);
+                            indent(&mut prose, "  ");
+                            out.extend(prose);
+                        }
+                        Block::Code { lang, text } => {
+                            out.extend(highlight_code(text, lang.as_deref()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if !terms.is_empty() {
+        for line in &mut out {
+            *line = highlight_terms(line, &terms);
+        }
+    }
+    out
+}
+
+fn prefix_first(lines: &mut [Line<'static>], prefix: &'static str, color: Color) {
+    if let Some(first) = lines.first_mut() {
+        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
+        spans.append(&mut first.spans);
+        *first = Line::from(spans);
+    }
+}
+
+fn indent(lines: &mut [Line<'static>], pad: &'static str) {
+    for l in lines.iter_mut() {
+        let mut spans = vec![Span::raw(pad)];
+        spans.append(&mut l.spans);
+        *l = Line::from(spans);
+    }
+}
+
+/// Re-split a line's spans so any occurrence of a term is reverse-highlighted.
+fn highlight_terms(line: &Line<'static>, terms: &[String]) -> Line<'static> {
+    let mut out: Vec<Span<'static>> = Vec::new();
+    for span in &line.spans {
+        let text = span.content.to_string();
+        let lower = text.to_lowercase();
+        let mut idx = 0usize;
+        while idx < text.len() {
+            // find the earliest term match at or after idx
+            let next = terms
+                .iter()
+                .filter_map(|t| lower[idx..].find(t.as_str()).map(|p| (idx + p, t.len())))
+                .min_by_key(|&(p, _)| p);
+            match next {
+                Some((p, len)) => {
+                    if p > idx {
+                        out.push(Span::styled(text[idx..p].to_string(), span.style));
+                    }
+                    out.push(Span::styled(
+                        text[p..p + len].to_string(),
+                        span.style.add_modifier(Modifier::REVERSED),
+                    ));
+                    idx = p + len;
+                }
+                None => {
+                    out.push(Span::styled(text[idx..].to_string(), span.style));
+                    break;
+                }
+            }
+        }
+        if text.is_empty() {
+            out.push(span.clone());
+        }
+    }
+    Line::from(out)
+}
+
+/// Index of the first line containing any term (case-insensitive); for scroll.
+pub fn first_match_line(lines: &[Line<'static>], query: &str) -> Option<usize> {
+    let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+    if terms.is_empty() {
+        return None;
+    }
+    lines.iter().position(|l| {
+        let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().to_lowercase();
+        terms.iter().any(|t| text.contains(t.as_str()))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{Block, Message, Role};
+
+    fn msgs() -> Vec<Message> {
+        vec![
+            Message { role: Role::User, blocks: vec![Block::Prose("fix the auth bug".into())] },
+            Message { role: Role::Agent, blocks: vec![
+                Block::Prose("the refresh token dropped".into()),
+                Block::Code { lang: Some("rust".into()), text: "fn refresh() {}".into() },
+            ]},
+        ]
+    }
+
+    #[test]
+    fn transcript_has_role_prefixes() {
+        let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude);
+        let joined: String = lines.iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>().join("\n");
+        assert!(joined.contains("› fix the auth bug"));
+        assert!(joined.contains("● CLAUDE"));
+        assert!(joined.contains("fn refresh"));
+    }
+
+    #[test]
+    fn first_match_line_is_found() {
+        let lines = render_transcript(&msgs(), "refresh", crate::core::AgentId::Claude);
+        let idx = first_match_line(&lines, "refresh");
+        assert!(idx.is_some());
+    }
+
+    #[test]
+    fn match_terms_highlighted() {
+        let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude);
+        let any_reverse = lines.iter().flat_map(|l| &l.spans)
+            .any(|s| s.content.contains("auth") && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED));
+        assert!(any_reverse);
+    }
 
     #[test]
     fn prose_plain_text_one_line() {
