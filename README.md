@@ -18,9 +18,12 @@ the original working directory.
     hop -a claude -d api      # filter by agent + directory
     hop --rebuild             # wipe and rebuild the index
 
-Default keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo prompt ·
-Ctrl+P toggle preview · `[` / `]` resize preview · Ctrl+U/D scroll preview ·
-Tab autocomplete · ? help · Esc quit.
+Default keys: type to search · ←/→ Home/End edit query · ↑↓ move · PgUp/PgDn
+page by viewport · Enter resume · Ctrl+Y yolo prompt · Ctrl+P toggle preview ·
+Ctrl+U/D scroll preview by viewport · Ctrl+N/B next/previous preview match ·
+Tab autocomplete · `[` / `]` resize preview when the query is empty · ? help
+when the query is empty · Esc quit. With `keymap = "modal"`, Esc switches from
+SEARCH to NAV mode, `/` returns to search, and Ctrl+C quits globally.
 
 ## Columns
 

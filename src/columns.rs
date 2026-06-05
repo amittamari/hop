@@ -135,7 +135,7 @@ pub fn solve_layout_with_desired(
     let floor = |i: usize| -> u16 {
         columns[i]
             .min_width
-            .max(columns[i].header.chars().count() as u16)
+            .max(display_width(columns[i].header) as u16)
     };
 
     let desired = |i: usize| -> u16 {
@@ -193,7 +193,7 @@ pub fn solve_layout_with_desired(
 /// Pad/truncate `s` to exactly `width` columns per `align`.
 pub fn fit(s: &str, width: u16, align: Align) -> String {
     let w = width as usize;
-    let len = s.chars().count();
+    let len = display_width(s);
     if len == w {
         return s.to_string();
     }
@@ -202,7 +202,7 @@ pub fn fit(s: &str, width: u16, align: Align) -> String {
             return String::new();
         }
         let keep = w.saturating_sub(1);
-        let mut out: String = s.chars().take(keep).collect();
+        let mut out = take_display_width(s, keep);
         out.push('…');
         return out;
     }
@@ -210,6 +210,112 @@ pub fn fit(s: &str, width: u16, align: Align) -> String {
     match align {
         Align::Left => format!("{s}{pad}"),
         Align::Right => format!("{pad}{s}"),
+    }
+}
+
+pub fn display_width(s: &str) -> usize {
+    s.chars().map(char_width).sum()
+}
+
+fn take_display_width(s: &str, width: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for c in s.chars() {
+        let cw = char_width(c);
+        if used + cw > width {
+            break;
+        }
+        out.push(c);
+        used += cw;
+    }
+    out
+}
+
+fn char_width(c: char) -> usize {
+    let u = c as u32;
+    if u == 0
+        || u < 0x20
+        || (0x7f..=0x9f).contains(&u)
+        || (0x0300..=0x036f).contains(&u)
+        || (0x0483..=0x0489).contains(&u)
+        || (0x0591..=0x05bd).contains(&u)
+        || u == 0x05bf
+        || (0x05c1..=0x05c2).contains(&u)
+        || (0x05c4..=0x05c5).contains(&u)
+        || u == 0x05c7
+        || (0x0610..=0x061a).contains(&u)
+        || (0x064b..=0x065f).contains(&u)
+        || u == 0x0670
+        || (0x06d6..=0x06dc).contains(&u)
+        || (0x06df..=0x06e4).contains(&u)
+        || (0x06e7..=0x06e8).contains(&u)
+        || (0x06ea..=0x06ed).contains(&u)
+        || (0x0711..=0x0711).contains(&u)
+        || (0x0730..=0x074a).contains(&u)
+        || (0x07a6..=0x07b0).contains(&u)
+        || (0x07eb..=0x07f3).contains(&u)
+        || (0x0816..=0x0819).contains(&u)
+        || (0x081b..=0x0823).contains(&u)
+        || (0x0825..=0x0827).contains(&u)
+        || (0x0829..=0x082d).contains(&u)
+        || (0x0859..=0x085b).contains(&u)
+        || (0x08d3..=0x08e1).contains(&u)
+        || (0x08e3..=0x0902).contains(&u)
+        || (0x093a..=0x093a).contains(&u)
+        || u == 0x093c
+        || (0x0941..=0x0948).contains(&u)
+        || u == 0x094d
+        || (0x0951..=0x0957).contains(&u)
+        || (0x0962..=0x0963).contains(&u)
+        || (0x0981..=0x0981).contains(&u)
+        || u == 0x09bc
+        || (0x09c1..=0x09c4).contains(&u)
+        || u == 0x09cd
+        || u == 0x09e2
+        || u == 0x09e3
+        || u == 0x0a01
+        || u == 0x0a02
+        || u == 0x0a3c
+        || u == 0x0a41
+        || u == 0x0a42
+        || u == 0x0a47
+        || u == 0x0a48
+        || u == 0x0a4b
+        || u == 0x0a4c
+        || u == 0x0a4d
+        || u == 0x0a51
+        || u == 0x0a70
+        || u == 0x0a71
+        || u == 0x0a75
+        || (0x0a81..=0x0a82).contains(&u)
+        || u == 0x0abc
+        || (0x0ac1..=0x0ac5).contains(&u)
+        || (0x0ac7..=0x0ac8).contains(&u)
+        || u == 0x0acd
+        || (0x0ae2..=0x0ae3).contains(&u)
+        || u == 0x200b
+        || u == 0x200c
+        || u == 0x200d
+        || (0xfe00..=0xfe0f).contains(&u)
+    {
+        0
+    } else if (0x1100..=0x115f).contains(&u)
+        || u == 0x2329
+        || u == 0x232a
+        || (0x2e80..=0xa4cf).contains(&u)
+        || (0xac00..=0xd7a3).contains(&u)
+        || (0xf900..=0xfaff).contains(&u)
+        || (0xfe10..=0xfe19).contains(&u)
+        || (0xfe30..=0xfe6f).contains(&u)
+        || (0xff00..=0xff60).contains(&u)
+        || (0xffe0..=0xffe6).contains(&u)
+        || (0x1f300..=0x1f64f).contains(&u)
+        || (0x1f900..=0x1f9ff).contains(&u)
+        || (0x20000..=0x3fffd).contains(&u)
+    {
+        2
+    } else {
+        1
     }
 }
 
@@ -277,6 +383,22 @@ mod tests {
         assert_eq!(fit("ab", 4, Align::Left), "ab  ");
         assert_eq!(fit("ab", 4, Align::Right), "  ab");
         assert_eq!(fit("abcdef", 4, Align::Left), "abc…");
+    }
+
+    #[test]
+    fn fit_uses_terminal_display_width_for_wide_glyphs() {
+        assert_eq!(display_width("中x"), 3);
+        assert_eq!(fit("中x", 3, Align::Left), "中x");
+        assert_eq!(fit("中x", 2, Align::Left), "…");
+        assert_eq!(fit("a中b", 4, Align::Left), "a中b");
+    }
+
+    #[test]
+    fn fit_keeps_combining_marks_with_zero_width() {
+        let cafe = "cafe\u{0301}";
+        assert_eq!(display_width(cafe), 4);
+        assert_eq!(fit(cafe, 4, Align::Left), cafe);
+        assert_eq!(fit(cafe, 3, Align::Left), "ca…");
     }
 
     #[test]

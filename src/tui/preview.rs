@@ -2,7 +2,7 @@
 //! (pulldown-cmark), and assembling messages into scrollable, match-highlighted
 //! lines.
 
-use crate::core::{AgentId, Block, Message, Role};
+use crate::core::{AgentId, Block, Message, Role, SessionSummary, Transcript};
 use crate::tui::theme;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
@@ -159,7 +159,15 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
 
 /// Render a full transcript into lines, applying query-term highlighting.
 pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<Line<'static>> {
-    let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+    let parsed = crate::query::parse(query);
+    render_transcript_with_terms(msgs, &parsed.free_terms(), agent)
+}
+
+pub fn render_transcript_with_terms(
+    msgs: &[Message],
+    terms: &[String],
+    agent: AgentId,
+) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
 
     for (mi, m) in msgs.iter().enumerate() {
@@ -208,13 +216,18 @@ pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<L
     }
     if !terms.is_empty() {
         for line in &mut out {
-            *line = highlight_terms(line, &terms);
+            *line = highlight_terms(line, terms);
         }
     }
     out
 }
 
 pub fn render_indexed_fallback(content: &str, query: &str) -> Vec<Line<'static>> {
+    let parsed = crate::query::parse(query);
+    render_indexed_fallback_with_terms(content, &parsed.free_terms())
+}
+
+pub fn render_indexed_fallback_with_terms(content: &str, terms: &[String]) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(Span::styled(
             "source unavailable - showing indexed text",
@@ -223,10 +236,9 @@ pub fn render_indexed_fallback(content: &str, query: &str) -> Vec<Line<'static>>
         Line::from(""),
     ];
     let mut body = render_prose(content);
-    if !query.trim().is_empty() {
-        let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+    if !terms.is_empty() {
         for line in &mut body {
-            *line = highlight_terms(line, &terms);
+            *line = highlight_terms(line, terms);
         }
     }
     out.extend(body);
@@ -290,19 +302,96 @@ fn highlight_terms(line: &Line<'static>, terms: &[String]) -> Line<'static> {
 
 /// Index of the first line containing any term (case-insensitive); for scroll.
 pub fn first_match_line(lines: &[Line<'static>], query: &str) -> Option<usize> {
-    let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+    let parsed = crate::query::parse(query);
+    first_match_line_with_terms(lines, &parsed.free_terms())
+}
+
+pub fn first_match_line_with_terms(lines: &[Line<'static>], terms: &[String]) -> Option<usize> {
+    match_lines(lines, terms).into_iter().next()
+}
+
+pub fn match_lines(lines: &[Line<'static>], terms: &[String]) -> Vec<usize> {
     if terms.is_empty() {
-        return None;
+        return Vec::new();
     }
-    lines.iter().position(|l| {
-        let text: String = l
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect::<String>()
-            .to_lowercase();
-        terms.iter().any(|t| text.contains(t.as_str()))
-    })
+    lines
+        .iter()
+        .enumerate()
+        .filter_map(|(i, l)| {
+            let text: String = l
+                .spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+                .to_lowercase();
+            terms.iter().any(|t| text.contains(t.as_str())).then_some(i)
+        })
+        .collect()
+}
+
+#[derive(Default)]
+pub struct PreviewState {
+    transcript: Vec<Message>,
+    transcript_for: Option<String>,
+    key: Option<(String, String)>,
+    source_unavailable: bool,
+    pub lines: Vec<Line<'static>>,
+}
+
+impl PreviewState {
+    pub fn source_unavailable(&self) -> bool {
+        self.source_unavailable
+    }
+
+    pub fn invalidate(&mut self) {
+        self.transcript_for = None;
+        self.key = None;
+    }
+
+    pub fn update(
+        &mut self,
+        app: &mut crate::tui::App,
+        selected: Option<&SessionSummary>,
+        terms: &[String],
+        load_transcript: impl FnOnce(&SessionSummary) -> Option<Transcript>,
+        load_indexed_content: impl FnOnce(&SessionSummary) -> Option<String>,
+    ) {
+        let sel_key = selected.map(|s| s.document_key());
+        if app.preview_visible() && sel_key != self.transcript_for {
+            match selected {
+                Some(session) => match load_transcript(session) {
+                    Some(transcript) => {
+                        self.transcript = transcript.messages;
+                        self.source_unavailable = false;
+                    }
+                    None => {
+                        self.transcript = Vec::new();
+                        self.source_unavailable = true;
+                    }
+                },
+                None => {
+                    self.transcript = Vec::new();
+                    self.source_unavailable = false;
+                }
+            }
+            self.transcript_for = sel_key.clone();
+        }
+
+        let preview_key = (sel_key.unwrap_or_default(), app.query().to_string());
+        if app.preview_visible() && self.key.as_ref() != Some(&preview_key) {
+            self.lines = if self.source_unavailable {
+                selected
+                    .and_then(load_indexed_content)
+                    .map(|content| render_indexed_fallback_with_terms(&content, terms))
+                    .unwrap_or_default()
+            } else {
+                let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
+                render_transcript_with_terms(&self.transcript, terms, agent)
+            };
+            app.set_preview_matches(match_lines(&self.lines, terms));
+            self.key = Some(preview_key);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -352,6 +441,12 @@ mod tests {
         let lines = render_transcript(&msgs(), "refresh", crate::core::AgentId::Claude);
         let idx = first_match_line(&lines, "refresh");
         assert!(idx.is_some());
+    }
+
+    #[test]
+    fn filter_tokens_are_not_match_terms() {
+        let lines = render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude);
+        assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
     #[test]

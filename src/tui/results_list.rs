@@ -1,8 +1,8 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
 
-use crate::columns::{fit, solve_layout, solve_layout_with_desired, Column};
-use crate::core::Session;
+use crate::columns::{display_width, fit, solve_layout, solve_layout_with_desired, Column};
+use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::{theme, view::rel_time};
 use ratatui::style::Style;
@@ -13,11 +13,10 @@ use std::collections::HashMap;
 /// maps (document_key, enricher_id) -> displayed text for slow enrichers; a
 /// missing slow value renders as the pending glyph.
 pub fn row_line(
-    s: &Session,
+    s: &SessionSummary,
     layout: &[(usize, u16)],
     columns: &[Column],
     enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
 ) -> Line<'static> {
@@ -27,7 +26,7 @@ pub fn row_line(
             spans.push(Span::raw(" "));
         }
         let col = &columns[ci];
-        let (text, style) = cell(s, col, enrichers, fast_cache, resolved, now);
+        let (text, style) = cell(s, col, enrichers, resolved, now);
         spans.push(Span::styled(fit(&text, width, col.align), style));
     }
     Line::from(spans)
@@ -49,10 +48,9 @@ pub fn header_line(layout: &[(usize, u16)], columns: &[Column]) -> Line<'static>
 }
 
 fn cell(
-    s: &Session,
+    s: &SessionSummary,
     col: &Column,
     enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
 ) -> (String, Style) {
@@ -71,15 +69,14 @@ fn cell(
             Style::default().fg(theme::DIM),
         ),
         "time" => (rel_time(s.timestamp, now), Style::default().fg(theme::DIM)),
-        other => enrichment_cell(other, s, enrichers, fast_cache, resolved),
+        other => enrichment_cell(other, s, enrichers, resolved),
     }
 }
 
 fn enrichment_cell(
     id: &str,
-    s: &Session,
+    s: &SessionSummary,
     enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
     resolved: &HashMap<(String, &'static str), Option<String>>,
 ) -> (String, Style) {
     let Some(enr) = enrichers.iter().find(|e| e.id() == id) else {
@@ -87,12 +84,7 @@ fn enrichment_cell(
     };
     match enr.kind() {
         EnrichKind::Fast => {
-            let key = (s.document_key(), enr.id());
-            let text = fast_cache
-                .entry(key)
-                .or_insert_with(|| enr.resolve(s).map(|v| v.text))
-                .clone()
-                .unwrap_or_else(|| "—".into());
+            let text = enr.resolve(s).map(|v| v.text).unwrap_or_else(|| "—".into());
             (text, Style::default().fg(theme::DIM))
         }
         EnrichKind::Slow => match resolved.get(&(s.document_key(), enr.id())) {
@@ -112,27 +104,25 @@ pub fn layout_for(columns: &[Column], width: u16) -> Vec<(usize, u16)> {
 pub fn layout_for_rows(
     columns: &[Column],
     width: u16,
-    rows: &[Session],
+    rows: &[SessionSummary],
     enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
 ) -> Vec<(usize, u16)> {
-    let desired = desired_widths(columns, rows, enrichers, fast_cache, resolved, now);
+    let desired = desired_widths(columns, rows, enrichers, resolved, now);
     solve_layout_with_desired(columns, width, &desired)
 }
 
 fn desired_widths(
     columns: &[Column],
-    rows: &[Session],
+    rows: &[SessionSummary],
     enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
 ) -> Vec<u16> {
     let mut widths: Vec<u16> = columns
         .iter()
-        .map(|col| col.header.chars().count() as u16)
+        .map(|col| display_width(col.header) as u16)
         .collect();
 
     for row in rows {
@@ -140,8 +130,8 @@ fn desired_widths(
             if col.flex {
                 continue;
             }
-            let (text, _) = cell(row, col, enrichers, fast_cache, resolved, now);
-            widths[i] = widths[i].max(text.chars().count() as u16);
+            let (text, _) = cell(row, col, enrichers, resolved, now);
+            widths[i] = widths[i].max(display_width(&text) as u16);
         }
     }
 
@@ -152,19 +142,17 @@ fn desired_widths(
 mod tests {
     use super::*;
     use crate::columns::default_columns;
-    use crate::core::{AgentId, Session};
+    use crate::core::{AgentId, SessionSummary};
     use crate::enrich::{BranchEnricher, RepoEnricher};
 
-    fn sess() -> Session {
-        Session {
+    fn sess() -> SessionSummary {
+        SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "fix auth".into(),
             directory: "/work/api".into(),
             timestamp: 0,
-            content: String::new(),
             message_count: 12,
-            mtime: 0,
             yolo: false,
             branch: Some("feat/auth".into()),
             repo_url: None,
@@ -176,7 +164,6 @@ mod tests {
     fn row_renders_repo_branch_title() {
         let cols = default_columns();
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
-        let mut fast_cache = HashMap::new();
         let resolved = HashMap::new();
         let row = sess();
         let layout = layout_for_rows(
@@ -184,11 +171,10 @@ mod tests {
             120,
             std::slice::from_ref(&row),
             &enr,
-            &mut fast_cache,
             &resolved,
             3600,
         );
-        let line = row_line(&row, &layout, &cols, &enr, &mut fast_cache, &resolved, 3600);
+        let line = row_line(&row, &layout, &cols, &enr, &resolved, 3600);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("api")); // repo from dir basename
@@ -219,9 +205,8 @@ mod tests {
         row.directory = "/work/responsive-editor".into();
         row.branch = Some("workflow/ghostty-terminal".into());
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
-        let mut fast_cache = HashMap::new();
         let resolved = HashMap::new();
-        let layout = layout_for_rows(&cols, 120, &[row], &enr, &mut fast_cache, &resolved, 0);
+        let layout = layout_for_rows(&cols, 120, &[row], &enr, &resolved, 0);
         let width = |id| {
             layout
                 .iter()
@@ -240,9 +225,8 @@ mod tests {
         let cols = default_columns();
         let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
-        let mut fast_cache = HashMap::new();
         let resolved = HashMap::new();
-        let line = row_line(&sess(), &layout, &cols, &enr, &mut fast_cache, &resolved, 0);
+        let line = row_line(&sess(), &layout, &cols, &enr, &resolved, 0);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("⟳"));
     }
@@ -255,20 +239,11 @@ mod tests {
             Box::new(BranchEnricher),
             Box::new(crate::enrich::gh_pr::GhPrEnricher),
         ];
-        let mut fast_cache = HashMap::new();
         let mut resolved = HashMap::new();
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
         let row = sess();
-        let layout = layout_for_rows(
-            &cols,
-            120,
-            std::slice::from_ref(&row),
-            &enr,
-            &mut fast_cache,
-            &resolved,
-            0,
-        );
-        let line = row_line(&row, &layout, &cols, &enr, &mut fast_cache, &resolved, 0);
+        let layout = layout_for_rows(&cols, 120, std::slice::from_ref(&row), &enr, &resolved, 0);
+        let line = row_line(&row, &layout, &cols, &enr, &resolved, 0);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("#42")); // resolved PR rendered
         assert!(text.contains("feat/auth")); // fast branch still rendered

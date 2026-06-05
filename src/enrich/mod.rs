@@ -4,7 +4,7 @@
 pub mod gh_pr;
 pub mod service;
 
-use crate::core::Session;
+use crate::core::SessionSummary;
 use std::path::Path;
 use std::time::Duration;
 
@@ -25,9 +25,9 @@ pub struct EnrichValue {
 pub trait Enricher: Send + Sync {
     fn id(&self) -> &'static str;
     fn kind(&self) -> EnrichKind;
-    fn resolve(&self, s: &Session) -> Option<EnrichValue>;
+    fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue>;
     /// Cache key for slow enrichers; unused for fast ones.
-    fn cache_key(&self, _s: &Session) -> String {
+    fn cache_key(&self, _s: &SessionSummary) -> String {
         String::new()
     }
     fn ttl(&self) -> Duration {
@@ -45,7 +45,7 @@ impl Enricher for BranchEnricher {
     fn kind(&self) -> EnrichKind {
         EnrichKind::Fast
     }
-    fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+    fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
         let b = s.branch.clone()?;
         Some(EnrichValue { text: b })
     }
@@ -61,7 +61,7 @@ impl Enricher for RepoEnricher {
     fn kind(&self) -> EnrichKind {
         EnrichKind::Fast
     }
-    fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+    fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
         if let Some(url) = &s.repo_url {
             if let Some(name) = repo_name_from_url(url) {
                 return Some(EnrichValue { text: name });
@@ -93,18 +93,16 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{AgentId, Session};
+    use crate::core::{AgentId, SessionSummary};
 
-    fn sess(branch: Option<&str>, repo_url: Option<&str>, dir: &str) -> Session {
-        Session {
+    fn sess(branch: Option<&str>, repo_url: Option<&str>, dir: &str) -> SessionSummary {
+        SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "t".into(),
             directory: dir.into(),
             timestamp: 1,
-            content: String::new(),
             message_count: 0,
-            mtime: 0,
             yolo: false,
             branch: branch.map(|s| s.to_string()),
             repo_url: repo_url.map(|s| s.to_string()),

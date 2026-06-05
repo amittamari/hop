@@ -73,6 +73,17 @@ impl DateFilter {
 
         Some((Some(start), Some(end)))
     }
+
+    pub fn summary(self) -> String {
+        match self {
+            DateFilter::Today => "date:today".to_string(),
+            DateFilter::Yesterday => "date:yesterday".to_string(),
+            DateFilter::LastWeek => "date:week".to_string(),
+            DateFilter::LastMonth => "date:month".to_string(),
+            DateFilter::Within(secs) => format!("date:<{}", format_duration(secs)),
+            DateFilter::OlderThan(secs) => format!("date:>{}", format_duration(secs)),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -81,6 +92,59 @@ pub struct ParsedQuery {
     pub agents: AgentFilter,
     pub dirs: DirFilter,
     pub date: Option<DateFilter>,
+}
+
+impl ParsedQuery {
+    pub fn free_terms(&self) -> Vec<String> {
+        let mut terms = Vec::new();
+        for term in self.free_text.split_whitespace() {
+            let term = term.to_lowercase();
+            if !term.is_empty() && !terms.contains(&term) {
+                terms.push(term);
+            }
+        }
+        terms
+    }
+
+    pub fn filter_summary(&self) -> Option<String> {
+        let mut filters = Vec::new();
+        if !self.agents.include.is_empty() {
+            filters.push(format!(
+                "agent:{}",
+                self.agents
+                    .include
+                    .iter()
+                    .map(|a| a.slug())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        if !self.agents.exclude.is_empty() {
+            filters.push(format!(
+                "-agent:{}",
+                self.agents
+                    .exclude
+                    .iter()
+                    .map(|a| a.slug())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        for dir in &self.dirs.include {
+            filters.push(format!("dir:{dir}"));
+        }
+        for dir in &self.dirs.exclude {
+            filters.push(format!("-dir:{dir}"));
+        }
+        if let Some(date) = self.date {
+            filters.push(date.summary());
+        }
+        if filters.is_empty() {
+            None
+        } else {
+            Some(filters.join(","))
+        }
+    }
 }
 
 pub fn parse(input: &str) -> ParsedQuery {
@@ -167,6 +231,18 @@ fn parse_duration(s: &str) -> Option<i64> {
         _ => return None,
     };
     Some(n * mult)
+}
+
+fn format_duration(secs: i64) -> String {
+    if secs % 604_800 == 0 {
+        format!("{}w", secs / 604_800)
+    } else if secs % 86_400 == 0 {
+        format!("{}d", secs / 86_400)
+    } else if secs % 3_600 == 0 {
+        format!("{}h", secs / 3_600)
+    } else {
+        format!("{secs}s")
+    }
 }
 
 /// Tab autocomplete for the last whitespace-delimited token.
@@ -349,5 +425,20 @@ mod tests {
     fn autocomplete_date_value() {
         assert_eq!(autocomplete("date:to").as_deref(), Some("date:today"));
         assert_eq!(autocomplete("date:y").as_deref(), Some("date:yesterday"));
+    }
+
+    #[test]
+    fn free_terms_ignore_filters_and_deduplicate() {
+        let q = parse("auth agent:codex auth dir:api");
+        assert_eq!(q.free_terms(), vec!["auth".to_string()]);
+    }
+
+    #[test]
+    fn filter_summary_is_parsed_not_raw_text() {
+        let q = parse("auth -agent:codex dir:api -dir:vendor date:<2d");
+        assert_eq!(
+            q.filter_summary().as_deref(),
+            Some("-agent:codex,dir:api,-dir:vendor,date:<2d")
+        );
     }
 }

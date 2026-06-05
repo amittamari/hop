@@ -1,5 +1,5 @@
 use hop::core::{AgentId, ScanEntry, Session};
-use hop::index::{diff, SearchIndex};
+use hop::index::{diff, diff_authoritative, SearchIndex};
 use hop::query;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -178,6 +178,20 @@ fn incremental_diff_detects_changes_and_deletions() {
         vec![&"changed".to_string(), &"new".to_string()]
     );
     assert_eq!(deleted, vec!["deleted".to_string()]);
+}
+
+#[test]
+fn authoritative_diff_deletes_only_successfully_scanned_agents() {
+    let mut known: HashMap<String, i64> = HashMap::new();
+    known.insert("claude:gone".into(), 100);
+    known.insert("codex:preserve".into(), 100);
+
+    let scanned: HashMap<String, ScanEntry> = HashMap::new();
+    let authoritative = [AgentId::Claude].into_iter().collect();
+
+    let (_changed, mut deleted) = diff_authoritative(&known, &scanned, &authoritative);
+    deleted.sort();
+    assert_eq!(deleted, vec!["claude:gone".to_string()]);
 }
 
 #[test]

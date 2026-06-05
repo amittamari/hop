@@ -5,7 +5,7 @@
 //! `EnrichResult`s the UI folds into its render state.
 
 use super::{EnrichValue, Enricher};
-use crate::core::Session;
+use crate::core::SessionSummary;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -13,7 +13,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct EnrichRequest {
-    pub session: Session,
+    pub session: SessionSummary,
     pub enricher: &'static str,
 }
 
@@ -54,6 +54,49 @@ pub struct EnrichmentService {
     pub req_tx: Sender<EnrichRequest>,
     pub res_rx: Receiver<EnrichResult>,
     _handle: std::thread::JoinHandle<()>,
+}
+
+#[derive(Default)]
+pub struct EnrichmentState {
+    pub resolved: HashMap<(String, &'static str), Option<String>>,
+    requested: std::collections::HashSet<(String, &'static str)>,
+}
+
+impl EnrichmentState {
+    pub fn pr_pending(&self) -> usize {
+        self.requested
+            .iter()
+            .filter(|key| !self.resolved.contains_key(*key))
+            .count()
+    }
+
+    pub fn request_visible(
+        &mut self,
+        service: Option<&EnrichmentService>,
+        rows: &[SessionSummary],
+    ) {
+        let Some(service) = service else {
+            return;
+        };
+        for session in rows {
+            let key = (session.document_key(), "pr");
+            if !self.requested.contains(&key) {
+                self.requested.insert(key.clone());
+                let _ = service.req_tx.send(EnrichRequest {
+                    session: session.clone(),
+                    enricher: "pr",
+                });
+            }
+        }
+        self.drain(service);
+    }
+
+    pub fn drain(&mut self, service: &EnrichmentService) {
+        while let Ok(r) = service.res_rx.try_recv() {
+            self.resolved
+                .insert((r.session_key, r.enricher), r.value.map(|v| v.text));
+        }
+    }
 }
 
 impl EnrichmentService {
@@ -120,7 +163,7 @@ impl EnrichmentService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{AgentId, Session};
+    use crate::core::{AgentId, SessionSummary};
     use crate::enrich::{EnrichKind, Enricher};
     use std::time::Duration;
 
@@ -132,12 +175,12 @@ mod tests {
         fn kind(&self) -> EnrichKind {
             EnrichKind::Slow
         }
-        fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+        fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
             Some(EnrichValue {
                 text: format!("v:{}", s.id),
             })
         }
-        fn cache_key(&self, s: &Session) -> String {
+        fn cache_key(&self, s: &SessionSummary) -> String {
             s.id.clone()
         }
         fn ttl(&self) -> Duration {
@@ -145,16 +188,14 @@ mod tests {
         }
     }
 
-    fn sess(id: &str) -> Session {
-        Session {
+    fn sess(id: &str) -> SessionSummary {
+        SessionSummary {
             id: id.into(),
             agent: AgentId::Claude,
             title: "t".into(),
             directory: "/w".into(),
             timestamp: 1,
-            content: String::new(),
             message_count: 0,
-            mtime: 0,
             yolo: false,
             branch: None,
             repo_url: None,

@@ -25,6 +25,7 @@ CLI/config
   -> Engine
   -> Adapters scan and parse session files
   -> SearchIndex stores searchable Session documents
+  -> Engine exposes SessionSummary rows, Transcript data, and ResumeCommand data
   -> TUI renders results and selected transcript
   -> Resume execs the selected agent command
 ```
@@ -32,13 +33,16 @@ CLI/config
 On launch, the foreground engine opens the existing Tantivy index and searches it
 immediately. A background sync opens another index handle, scans available
 adapters, parses changed files, commits batches, and sends refresh updates to the
-TUI loop.
+TUI loop. Deletions are scoped to adapters that completed a successful
+authoritative scan; unavailable adapters and scan failures preserve existing
+rows and surface as sync status warnings.
 
 ## Module Responsibilities
 
-- `src/core.rs`: shared domain types such as `Session`, `AgentId`, `Message`,
-  `Block`, and source-agnostic helpers for title derivation, title
-  normalization, transcript text filtering, and transcript flattening.
+- `src/core.rs`: shared domain types such as `Session`, `SessionSummary`,
+  `Transcript`, `ResumeCommand`, `AgentId`, `Message`, `Block`, and
+  source-agnostic helpers for title derivation, title normalization, transcript
+  text filtering, and transcript flattening.
 - `src/adapters/`: source-specific integration. Adapters scan files, parse raw
   JSONL into `core` types, extract source-specific metadata candidates, provide
   preview transcripts, and build resume commands.
@@ -48,7 +52,8 @@ TUI loop.
   and search execution. Indexed rows use a namespaced `agent:id` document key;
   the raw session id remains on `Session` for agent resume commands.
 - `src/engine.rs`: UI-agnostic orchestration for query state, search results,
-  debouncing, and background sync.
+  transcript loading, resume command construction, debouncing, and background
+  sync status.
 - `src/tui/`: terminal state and rendering. `App` owns interaction state;
   `view`, `results_list`, `preview`, `help`, and `keymap` split display concerns.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
@@ -66,10 +71,12 @@ TUI loop.
 - **B-004 External Command Boundary:** External commands such as `gh`, `claude`,
   and `codex` should be isolated behind enrichers, adapters, or resume handoff
   code.
-- **B-005 Session Contract:** `core::Session` is the cross-module contract for
-  indexed and displayed rows. It carries the source JSONL path so preview loading
-  can re-parse the selected transcript without rediscovering files through an
-  adapter scan.
+- **B-005 Session Data Shapes:** `core::Session` is the full parsed/indexed
+  document shape. `core::SessionSummary` is the display/search result row shape
+  and carries the source JSONL path so preview loading can re-parse the selected
+  transcript without rediscovering files through an adapter scan. Transcript
+  content and resume commands use `core::Transcript` and `core::ResumeCommand`
+  instead of overloading result rows.
 - **B-006 Query Semantics Boundary:** Parsed query semantics belong in
   `src/query.rs`. Search, preview matching, autocomplete, and filter summaries
   should consume the parsed query shape rather than reinterpreting raw query text
@@ -95,7 +102,8 @@ TUI loop.
 ## Current Invariants
 
 - **I-001 Non-Fatal Sync:** Index sync is incremental and non-fatal: parse
-  errors skip individual files.
+  errors skip individual files, adapter scan failures preserve that adapter's
+  indexed rows, and unavailable adapters are reported without forcing deletion.
 - **I-003 Schema Versioning:** Schema changes must bump `SCHEMA_VERSION` in
   `src/index.rs`.
 - **I-004 Shared Transcript Extraction:** Search content and preview transcript
@@ -108,6 +116,8 @@ TUI loop.
   request display enrichment.
 - **I-009 Terminal Restoration:** Resume should never leave the terminal in raw
   mode.
+- **I-010 Display Width:** Column, row, modal, and fixed-width terminal fitting
+  should use terminal display width rather than Unicode scalar counts.
 
 ## Application Pattern
 
@@ -134,22 +144,6 @@ These are current architectural seams worth tracking before expanding the app:
   filters and therefore still run after Tantivy retrieval, but search now
   paginates until enough filtered-in rows are found or the matching hit set is
   exhausted.
-- **P-003 Broad Session Type:** The current `core::Session` is used both as
-  indexed document and display row. If frontend portability or memory pressure
-  becomes important, split row summaries, indexed content, transcript data, and
-  resume targets into narrower types.
-- **P-004 Runner-Orchestrated Preview And Enrichment:** Enrichment and preview
-  memoization currently have some orchestration in the top-level TUI runner.
-  Prefer moving durable behavior into engine/backend or explicit TUI
-  model/effect state before adding more providers or preview modes.
-- **P-005 Sync Deletion Safety Gap:** Current sync diffs all known rows against
-  all scanned rows, so a missing or failed adapter scan can be interpreted as
-  deletions. Target behavior: delete rows only for a source that scanned
-  successfully and authoritatively, and surface failed scans as sync errors.
-- **P-006 TUI Mode Visibility Gap:** Modal-keymap navigate/search state is not
-  explicit enough in the rendered UI. Target behavior: help and footer text
-  should match the current mode, and every modal or navigate mode should have an
-  obvious escape path.
 
 Pressure points are not permanent architecture. Do not fix them opportunistically
 during unrelated work, but when a pressure point is resolved, update or remove

@@ -1,7 +1,7 @@
-use crate::core::{AgentId, DocumentKey, ScanEntry, Session};
+use crate::core::{AgentId, DocumentKey, ScanEntry, Session, SessionSummary};
 use crate::query::ParsedQuery;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
 use std::path::Path;
 use tantivy::collector::{Count, TopDocs};
@@ -122,7 +122,7 @@ impl SearchIndex {
             doc.add_text(self.f.repo_url, r);
         }
         if let Some(path) = &s.source_path {
-            doc.add_text(self.f.source_path, &path.to_string_lossy());
+            doc.add_text(self.f.source_path, path.to_string_lossy());
         }
         let _ = w.add_document(doc);
     }
@@ -152,7 +152,7 @@ impl SearchIndex {
     }
 
     /// Run a parsed query. `now` is unix seconds (for date filtering).
-    pub fn search(&self, q: &ParsedQuery, now: i64, limit: usize) -> Result<Vec<Session>> {
+    pub fn search(&self, q: &ParsedQuery, now: i64, limit: usize) -> Result<Vec<SessionSummary>> {
         let searcher = self.reader.searcher();
 
         // --- build the text/all query plus agent constraints ---
@@ -271,7 +271,7 @@ impl SearchIndex {
 
             for addr in addrs {
                 let doc: TantivyDocument = searcher.doc(addr)?;
-                let s = self.to_session(&doc);
+                let s = self.to_summary(&doc);
                 if !dir_ok(&s.directory, q) {
                     continue;
                 }
@@ -282,6 +282,20 @@ impl SearchIndex {
             }
         }
         Ok(out)
+    }
+
+    pub fn load_session(&self, doc_key: &str) -> Result<Option<Session>> {
+        let searcher = self.reader.searcher();
+        let query = TermQuery::new(
+            Term::from_field_text(self.f.doc_key, doc_key),
+            IndexRecordOption::Basic,
+        );
+        let hits = searcher.search(&query, &TopDocs::with_limit(1).order_by_score())?;
+        let Some((_, addr)) = hits.into_iter().next() else {
+            return Ok(None);
+        };
+        let doc: TantivyDocument = searcher.doc(addr)?;
+        Ok(Some(self.to_session(&doc)))
     }
 
     fn to_session(&self, doc: &TantivyDocument) -> Session {
@@ -301,6 +315,49 @@ impl SearchIndex {
             content: get_str(self.f.content),
             message_count: get_u64(self.f.message_count) as u32,
             mtime: get_u64(self.f.mtime) as i64,
+            yolo: get_u64(self.f.yolo) != 0,
+            branch: {
+                let b = get_str(self.f.branch);
+                if b.is_empty() {
+                    None
+                } else {
+                    Some(b)
+                }
+            },
+            repo_url: {
+                let r = get_str(self.f.repo_url);
+                if r.is_empty() {
+                    None
+                } else {
+                    Some(r)
+                }
+            },
+            source_path: {
+                let p = get_str(self.f.source_path);
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.into())
+                }
+            },
+        }
+    }
+
+    fn to_summary(&self, doc: &TantivyDocument) -> SessionSummary {
+        let get_str = |f: Field| {
+            doc.get_first(f)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
+        let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
+        SessionSummary {
+            id: get_str(self.f.id),
+            agent: AgentId::from_slug(&get_str(self.f.agent)).unwrap_or(AgentId::Claude),
+            title: get_str(self.f.title),
+            directory: get_str(self.f.directory),
+            timestamp: get_u64(self.f.timestamp) as i64,
+            message_count: get_u64(self.f.message_count) as u32,
             yolo: get_u64(self.f.yolo) != 0,
             branch: {
                 let b = get_str(self.f.branch);
@@ -359,6 +416,24 @@ pub fn diff(
     known: &HashMap<DocumentKey, i64>,
     scanned: &HashMap<DocumentKey, ScanEntry>,
 ) -> (Vec<(DocumentKey, ScanEntry)>, Vec<DocumentKey>) {
+    diff_with_delete_scope(known, scanned, None)
+}
+
+/// Incremental diff where deletions are authoritative only for the supplied
+/// agents. Changed rows still come from every scanned row.
+pub fn diff_authoritative(
+    known: &HashMap<DocumentKey, i64>,
+    scanned: &HashMap<DocumentKey, ScanEntry>,
+    authoritative_agents: &HashSet<AgentId>,
+) -> (Vec<(DocumentKey, ScanEntry)>, Vec<DocumentKey>) {
+    diff_with_delete_scope(known, scanned, Some(authoritative_agents))
+}
+
+fn diff_with_delete_scope(
+    known: &HashMap<DocumentKey, i64>,
+    scanned: &HashMap<DocumentKey, ScanEntry>,
+    authoritative_agents: Option<&HashSet<AgentId>>,
+) -> (Vec<(DocumentKey, ScanEntry)>, Vec<DocumentKey>) {
     let mut changed = Vec::new();
     for (id, entry) in scanned {
         match known.get(id) {
@@ -369,6 +444,13 @@ pub fn diff(
     let deleted: Vec<DocumentKey> = known
         .keys()
         .filter(|id| !scanned.contains_key(*id))
+        .filter(|id| {
+            authoritative_agents.is_none_or(|agents| {
+                id.split_once(':')
+                    .and_then(|(agent, _)| AgentId::from_slug(agent))
+                    .is_some_and(|agent| agents.contains(&agent))
+            })
+        })
         .cloned()
         .collect();
     (changed, deleted)

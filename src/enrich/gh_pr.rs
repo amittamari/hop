@@ -2,7 +2,7 @@
 //! Slow (network); resolved in the background and disk-cached.
 
 use super::{EnrichKind, EnrichValue, Enricher};
-use crate::core::Session;
+use crate::core::SessionSummary;
 use std::time::Duration;
 
 pub struct GhPrEnricher;
@@ -14,7 +14,7 @@ impl Enricher for GhPrEnricher {
     fn kind(&self) -> EnrichKind {
         EnrichKind::Slow
     }
-    fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+    fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
         let branch = s.branch.as_deref()?;
         if branch.is_empty() || branch == "master" || branch == "main" {
             return None;
@@ -24,7 +24,7 @@ impl Enricher for GhPrEnricher {
             text: format!("#{num}"),
         })
     }
-    fn cache_key(&self, s: &Session) -> String {
+    fn cache_key(&self, s: &SessionSummary) -> String {
         let repo = s
             .repo_url
             .as_deref()
@@ -117,16 +117,14 @@ mod tests {
 
     #[test]
     fn skips_default_branches() {
-        use crate::core::{AgentId, Session};
-        let s = Session {
+        use crate::core::{AgentId, SessionSummary};
+        let s = SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "t".into(),
             directory: "/w".into(),
             timestamp: 1,
-            content: String::new(),
             message_count: 0,
-            mtime: 0,
             yolo: false,
             branch: Some("main".into()),
             repo_url: None,

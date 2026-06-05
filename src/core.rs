@@ -193,6 +193,57 @@ impl Session {
     pub fn document_key(&self) -> DocumentKey {
         document_key(self.agent, &self.id)
     }
+
+    pub fn summary(&self) -> SessionSummary {
+        SessionSummary {
+            id: self.id.clone(),
+            agent: self.agent,
+            title: self.title.clone(),
+            directory: self.directory.clone(),
+            timestamp: self.timestamp,
+            message_count: self.message_count,
+            yolo: self.yolo,
+            branch: self.branch.clone(),
+            repo_url: self.repo_url.clone(),
+            source_path: self.source_path.clone(),
+        }
+    }
+}
+
+/// Row-sized session data for search results and frontend rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionSummary {
+    pub id: SessionId,
+    pub agent: AgentId,
+    pub title: String,
+    pub directory: String,
+    /// Session timestamp (first message), unix seconds.
+    pub timestamp: i64,
+    pub message_count: u32,
+    pub yolo: bool,
+    /// Git branch at session time, captured from conversation data when present.
+    pub branch: Option<String>,
+    /// Git remote URL when the agent records it (Codex). None otherwise.
+    pub repo_url: Option<String>,
+    /// Source JSONL path used for preview transcript loading.
+    pub source_path: Option<PathBuf>,
+}
+
+impl SessionSummary {
+    pub fn document_key(&self) -> DocumentKey {
+        document_key(self.agent, &self.id)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Transcript {
+    pub messages: Vec<Message>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResumeCommand {
+    pub directory: String,
+    pub argv: Vec<String>,
 }
 
 /// Collapse whitespace runs to single spaces, trimming ends.

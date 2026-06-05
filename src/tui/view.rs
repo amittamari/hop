@@ -1,8 +1,8 @@
 use crate::columns::Column;
-use crate::core::Session;
+use crate::core::SessionSummary;
 use crate::enrich::Enricher;
-use crate::tui::{help, results_list, theme, App};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use crate::tui::{help, results_list, theme, App, InteractionMode};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
@@ -33,19 +33,17 @@ pub struct StatusLine {
     pub filters: Option<String>,
 }
 
-pub fn render(
-    f: &mut Frame,
-    app: &App,
-    now: i64,
-    columns: &[Column],
-    enrichers: &[Box<dyn Enricher>],
-    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    preview_lines: &[Line<'static>],
-    match_base: u16,
-    status: &StatusLine,
-    modal_command: Option<&[String]>,
-) {
+pub struct RenderModel<'a> {
+    pub now: i64,
+    pub columns: &'a [Column],
+    pub enrichers: &'a [Box<dyn Enricher>],
+    pub resolved: &'a HashMap<(String, &'static str), Option<String>>,
+    pub preview_lines: &'a [Line<'static>],
+    pub status: &'a StatusLine,
+    pub modal_command: Option<&'a [String]>,
+}
+
+pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -58,12 +56,24 @@ pub fn render(
     // search input
     let total = app.results().len();
     let pos = if total == 0 { 0 } else { app.selected() + 1 };
+    let mode = app.interaction_mode();
+    let prefix = format!("{} ❯ ", mode.label());
     let header = Line::from(vec![
-        Span::raw("❯ "),
+        Span::styled(mode.label(), Style::default().fg(theme::ACCENT)),
+        Span::raw(" ❯ "),
         Span::raw(app.query().to_string()),
         Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
+    if mode == InteractionMode::Search && !app.help_open() && !app.modal_open() {
+        let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
+        let x = chunks[0]
+            .x
+            .saturating_add(crate::columns::display_width(&prefix) as u16)
+            .saturating_add(crate::columns::display_width(query_prefix) as u16);
+        let x = x.min(chunks[0].right().saturating_sub(1));
+        f.set_cursor_position(Position::new(x, chunks[0].y));
+    }
 
     // body: list (| preview)
     let (list_area, preview_area) = if app.preview_visible() {
@@ -78,7 +88,7 @@ pub fn render(
     };
 
     // column grid
-    let cols = columns;
+    let cols = model.columns;
     let list_inner_w = list_area
         .width
         .saturating_sub(if preview_area.is_some() { 1 } else { 0 });
@@ -93,10 +103,9 @@ pub fn render(
         cols,
         list_inner_w,
         visible_results,
-        enrichers,
-        fast_cache,
-        resolved,
-        now,
+        model.enrichers,
+        model.resolved,
+        model.now,
     );
     f.render_widget(
         Paragraph::new(results_list::header_line(&layout, cols)),
@@ -107,7 +116,12 @@ pub fn render(
         .iter()
         .map(|s| {
             ListItem::new(results_list::row_line(
-                s, &layout, cols, enrichers, fast_cache, resolved, now,
+                s,
+                &layout,
+                cols,
+                model.enrichers,
+                model.resolved,
+                model.now,
             ))
         })
         .collect();
@@ -140,33 +154,28 @@ pub fn render(
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, now, resolved)),
+                Paragraph::new(preview_header_lines(session, model.now, model.resolved)),
                 header_area,
             );
         }
-        let scroll = match_base.saturating_add(app.preview_scroll());
         f.render_widget(
-            Paragraph::new(preview_lines.to_vec())
+            Paragraph::new(model.preview_lines.to_vec())
                 .wrap(Wrap { trim: false })
-                .scroll((scroll, 0)),
+                .scroll((app.preview_scroll(), 0)),
             transcript_area,
         );
     }
 
     // footer
-    let footer = if app.modal_open() {
-        "tab toggle yolo · enter confirm · esc cancel"
-    } else {
-        "↑↓ move · enter resume · ctrl+y yolo prompt · ctrl+p preview · ctrl+u/d scroll · [ ] size · ? help · esc quit"
-    };
+    let footer = footer_help(app.interaction_mode());
     f.render_widget(
-        Paragraph::new(footer_line(footer, status)).fg(theme::DIM),
+        Paragraph::new(footer_line(footer, model.status)).fg(theme::DIM),
         chunks[2],
     );
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        render_yolo_modal(f, session, yolo, modal_command);
+        render_yolo_modal(f, session, yolo, model.modal_command);
     }
 
     // help overlay (drawn last, on top)
@@ -203,9 +212,21 @@ fn footer_line(base: &str, status: &StatusLine) -> String {
     parts.join(" · ")
 }
 
+fn footer_help(mode: InteractionMode) -> &'static str {
+    match mode {
+        InteractionMode::Search => {
+            "SEARCH · type query · ↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · ctrl+u/d scroll · ctrl+n/b matches · [ ] size · ? help · esc quit"
+        }
+        InteractionMode::Navigate => {
+            "NAV · j/k move · g/G top/bottom · / search · p preview · enter resume · ? help · esc quit"
+        }
+        InteractionMode::Modal => "MODAL · tab toggle yolo · enter confirm · esc cancel",
+    }
+}
+
 fn render_yolo_modal(
     f: &mut Frame,
-    session: Option<&Session>,
+    session: Option<&SessionSummary>,
     yolo: bool,
     modal_command: Option<&[String]>,
 ) {
@@ -300,21 +321,17 @@ fn shell_join(argv: &[String]) -> String {
 }
 
 fn fit_for_modal(s: &str, width: usize) -> String {
-    if width == 0 {
-        return String::new();
-    }
-    let len = s.chars().count();
-    if len <= width {
-        return s.to_string();
-    }
-    let keep = width.saturating_sub(1);
-    let mut out: String = s.chars().take(keep).collect();
-    out.push('…');
-    out
+    crate::columns::fit(
+        s,
+        width.min(u16::MAX as usize) as u16,
+        crate::columns::Align::Left,
+    )
+    .trim_end()
+    .to_string()
 }
 
 fn preview_header_lines(
-    s: &Session,
+    s: &SessionSummary,
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
 ) -> Vec<Line<'static>> {
@@ -367,7 +384,7 @@ fn preview_header_lines(
     ]
 }
 
-fn repo_label(s: &Session) -> String {
+fn repo_label(s: &SessionSummary) -> String {
     if let Some(name) = s
         .repo_url
         .as_deref()
@@ -398,7 +415,7 @@ pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Ran
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{AgentId, Session};
+    use crate::core::{AgentId, SessionSummary};
     use crate::tui::App;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
@@ -418,22 +435,19 @@ mod tests {
         use std::collections::HashMap;
 
         let mut app = App::new();
-        app.set_results(vec![Session {
+        app.set_results(vec![SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "fix auth".into(),
             directory: "/work/api".into(),
             timestamp: 0,
-            content: "hello".into(),
             message_count: 3,
-            mtime: 0,
             yolo: false,
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
-        let mut fast_cache = HashMap::new();
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let transcript = vec![Message {
             role: Role::User,
@@ -442,7 +456,6 @@ mod tests {
 
         let lines =
             crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude);
-        let base = crate::tui::preview::first_match_line(&lines, app.query()).unwrap_or(0) as u16;
 
         let cols = crate::columns::default_columns();
         let backend = TestBackend::new(100, 12);
@@ -451,15 +464,15 @@ mod tests {
             render(
                 f,
                 &app,
-                100,
-                &cols,
-                &enr,
-                &mut fast_cache,
-                &resolved,
-                &lines,
-                base,
-                &StatusLine::default(),
-                None,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &lines,
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
             )
         })
         .unwrap();
@@ -479,15 +492,13 @@ mod tests {
         use std::collections::HashMap;
 
         let mut app = App::new();
-        app.set_results(vec![Session {
+        app.set_results(vec![SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "fix auth".into(),
             directory: "/work/api".into(),
             timestamp: 0,
-            content: "hello".into(),
             message_count: 3,
-            mtime: 0,
             yolo: false,
             branch: Some("feat/auth".into()),
             repo_url: None,
@@ -496,7 +507,6 @@ mod tests {
         app.open_yolo_modal_with(true);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
-        let mut fast_cache = HashMap::new();
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
         let status = StatusLine {
@@ -518,15 +528,15 @@ mod tests {
             render(
                 f,
                 &app,
-                100,
-                &cols,
-                &enr,
-                &mut fast_cache,
-                &resolved,
-                &[],
-                0,
-                &status,
-                Some(&command),
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &status,
+                    modal_command: Some(&command),
+                },
             )
         })
         .unwrap();
@@ -547,6 +557,76 @@ mod tests {
     }
 
     #[test]
+    fn renders_mode_indicator_and_mode_footer() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+
+        let backend = TestBackend::new(100, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
+            )
+        })
+        .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("SEARCH"));
+        assert!(text.contains("type query"));
+
+        app.set_keymap(crate::tui::keymap::Preset::Modal);
+        app.handle_key(ratatui::crossterm::event::KeyEvent::new(
+            ratatui::crossterm::event::KeyCode::Esc,
+            ratatui::crossterm::event::KeyModifiers::NONE,
+        ));
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
+            )
+        })
+        .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("NAV"));
+        assert!(text.contains("j/k move"));
+    }
+
+    #[test]
     fn wraps_long_preview_prose() {
         use crate::enrich::Enricher;
         use std::collections::HashMap;
@@ -554,15 +634,13 @@ mod tests {
         let mut app = App::new();
         app.set_preview(true, 50);
         app.set_preview_header(false);
-        app.set_results(vec![Session {
+        app.set_results(vec![SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
             title: "fix auth".into(),
             directory: "/work/api".into(),
             timestamp: 0,
-            content: "hello".into(),
             message_count: 3,
-            mtime: 0,
             yolo: false,
             branch: Some("feat/auth".into()),
             repo_url: None,
@@ -570,7 +648,6 @@ mod tests {
         }]);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
-        let mut fast_cache = HashMap::new();
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
         let preview_lines = vec![Line::from(
@@ -583,15 +660,15 @@ mod tests {
             render(
                 f,
                 &app,
-                100,
-                &cols,
-                &enr,
-                &mut fast_cache,
-                &resolved,
-                &preview_lines,
-                0,
-                &StatusLine::default(),
-                None,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &preview_lines,
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
             )
         })
         .unwrap();
