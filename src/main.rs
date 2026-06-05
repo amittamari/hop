@@ -4,9 +4,12 @@ use hop::adapters;
 use hop::cli::Cli;
 use hop::config::Config;
 use hop::engine::{Engine, Update};
+use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
 use hop::tui::{view, Action, App};
 use ratatui::crossterm::event::{self, Event};
+use ratatui::text::Line;
+use std::collections::HashMap;
 use std::time::Duration;
 
 fn index_dir() -> std::path::PathBuf {
@@ -59,10 +62,16 @@ fn run_tui(
     app.set_query(engine.query().to_string());
     sync_results_into_app(engine, &mut app);
 
+    // TODO(Task 19): wire real enrichers, resolved cache, and preview memoization.
+    let enrichers: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+    let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+    let preview_lines: Vec<Line<'static>> = Vec::new();
+    let match_base: u16 = 0;
+
     let outcome = (|| -> Result<Option<(hop::core::Session, bool)>> {
         loop {
             let now = jiff::Timestamp::now().as_second();
-            terminal.draw(|f| view::render(f, &app, now))?;
+            terminal.draw(|f| view::render(f, &app, now, &enrichers, &resolved, &preview_lines, match_base))?;
 
             // fold in any streamed sessions — but freeze the list while a modal is
             // open so the row the user is confirming can't shift under them. Queued

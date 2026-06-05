@@ -1,9 +1,12 @@
-use crate::tui::{theme, App};
+use crate::columns::default_columns;
+use crate::enrich::Enricher;
+use crate::tui::{help, results_list, theme, App};
 use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Style, Stylize};
+use ratatui::style::Stylize;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
+use std::collections::HashMap;
 
 /// Relative-time label from a unix-seconds timestamp.
 pub fn rel_time(ts: i64, now: i64) -> String {
@@ -19,67 +22,81 @@ pub fn rel_time(ts: i64, now: i64) -> String {
     }
 }
 
-pub fn render(f: &mut Frame, app: &App, now: i64) {
+pub fn render(
+    f: &mut Frame,
+    app: &App,
+    now: i64,
+    enrichers: &[Box<dyn Enricher>],
+    resolved: &HashMap<(String, &'static str), Option<String>>,
+    preview_lines: &[Line<'static>],
+    match_base: u16,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // search input
-            Constraint::Min(1),    // body (list | preview)
-            Constraint::Length(1), // footer
-        ])
+        .constraints([Constraint::Length(1), Constraint::Min(1), Constraint::Length(1)])
         .split(f.area());
 
-    // --- search input ---
+    // search input
     let header = Line::from(vec![
         Span::raw("❯ "),
-        Span::raw(app.query()),
+        Span::raw(app.query().to_string()),
         Span::raw(format!("   {}/{}", app.results().len(), app.results().len())).fg(theme::DIM),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
 
-    // --- body: list | preview ---
-    let body = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(chunks[1]);
+    // body: list (| preview)
+    let (list_area, preview_area) = if app.preview_visible() {
+        let pw = app.preview_width_pct();
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(100 - pw), Constraint::Percentage(pw)])
+            .split(chunks[1]);
+        (body[0], Some(body[1]))
+    } else {
+        (chunks[1], None)
+    };
 
+    // column grid
+    let cols = default_columns();
+    let list_inner_w = list_area.width.saturating_sub(if preview_area.is_some() { 1 } else { 0 });
+    let layout = results_list::layout_for(&cols, list_inner_w);
     let items: Vec<ListItem> = app
         .results()
         .iter()
-        .map(|s| {
-            ListItem::new(Line::from(vec![
-                Span::raw(s.agent.badge()).fg(theme::agent_color(s.agent)),
-                Span::raw(" "),
-                Span::raw(s.title.clone()),
-                Span::raw(format!("  · {} · {}", s.directory, rel_time(s.timestamp, now))).fg(theme::DIM),
-            ]))
-        })
+        .map(|s| ListItem::new(results_list::row_line(s, &layout, &cols, enrichers, resolved, now)))
         .collect();
-
     let mut state = ListState::default();
     if !app.results().is_empty() {
         state.select(Some(app.selected()));
     }
+    let list_block = if preview_area.is_some() {
+        Block::default().borders(Borders::RIGHT)
+    } else {
+        Block::default()
+    };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::RIGHT))
-        .highlight_style(Style::default().bg(theme::ACCENT));
-    f.render_stateful_widget(list, body[0], &mut state);
+        .block(list_block)
+        .highlight_style(ratatui::style::Style::default().bg(theme::ACCENT));
+    f.render_stateful_widget(list, list_area, &mut state);
 
-    // --- preview ---
-    let preview_text = app
-        .results()
-        .get(app.selected())
-        .map(|s| s.content.clone())
-        .unwrap_or_default();
-    f.render_widget(Paragraph::new(preview_text), body[1]);
+    // preview (lines are pre-rendered/memoized by the caller per selection+query)
+    if let Some(area) = preview_area {
+        let scroll = match_base.saturating_add(app.preview_scroll());
+        f.render_widget(Paragraph::new(preview_lines.to_vec()).scroll((scroll, 0)), area);
+    }
 
-    // --- footer ---
+    // footer
     let footer = if app.modal_open() {
         "tab toggle yolo · enter confirm · esc cancel"
     } else {
-        "↑↓ move · enter resume · tab yolo · esc quit"
+        "↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · [ ] size · ? help · esc quit"
     };
     f.render_widget(Paragraph::new(footer).fg(theme::DIM), chunks[2]);
+
+    // help overlay (drawn last, on top)
+    if app.help_open() {
+        help::render(f, app.keymap_preset());
+    }
 }
 
 #[cfg(test)]
@@ -99,20 +116,32 @@ mod tests {
     }
 
     #[test]
-    fn renders_badge_and_title() {
+    fn renders_columns_and_preview() {
+        use crate::enrich::{BranchEnricher, Enricher, RepoEnricher};
+        use crate::core::{Block, Message, Role};
+        use std::collections::HashMap;
+
         let mut app = App::new();
         app.set_results(vec![Session {
             id: "a".into(), agent: AgentId::Claude, title: "fix auth".into(),
-            directory: "/w".into(), timestamp: 0, content: "hello".into(),
-            message_count: 1, mtime: 0, yolo: false,
-            branch: None, repo_url: None,
+            directory: "/work/api".into(), timestamp: 0, content: "hello".into(),
+            message_count: 3, mtime: 0, yolo: false,
+            branch: Some("feat/auth".into()), repo_url: None,
         }]);
-        let backend = TestBackend::new(60, 6);
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let transcript = vec![Message { role: Role::User, blocks: vec![Block::Prose("fix auth".into())] }];
+
+        let lines = crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude);
+        let base = crate::tui::preview::first_match_line(&lines, app.query()).unwrap_or(0) as u16;
+
+        let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render(f, &app, 100)).unwrap();
+        term.draw(|f| render(f, &app, 100, &enr, &resolved, &lines, base)).unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("fix auth"));
+        assert!(text.contains("feat/auth"));
     }
 }

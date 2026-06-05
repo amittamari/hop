@@ -105,6 +105,7 @@ impl App {
     pub fn preview_width_pct(&self) -> u16 { self.preview_width_pct }
     pub fn preview_scroll(&self) -> u16 { self.preview_scroll }
     pub fn help_open(&self) -> bool { self.help_open }
+    pub fn keymap_preset(&self) -> keymap::Preset { self.keymap }
     pub fn set_keymap(&mut self, p: keymap::Preset) { self.keymap = p; }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
