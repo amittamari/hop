@@ -18,7 +18,18 @@ the original working directory.
     hop -a claude -d api      # filter by agent + directory
     hop --rebuild             # wipe and rebuild the index
 
-Keys: type to search · ↑↓ move · Enter resume · Tab yolo · Esc quit.
+Keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo · Ctrl+P toggle preview ·
+`[` / `]` resize preview · Ctrl+U/D scroll preview · Tab autocomplete · ? help · Esc quit.
+
+## Columns
+
+Each result row is an aligned grid: `AGENT · REPO · BRANCH · TITLE · MSGS · PR · TIME`.
+The repo and branch come straight from the conversation data (Claude's `gitBranch`,
+Codex's `git.branch`/`repository_url`); the full directory path is shown in the preview
+header rather than as a column. The `PR` column is resolved in the background via the
+`gh` CLI and cached on disk, so it never blocks the UI (`⟳` while resolving, `—` if none).
+Narrow terminals drop columns by priority (PR → BRANCH → REPO → TIME → MSGS); the title
+always survives.
 
 ## Query syntax
 
@@ -40,3 +51,24 @@ The index lives under your platform cache dir (e.g. `~/.cache/hop/`). On launch
 sessions in the background so results stream in without a blocking spinner. Resume
 restores the terminal, `chdir`s to the session's directory, and `exec`-replaces the
 process with the agent CLI.
+
+The preview pane re-parses the selected session on demand into a clean transcript
+(internals like tool calls, `<command-*>` tags and system reminders are stripped),
+with syntax-highlighted code and the matched query terms highlighted.
+
+## Config
+
+Optional TOML at your platform config dir (e.g. `~/.config/hop/config.toml`); all keys
+have zero-config defaults. The chosen preview width/visibility also persist across
+restarts automatically.
+
+```toml
+keymap = "search"   # default; or "modal" for a vim-style navigate mode (Esc to enter)
+
+[preview]
+visible = true
+width_pct = 50
+
+[columns]
+disabled = []       # e.g. ["pr"] to turn off the background GitHub PR column
+```
