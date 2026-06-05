@@ -46,6 +46,7 @@ pub struct App {
     preview_scroll: u16,
     help_open: bool,
     keymap: keymap::Preset,
+    navigate: bool,
 }
 
 impl App {
@@ -61,6 +62,7 @@ impl App {
             preview_scroll: 0,
             help_open: false,
             keymap: keymap::Preset::Search,
+            navigate: false,
         }
     }
 
@@ -145,9 +147,20 @@ impl App {
             // Unambiguous chords (Ctrl-chords, paging, and brackets/? when query empty).
             return self.apply_chord(act);
         }
+        // Modal preset: navigate mode consumes letter keys.
+        if self.keymap == keymap::Preset::Modal && self.navigate {
+            return self.handle_navigate(key);
+        }
         // Main search handling.
         match key.code {
-            KeyCode::Esc => Action::Quit,
+            KeyCode::Esc => {
+                if self.keymap == keymap::Preset::Modal {
+                    self.navigate = true; // leave query → navigate
+                    Action::None
+                } else {
+                    Action::Quit
+                }
+            }
             KeyCode::Down => {
                 if !self.results.is_empty() {
                     self.selected = (self.selected + 1).min(self.results.len() - 1);
@@ -206,6 +219,48 @@ impl App {
                 else { Action::Resume { index: self.selected, yolo } }
             }
             other => other,
+        }
+    }
+
+    fn handle_navigate(&mut self, key: KeyEvent) -> Action {
+        match key.code {
+            KeyCode::Esc => Action::Quit,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !self.results.is_empty() {
+                    self.selected = (self.selected + 1).min(self.results.len() - 1);
+                }
+                self.preview_scroll = 0;
+                Action::None
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                self.preview_scroll = 0;
+                Action::None
+            }
+            KeyCode::Char('g') => {
+                self.selected = 0;
+                self.preview_scroll = 0;
+                Action::None
+            }
+            KeyCode::Char('G') => {
+                self.selected = self.results.len().saturating_sub(1);
+                self.preview_scroll = 0;
+                Action::None
+            }
+            KeyCode::Char('p') => {
+                self.preview_visible = !self.preview_visible;
+                Action::None
+            }
+            KeyCode::Char('?') => {
+                self.help_open = true;
+                Action::None
+            }
+            KeyCode::Char('/') => {
+                self.navigate = false; // back to live search
+                Action::None
+            }
+            KeyCode::Enter => self.activate(false),
+            _ => Action::None,
         }
     }
 
@@ -372,5 +427,30 @@ mod tests {
         }
         assert_eq!(app.handle_key(key(KeyCode::Tab)), Action::Search);
         assert_eq!(app.query(), "agent:claude");
+    }
+
+    #[test]
+    fn search_preset_esc_still_quits() {
+        let mut app = app_with(3); // default = search preset
+        assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::Quit);
+    }
+
+    #[test]
+    fn modal_esc_enters_navigate_then_letters_move() {
+        let mut app = app_with(3);
+        app.set_keymap(keymap::Preset::Modal);
+        // Esc enters navigate mode instead of quitting
+        assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::None);
+        // letters now navigate
+        app.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(app.selected(), 1);
+        app.handle_key(key(KeyCode::Char('k')));
+        assert_eq!(app.selected(), 0);
+        app.handle_key(key(KeyCode::Char('G')));
+        assert_eq!(app.selected(), 2);
+        // '/' returns to search so letters type again
+        app.handle_key(key(KeyCode::Char('/')));
+        assert_eq!(app.handle_key(key(KeyCode::Char('a'))), Action::Search);
+        assert_eq!(app.query(), "a");
     }
 }
