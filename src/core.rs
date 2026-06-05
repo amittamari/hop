@@ -101,6 +101,21 @@ pub fn flatten_messages(msgs: &[Message]) -> String {
     out
 }
 
+const COMMAND_TAG_PREFIXES: [&str; 5] = [
+    "<command-name>",
+    "<command-message>",
+    "<command-args>",
+    "<local-command-stdout>",
+    "<local-command-caveat>",
+];
+
+pub fn is_command_tag_line(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    COMMAND_TAG_PREFIXES
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentId {
     Claude,
@@ -358,5 +373,15 @@ mod tests {
             },
         ];
         assert_eq!(flatten_messages(&msgs), "hi\nfixed\nlet x=1;");
+    }
+
+    #[test]
+    fn command_tag_line_detects_shared_internal_tags() {
+        assert!(is_command_tag_line("  <command-name>/clear</command-name>"));
+        assert!(is_command_tag_line("<local-command-stdout>done"));
+        assert!(!is_command_tag_line(
+            "<context>keep this user context</context>"
+        ));
+        assert!(!is_command_tag_line("regular command discussion"));
     }
 }

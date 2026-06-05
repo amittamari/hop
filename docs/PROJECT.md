@@ -59,7 +59,7 @@ Adapters are responsible for turning source-specific JSONL shapes into stable
 on raw Claude or Codex JSON. When multiple adapters need the same source-agnostic
 policy, keep that policy in `core` helpers and have adapters supply only their
 source-specific candidates. Examples include title fallback/normalization and
-transcript flattening.
+shared transcript text filtering/flattening.
 
 ## Quality Bar
 

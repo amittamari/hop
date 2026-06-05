@@ -1,6 +1,7 @@
-use crate::adapters::claude::{file_mtime_ms, parse_ts_secs};
-use crate::adapters::Adapter;
-use crate::core::{derive_session_title, AgentId, ScanEntry, Session, SessionId};
+use crate::adapters::{file_mtime_ms, parse_ts_secs, Adapter};
+use crate::core::{
+    derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
+};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -98,14 +99,6 @@ impl CodexAdapter {
     }
 }
 
-const COMMAND_PREFIXES: [&str; 5] = [
-    "<command-name>",
-    "<command-message>",
-    "<command-args>",
-    "<local-command-stdout>",
-    "<local-command-caveat>",
-];
-
 const DROP_XML_BLOCKS: [(&str, &str); 2] = [
     ("<environment_context", "</environment_context>"),
     ("<system-reminder", "</system-reminder>"),
@@ -140,7 +133,7 @@ fn clean_event_message(text: &str) -> Option<String> {
             continue;
         }
 
-        if COMMAND_PREFIXES.iter().any(|p| trimmed.starts_with(p)) {
+        if is_command_tag_line(trimmed) {
             continue;
         }
 

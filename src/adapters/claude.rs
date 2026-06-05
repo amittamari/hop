@@ -1,5 +1,7 @@
-use crate::adapters::Adapter;
-use crate::core::{derive_session_title, AgentId, ScanEntry, Session, SessionId};
+use crate::adapters::{file_mtime_ms, parse_ts_secs, Adapter};
+use crate::core::{
+    derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
+};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -52,14 +54,6 @@ struct Block {
     kind: String,
     text: Option<String>,
 }
-
-const COMMAND_PREFIXES: [&str; 5] = [
-    "<command-name>",
-    "<command-message>",
-    "<command-args>",
-    "<local-command-stdout>",
-    "<local-command-caveat>",
-];
 
 struct Extracted {
     messages: Vec<crate::core::Message>,
@@ -235,11 +229,7 @@ impl Adapter for ClaudeAdapter {
 fn extract_text(content: &Content, is_user: bool) -> Option<String> {
     match content {
         Content::Text(s) => {
-            if is_user
-                && COMMAND_PREFIXES
-                    .iter()
-                    .any(|p| s.trim_start().starts_with(p))
-            {
+            if is_user && is_command_tag_line(s) {
                 None
             } else {
                 Some(s.clone())
@@ -262,17 +252,4 @@ fn extract_text(content: &Content, is_user: bool) -> Option<String> {
 
 fn nonempty_text(s: Option<&str>) -> Option<&str> {
     s.map(str::trim).filter(|s| !s.is_empty())
-}
-
-pub(crate) fn parse_ts_secs(s: &str) -> Option<i64> {
-    let ts: jiff::Timestamp = s.parse().ok()?;
-    Some(ts.as_second())
-}
-
-pub(crate) fn file_mtime_ms(entry: &std::fs::DirEntry) -> Result<i64> {
-    let modified = entry.metadata()?.modified()?;
-    let dur = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    Ok(i64::try_from(dur.as_millis()).unwrap_or(i64::MAX))
 }

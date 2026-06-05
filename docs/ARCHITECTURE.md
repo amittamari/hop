@@ -38,7 +38,7 @@ TUI loop.
 
 - `src/core.rs`: shared domain types such as `Session`, `AgentId`, `Message`,
   `Block`, and source-agnostic helpers for title derivation, title
-  normalization, and transcript flattening.
+  normalization, transcript text filtering, and transcript flattening.
 - `src/adapters/`: source-specific integration. Adapters scan files, parse raw
   JSONL into `core` types, extract source-specific metadata candidates, provide
   preview transcripts, and build resume commands.
@@ -88,9 +88,9 @@ TUI loop.
 - **B-010 Core Derivation Boundary:** Source-specific parsing belongs in
   adapters, but cross-agent derivation policy belongs in `core`. If Claude and
   Codex need the same rule, such as title fallback order, title whitespace
-  normalization, or transcript flattening, prefer a shared core helper over
-  duplicating the policy in each adapter. Width-specific truncation remains a
-  rendering concern.
+  normalization, command-tag filtering, or transcript flattening, prefer a
+  shared core helper over duplicating the policy in each adapter. Width-specific
+  truncation remains a rendering concern.
 
 ## Current Invariants
 
