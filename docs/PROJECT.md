@@ -72,3 +72,6 @@ on raw Claude or Codex JSON.
 - `docs/specs/` contains dated design specs and may include historical decisions.
 - `docs/superpowers/plans/` contains execution plans. Treat them as history unless
   a current task explicitly says a plan is active.
+- `docs/reviews/` contains dated review artifacts and action-item source material.
+  Promote only durable rules into `docs/ARCHITECTURE.md`; leave temporary findings
+  in review docs or `Known Pressure Points` until resolved.

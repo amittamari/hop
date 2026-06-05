@@ -11,6 +11,7 @@ project knowledge belongs in `docs/`, and detailed historical plans stay under
 - User-facing usage: `README.md`
 - Historical design specs: `docs/specs/`
 - Existing implementation plans: `docs/superpowers/plans/`
+- Dated review/action artifacts: `docs/reviews/`
 
 ## What This Repo Builds
 
@@ -46,3 +47,9 @@ cargo run -- --rebuild
 Use docs as a map, not a manual. Add new docs only when they are stable enough to
 help the next agent avoid rediscovery. Prefer updating `docs/PROJECT.md` or
 `docs/ARCHITECTURE.md` before creating another top-level document.
+
+Architecture rules in `docs/ARCHITECTURE.md` use stable IDs. Do not renumber
+them casually; update or remove stale rules and pressure points when code changes
+make them obsolete. Current-state concerns that may be fixed later belong under
+`Known Pressure Points` or dated `docs/reviews/` artifacts, not in stable boundary
+or invariant language.

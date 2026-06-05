@@ -18,18 +18,20 @@ the original working directory.
     hop -a claude -d api      # filter by agent + directory
     hop --rebuild             # wipe and rebuild the index
 
-Keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo prompt · Ctrl+P toggle preview ·
-`[` / `]` resize preview · Ctrl+U/D scroll preview · Tab autocomplete · ? help · Esc quit.
+Default keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo prompt ·
+Ctrl+P toggle preview · `[` / `]` resize preview · Ctrl+U/D scroll preview ·
+Tab autocomplete · ? help · Esc quit.
 
 ## Columns
 
 Each result row is an aligned grid: `AGENT · REPO · BRANCH · TITLE · MSGS · PR · TIME`.
-The repo and branch come straight from the conversation data (Claude's `gitBranch`,
-Codex's `git.branch`/`repository_url`); the full directory path is shown in the preview
-header rather than as a column. Claude titles prefer the recorded `aiTitle`/summary
-when present, then fall back to the first real user prompt. The `PR` column is resolved
-in the background via the `gh` CLI and cached on disk, so it never blocks the UI (`⟳`
-while resolving, `—` if none).
+The branch comes from conversation data (Claude's `gitBranch`, Codex's
+`git.branch`). The repo label prefers Codex's `repository_url` when present, then
+falls back to the directory basename; the full directory path is shown in the
+preview header rather than as a column. Claude titles prefer the recorded
+`aiTitle`/summary when present, then fall back to the first real user prompt.
+The `PR` column is resolved in the background via the `gh` CLI and cached on
+disk, so it never blocks the UI (`⟳` while resolving, `—` if none).
 Narrow terminals drop columns by priority (PR → MSGS → TIME → BRANCH → REPO); the title
 always survives, but repo and branch get useful width before the title expands.
 
@@ -66,7 +68,7 @@ have zero-config defaults. The chosen preview width/visibility also persist acro
 restarts automatically.
 
 ```toml
-keymap = "search"   # default; or "modal" for a vim-style navigate mode (Esc to enter)
+keymap = "search"   # default; or "modal" for a vim-style navigate mode (Esc enters navigate)
 
 [preview]
 visible = true
@@ -84,5 +86,6 @@ but are reserved and not applied yet.
 ## Documentation
 
 For contributor and agent context, start with `AGENTS.md`, then read
-`docs/PROJECT.md` and `docs/ARCHITECTURE.md`. Dated specs and execution plans live
-under `docs/specs/` and `docs/superpowers/plans/`.
+`docs/PROJECT.md` and `docs/ARCHITECTURE.md`. Dated specs, review artifacts, and
+execution plans live under `docs/specs/`, `docs/reviews/`, and
+`docs/superpowers/plans/`.
