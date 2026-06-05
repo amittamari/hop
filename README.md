@@ -71,4 +71,14 @@ width_pct = 50
 
 [columns]
 disabled = []       # e.g. ["pr"] to turn off the background GitHub PR column
+order = []          # e.g. ["agent", "title", "time"]; unspecified columns follow
 ```
+
+`theme` and `[keybindings]` config tables are accepted for forward compatibility
+but are reserved and not applied yet.
+
+## Documentation
+
+For contributor and agent context, start with `AGENTS.md`, then read
+`docs/PROJECT.md` and `docs/ARCHITECTURE.md`. Dated specs and execution plans live
+under `docs/specs/` and `docs/superpowers/plans/`.
