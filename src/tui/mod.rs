@@ -1,3 +1,4 @@
+pub mod keymap;
 pub mod theme;
 pub mod view;
 
@@ -13,6 +14,14 @@ pub enum Action {
     Search,
     /// Resume the selected session.
     Resume { index: usize, yolo: bool },
+    /// Scroll the preview pane.
+    ScrollPreview(i16),
+    /// Grow/shrink the preview split (+1 grow, -1 shrink).
+    ResizePreview(i8),
+    /// Toggle preview visibility.
+    TogglePreview,
+    /// Toggle the help overlay.
+    Help,
 }
 
 #[derive(Debug, PartialEq, Eq)]

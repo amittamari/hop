@@ -90,6 +90,7 @@ fn run_tui(
                             }
                         }
                         Action::None => {}
+                        _ => {} // new variants handled in future tasks
                     }
                 }
             }
