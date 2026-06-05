@@ -1,3 +1,4 @@
+pub mod help;
 pub mod keymap;
 pub mod preview;
 pub mod results_list;
