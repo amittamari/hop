@@ -48,6 +48,25 @@ impl InteractionMode {
     }
 }
 
+/// What pressing Esc does in the current state. Single source of truth shared
+/// by the key handler and the footer hint so the two can never disagree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EscAction {
+    /// Exit the app.
+    Quit,
+    /// Step back from the query input into navigate mode (Modal keymap).
+    EnterNav,
+}
+
+impl EscAction {
+    pub fn hint(self) -> &'static str {
+        match self {
+            EscAction::Quit => "Esc quit",
+            EscAction::EnterNav => "Esc ↩ nav",
+        }
+    }
+}
+
 pub struct App {
     query: String,
     query_cursor: usize,
@@ -116,6 +135,15 @@ impl App {
             InteractionMode::Navigate
         } else {
             InteractionMode::Search
+        }
+    }
+    /// What Esc does right now. In the Modal keymap, Esc steps back from the
+    /// query input into navigate mode; everywhere else it quits.
+    pub fn esc_action(&self) -> EscAction {
+        if self.keymap == keymap::Preset::Modal && !self.navigate {
+            EscAction::EnterNav
+        } else {
+            EscAction::Quit
         }
     }
     pub fn yolo_modal(&self) -> Option<(usize, bool)> {
@@ -260,14 +288,13 @@ impl App {
         }
         // Main search handling.
         match key.code {
-            KeyCode::Esc => {
-                if self.keymap == keymap::Preset::Modal {
+            KeyCode::Esc => match self.esc_action() {
+                EscAction::EnterNav => {
                     self.navigate = true; // leave query → navigate
                     Action::None
-                } else {
-                    Action::Quit
                 }
-            }
+                EscAction::Quit => Action::Quit,
+            },
             KeyCode::Down => {
                 if !self.results.is_empty() {
                     self.selected = (self.selected + 1).min(self.results.len() - 1);
@@ -747,6 +774,26 @@ mod tests {
     fn search_preset_esc_still_quits() {
         let mut app = app_with(3); // default = search preset
         assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::Quit);
+    }
+
+    #[test]
+    fn esc_action_tracks_state_for_footer_hint() {
+        // Search preset: Esc quits, in both query and (n/a) states.
+        let app = app_with(3);
+        assert_eq!(app.esc_action(), EscAction::Quit);
+        assert_eq!(app.esc_action().hint(), "Esc quit");
+
+        // Modal preset, query focused: Esc steps back to nav.
+        let mut app = app_with(3);
+        app.set_keymap(keymap::Preset::Modal);
+        app.navigate = false;
+        assert_eq!(app.esc_action(), EscAction::EnterNav);
+        assert_eq!(app.esc_action().hint(), "Esc ↩ nav");
+
+        // Modal preset, nav focused: Esc quits.
+        app.navigate = true;
+        assert_eq!(app.esc_action(), EscAction::Quit);
+        assert_eq!(app.esc_action().hint(), "Esc quit");
     }
 
     #[test]

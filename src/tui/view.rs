@@ -1,7 +1,7 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::Enricher;
-use crate::tui::{help, results_list, theme, App, InteractionMode};
+use crate::tui::{help, results_list, theme, App, EscAction, InteractionMode};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -63,6 +63,20 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let pos = if total == 0 { 0 } else { app.selected() + 1 };
     let mode = app.interaction_mode();
     let prefix = format!("{} ❯ ", mode.label());
+    // The query input is "focused" only in Search mode; in Navigate the caret
+    // is hidden, so brighten the prompt + query when focused and dim it when
+    // parked to signal where keystrokes go.
+    let focused = mode == InteractionMode::Search;
+    let prompt_style = if focused {
+        Style::default().fg(theme::ACCENT)
+    } else {
+        Style::default().fg(theme::DIM)
+    };
+    let query_style = if focused {
+        Style::default().fg(theme::SELECTED_FG)
+    } else {
+        Style::default().fg(theme::DIM)
+    };
     let header = Line::from(vec![
         Span::styled(
             mode.label(),
@@ -70,8 +84,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                 .fg(theme::ACCENT)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::styled(" ❯ ", Style::default().fg(theme::DIM)),
-        Span::raw(app.query().to_string()),
+        Span::styled(" ❯ ", prompt_style),
+        Span::styled(app.query().to_string(), query_style),
         Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
@@ -188,7 +202,10 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // footer
     let footer = footer_help(app.interaction_mode());
-    f.render_widget(Paragraph::new(footer_line(footer, model.status)), chunks[2]);
+    f.render_widget(
+        Paragraph::new(footer_line(footer, app.esc_action(), model.status)),
+        chunks[2],
+    );
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
@@ -212,7 +229,7 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-fn footer_line(base: &str, status: &StatusLine) -> Line<'static> {
+fn footer_line(base: &str, esc: EscAction, status: &StatusLine) -> Line<'static> {
     let mut spans = Vec::new();
     let (label, rest) = base.split_once(" · ").unwrap_or((base, ""));
     spans.push(Span::styled(
@@ -227,6 +244,11 @@ fn footer_line(base: &str, status: &StatusLine) -> Line<'static> {
             Style::default().fg(theme::DIM),
         ));
     }
+    // Esc hint reflects the live behavior (quit vs. step back to nav).
+    spans.push(Span::styled(
+        format!(" · {}", esc.hint()),
+        Style::default().fg(theme::DIM),
+    ));
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {sync}"),
@@ -257,9 +279,11 @@ fn footer_line(base: &str, status: &StatusLine) -> Line<'static> {
 fn footer_help(mode: InteractionMode) -> &'static str {
     match mode {
         InteractionMode::Search => {
-            "SEARCH · type query · ↑↓ move · Enter resume · ? help · ` toggle keymap mode · Esc quit"
+            "SEARCH · type query · ↑↓ move · Enter resume · ? help · ` toggle keymap mode"
         }
-        InteractionMode::Navigate => "NAV · j/k move · / search · Enter resume · ? help · ` toggle keymap mode · Esc quit",
+        InteractionMode::Navigate => {
+            "NAV · j/k move · / search · Enter resume · ? help · ` toggle keymap mode"
+        }
     }
 }
 
