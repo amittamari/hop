@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use hop::adapters;
 use hop::cli::Cli;
-use hop::config::Config;
+use hop::config::{Config, UiState};
 use hop::core::Message;
 use hop::engine::{Engine, Update};
 use hop::enrich::gh_pr::GhPrEnricher;
@@ -24,6 +24,12 @@ fn enrich_cache_path() -> std::path::PathBuf {
     directories::ProjectDirs::from("dev", "hop", "hop")
         .map(|d| d.cache_dir().join("enrich").join("gh_pr.json"))
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-enrich.json"))
+}
+
+fn ui_state_path() -> std::path::PathBuf {
+    directories::ProjectDirs::from("dev", "hop", "hop")
+        .map(|d| d.cache_dir().join("ui_state.toml"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".hop-ui-state.toml"))
 }
 
 fn main() -> Result<()> {
@@ -54,8 +60,21 @@ fn main() -> Result<()> {
         None
     };
 
+    let ui_path = ui_state_path();
+    let init_preview = UiState::load(&ui_path)
+        .map(|u| (u.preview_visible, u.preview_width_pct))
+        .unwrap_or((config.preview.visible, config.preview.width_pct));
+
     // resume request escapes the TUI loop so we exec AFTER restoring the terminal
-    let pending = run_tui(&mut engine, updates, &fast_enrichers, service.as_ref(), &config)?;
+    let pending = run_tui(
+        &mut engine,
+        updates,
+        &fast_enrichers,
+        service.as_ref(),
+        &config,
+        init_preview,
+        ui_path,
+    )?;
 
     if let Some((session, yolo)) = pending {
         let agent = engine
@@ -75,12 +94,14 @@ fn run_tui(
     fast_enrichers: &[Box<dyn Enricher>],
     service: Option<&EnrichmentService>,
     config: &Config,
+    init_preview: (bool, u16),
+    ui_path: std::path::PathBuf,
 ) -> Result<Option<(hop::core::Session, bool)>> {
     let mut terminal = ratatui::init();
     let mut app = App::new();
     app.set_query(engine.query().to_string());
     app.set_keymap(hop::tui::keymap::Preset::from_str(&config.keymap));
-    app.set_preview(config.preview.visible, config.preview.width_pct);
+    app.set_preview(init_preview.0, init_preview.1);
     sync_results_into_app(engine, &mut app);
 
     // slow-enrichment state
@@ -184,6 +205,11 @@ fn run_tui(
     })();
 
     ratatui::restore();
+    let _ = UiState {
+        preview_visible: app.preview_visible(),
+        preview_width_pct: app.preview_width_pct(),
+    }
+    .save(&ui_path);
     outcome
 }
 

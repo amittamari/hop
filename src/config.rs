@@ -1,6 +1,6 @@
 use crate::core::AgentId;
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -96,6 +96,28 @@ impl Config {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiState {
+    pub preview_visible: bool,
+    pub preview_width_pct: u16,
+}
+
+impl UiState {
+    pub fn load(path: &std::path::Path) -> Option<UiState> {
+        let text = std::fs::read_to_string(path).ok()?;
+        toml::from_str(&text).ok()
+    }
+
+    pub fn save(&self, path: &std::path::Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let text = toml::to_string(self).context("serializing ui_state")?;
+        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,5 +173,16 @@ mod tests {
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
         assert!(cfg.columns.disabled.contains(&"pr".to_string()));
+    }
+
+    #[test]
+    fn ui_state_roundtrips() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = tmp.path().join("ui_state.toml");
+        UiState { preview_visible: false, preview_width_pct: 35 }.save(&p).unwrap();
+        let loaded = UiState::load(&p).unwrap();
+        assert!(!loaded.preview_visible);
+        assert_eq!(loaded.preview_width_pct, 35);
+        assert!(UiState::load(&tmp.path().join("absent.toml")).is_none());
     }
 }
