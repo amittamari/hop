@@ -20,7 +20,9 @@ impl Enricher for GhPrEnricher {
             return None;
         }
         let num = gh_pr_number(branch, s.repo_url.as_deref(), &s.directory)?;
-        Some(EnrichValue { text: format!("#{num}") })
+        Some(EnrichValue {
+            text: format!("#{num}"),
+        })
     }
     fn cache_key(&self, s: &Session) -> String {
         let repo = s
@@ -40,7 +42,9 @@ impl Enricher for GhPrEnricher {
 fn gh_pr_number(branch: &str, repo_url: Option<&str>, dir: &str) -> Option<u64> {
     use std::process::Command;
     let mut cmd = Command::new("gh");
-    cmd.args(["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", "number"]);
+    cmd.args([
+        "pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", "number",
+    ]);
     if let Some(slug) = repo_url.and_then(owner_repo_from_url) {
         cmd.args(["--repo", &slug]);
     } else if !dir.is_empty() {
@@ -92,21 +96,41 @@ mod tests {
 
     #[test]
     fn owner_repo_extraction() {
-        assert_eq!(owner_repo_from_url("git@github.com:me/web.git").as_deref(), Some("me/web"));
-        assert_eq!(owner_repo_from_url("https://github.com/me/web").as_deref(), Some("me/web"));
+        assert_eq!(
+            owner_repo_from_url("git@github.com:me/web.git").as_deref(),
+            Some("me/web")
+        );
+        assert_eq!(
+            owner_repo_from_url("https://github.com/me/web").as_deref(),
+            Some("me/web")
+        );
         assert_eq!(owner_repo_from_url("file:///tmp/x"), None);
-        assert_eq!(owner_repo_from_url("https://github.com/owner/repo/tree/main").as_deref(), Some("owner/repo"));
-        assert_eq!(owner_repo_from_url("https://notgithub.com/owner/repo"), None);
+        assert_eq!(
+            owner_repo_from_url("https://github.com/owner/repo/tree/main").as_deref(),
+            Some("owner/repo")
+        );
+        assert_eq!(
+            owner_repo_from_url("https://notgithub.com/owner/repo"),
+            None
+        );
     }
 
     #[test]
     fn skips_default_branches() {
         use crate::core::{AgentId, Session};
         let s = Session {
-            id: "a".into(), agent: AgentId::Claude, title: "t".into(),
-            directory: "/w".into(), timestamp: 1, content: String::new(),
-            message_count: 0, mtime: 0, yolo: false,
-            branch: Some("main".into()), repo_url: None,
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "t".into(),
+            directory: "/w".into(),
+            timestamp: 1,
+            content: String::new(),
+            message_count: 0,
+            mtime: 0,
+            yolo: false,
+            branch: Some("main".into()),
+            repo_url: None,
+            source_path: None,
         };
         assert_eq!(GhPrEnricher.resolve(&s), None);
     }

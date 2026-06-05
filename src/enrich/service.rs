@@ -18,7 +18,7 @@ pub struct EnrichRequest {
 }
 
 pub struct EnrichResult {
-    pub session_id: String,
+    pub session_key: String,
     pub enricher: &'static str,
     /// None = resolved-but-absent (render as "—"); Some = a value.
     pub value: Option<EnrichValue>,
@@ -31,7 +31,10 @@ struct CacheFile {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Pure cache-hit check used by the worker and by tests.
@@ -56,10 +59,7 @@ pub struct EnrichmentService {
 impl EnrichmentService {
     /// Spawn the worker. `enrichers` are the slow ones to service; `cache_path`
     /// is the JSON cache file (created/loaded lazily).
-    pub fn spawn(
-        enrichers: Vec<Box<dyn Enricher>>,
-        cache_path: PathBuf,
-    ) -> EnrichmentService {
+    pub fn spawn(enrichers: Vec<Box<dyn Enricher>>, cache_path: PathBuf) -> EnrichmentService {
         let (req_tx, req_rx) = std::sync::mpsc::channel::<EnrichRequest>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<EnrichResult>();
         let handle = std::thread::spawn(move || {
@@ -71,7 +71,7 @@ impl EnrichmentService {
             while let Ok(req) = req_rx.recv() {
                 let Some(enr) = enrichers.iter().find(|e| e.id() == req.enricher) else {
                     let _ = res_tx.send(EnrichResult {
-                        session_id: req.session.id.clone(),
+                        session_key: req.session.document_key(),
                         enricher: req.enricher,
                         value: None,
                     });
@@ -85,7 +85,13 @@ impl EnrichmentService {
                         let resolved = enr.resolve(&req.session);
                         cache.entries.insert(
                             key.clone(),
-                            (resolved.as_ref().map(|v| v.text.clone()).unwrap_or_default(), now_secs()),
+                            (
+                                resolved
+                                    .as_ref()
+                                    .map(|v| v.text.clone())
+                                    .unwrap_or_default(),
+                                now_secs(),
+                            ),
                         );
                         if let Some(parent) = cache_path.parent() {
                             let _ = std::fs::create_dir_all(parent);
@@ -97,13 +103,17 @@ impl EnrichmentService {
                     }
                 };
                 let _ = res_tx.send(EnrichResult {
-                    session_id: req.session.id.clone(),
+                    session_key: req.session.document_key(),
                     enricher: req.enricher,
                     value,
                 });
             }
         });
-        EnrichmentService { req_tx, res_rx, _handle: handle }
+        EnrichmentService {
+            req_tx,
+            res_rx,
+            _handle: handle,
+        }
     }
 }
 
@@ -116,20 +126,39 @@ mod tests {
 
     struct FakeEnricher;
     impl Enricher for FakeEnricher {
-        fn id(&self) -> &'static str { "fake" }
-        fn kind(&self) -> EnrichKind { EnrichKind::Slow }
-        fn resolve(&self, s: &Session) -> Option<EnrichValue> {
-            Some(EnrichValue { text: format!("v:{}", s.id) })
+        fn id(&self) -> &'static str {
+            "fake"
         }
-        fn cache_key(&self, s: &Session) -> String { s.id.clone() }
-        fn ttl(&self) -> Duration { Duration::from_secs(3600) }
+        fn kind(&self) -> EnrichKind {
+            EnrichKind::Slow
+        }
+        fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+            Some(EnrichValue {
+                text: format!("v:{}", s.id),
+            })
+        }
+        fn cache_key(&self, s: &Session) -> String {
+            s.id.clone()
+        }
+        fn ttl(&self) -> Duration {
+            Duration::from_secs(3600)
+        }
     }
 
     fn sess(id: &str) -> Session {
         Session {
-            id: id.into(), agent: AgentId::Claude, title: "t".into(),
-            directory: "/w".into(), timestamp: 1, content: String::new(),
-            message_count: 0, mtime: 0, yolo: false, branch: None, repo_url: None,
+            id: id.into(),
+            agent: AgentId::Claude,
+            title: "t".into(),
+            directory: "/w".into(),
+            timestamp: 1,
+            content: String::new(),
+            message_count: 0,
+            mtime: 0,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
         }
     }
 
@@ -138,9 +167,14 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("gh_pr.json");
         let svc = EnrichmentService::spawn(vec![Box::new(FakeEnricher)], cache.clone());
-        svc.req_tx.send(EnrichRequest { session: sess("a"), enricher: "fake" }).unwrap();
+        svc.req_tx
+            .send(EnrichRequest {
+                session: sess("a"),
+                enricher: "fake",
+            })
+            .unwrap();
         let r = svc.res_rx.recv_timeout(Duration::from_secs(2)).unwrap();
-        assert_eq!(r.session_id, "a");
+        assert_eq!(r.session_key, "claude:a");
         assert_eq!(r.value.unwrap().text, "v:a");
         // cache file written
         assert!(cache.exists());

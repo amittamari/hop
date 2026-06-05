@@ -22,14 +22,93 @@ pub struct Column {
 /// The default v1 column set (directory intentionally absent).
 pub fn default_columns() -> Vec<Column> {
     vec![
-        Column { id: "agent",  header: "",       align: Align::Left,  priority: u8::MAX, min_width: 6,  flex: false },
-        Column { id: "repo",   header: "REPO",   align: Align::Left,  priority: 30,      min_width: 8,  flex: false },
-        Column { id: "branch", header: "BRANCH", align: Align::Left,  priority: 40,      min_width: 10, flex: false },
-        Column { id: "title",  header: "TITLE",  align: Align::Left,  priority: u8::MAX, min_width: 12, flex: true  },
-        Column { id: "msgs",   header: "MSGS",   align: Align::Right, priority: 10,      min_width: 4,  flex: false },
-        Column { id: "pr",     header: "PR",     align: Align::Left,  priority: 50,      min_width: 5,  flex: false },
-        Column { id: "time",   header: "TIME",   align: Align::Right, priority: 20,      min_width: 4,  flex: false },
+        Column {
+            id: "agent",
+            header: "",
+            align: Align::Left,
+            priority: u8::MAX,
+            min_width: 6,
+            flex: false,
+        },
+        Column {
+            id: "repo",
+            header: "REPO",
+            align: Align::Left,
+            priority: 30,
+            min_width: 8,
+            flex: false,
+        },
+        Column {
+            id: "branch",
+            header: "BRANCH",
+            align: Align::Left,
+            priority: 40,
+            min_width: 10,
+            flex: false,
+        },
+        Column {
+            id: "title",
+            header: "TITLE",
+            align: Align::Left,
+            priority: u8::MAX,
+            min_width: 12,
+            flex: true,
+        },
+        Column {
+            id: "msgs",
+            header: "MSGS",
+            align: Align::Right,
+            priority: 10,
+            min_width: 4,
+            flex: false,
+        },
+        Column {
+            id: "pr",
+            header: "PR",
+            align: Align::Left,
+            priority: 50,
+            min_width: 5,
+            flex: false,
+        },
+        Column {
+            id: "time",
+            header: "TIME",
+            align: Align::Right,
+            priority: 20,
+            min_width: 4,
+            flex: false,
+        },
     ]
+}
+
+/// Apply user column preferences to a default column list.
+///
+/// Unknown ids are ignored. Ordered ids are emitted first, then the remaining
+/// enabled columns keep their default relative order.
+pub fn configured_columns(
+    columns: Vec<Column>,
+    disabled: &[String],
+    order: &[String],
+) -> Vec<Column> {
+    let enabled = |id: &str| !disabled.iter().any(|d| d == id);
+    let mut out = Vec::new();
+
+    for id in order {
+        if !enabled(id) || out.iter().any(|c: &Column| c.id == id) {
+            continue;
+        }
+        if let Some(col) = columns.iter().find(|c| c.id == id) {
+            out.push(col.clone());
+        }
+    }
+
+    for col in columns {
+        if enabled(col.id) && !out.iter().any(|c| c.id == col.id) {
+            out.push(col);
+        }
+    }
+
+    out
 }
 
 const GAP: u16 = 1;
@@ -127,8 +206,15 @@ mod tests {
     fn flex_column_absorbs_extra_width() {
         let cols = default_columns();
         let layout = solve_layout(&cols, 200);
-        let title_w = layout.iter().find(|&&(i, _)| cols[i].id == "title").unwrap().1;
-        assert!(title_w > 12, "title should grow past its min on a wide pane");
+        let title_w = layout
+            .iter()
+            .find(|&&(i, _)| cols[i].id == "title")
+            .unwrap()
+            .1;
+        assert!(
+            title_w > 12,
+            "title should grow past its min on a wide pane"
+        );
     }
 
     #[test]
@@ -136,5 +222,20 @@ mod tests {
         assert_eq!(fit("ab", 4, Align::Left), "ab  ");
         assert_eq!(fit("ab", 4, Align::Right), "  ab");
         assert_eq!(fit("abcdef", 4, Align::Left), "abc…");
+    }
+
+    #[test]
+    fn configured_columns_orders_and_disables() {
+        let disabled = vec!["pr".to_string()];
+        let order = vec![
+            "time".to_string(),
+            "title".to_string(),
+            "missing".to_string(),
+        ];
+        let cols = configured_columns(default_columns(), &disabled, &order);
+        let ids: Vec<&str> = cols.iter().map(|c| c.id).collect();
+        assert_eq!(ids[0..2], ["time", "title"]);
+        assert!(!ids.contains(&"pr"));
+        assert!(ids.contains(&"agent"));
     }
 }

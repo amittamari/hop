@@ -29,7 +29,10 @@ pub fn chord_action(key: &KeyEvent) -> Option<Action> {
         (KeyCode::Char('p'), true) => Some(Action::TogglePreview),
         (KeyCode::Char('u'), true) => Some(Action::ScrollPreview(-8)),
         (KeyCode::Char('d'), true) => Some(Action::ScrollPreview(8)),
-        (KeyCode::Char('y'), true) => Some(Action::Resume { index: 0, yolo: true }), // index filled by App
+        (KeyCode::Char('y'), true) => Some(Action::Resume {
+            index: 0,
+            yolo: true,
+        }), // index filled by App
         (KeyCode::Char('['), false) => Some(Action::ResizePreview(-1)),
         (KeyCode::Char(']'), false) => Some(Action::ResizePreview(1)),
         (KeyCode::Char('?'), false) => Some(Action::Help),
@@ -52,14 +55,23 @@ mod tests {
     fn ctrl_chords_map() {
         assert_eq!(chord_action(&ctrl('p')), Some(Action::TogglePreview));
         assert!(matches!(chord_action(&ctrl('u')), Some(Action::ScrollPreview(n)) if n < 0));
-        assert!(matches!(chord_action(&ctrl('y')), Some(Action::Resume { yolo: true, .. })));
+        assert!(matches!(
+            chord_action(&ctrl('y')),
+            Some(Action::Resume { yolo: true, .. })
+        ));
         assert_eq!(chord_action(&ctrl('c')), Some(Action::Quit));
     }
 
     #[test]
     fn bracket_resizes_and_question_helps() {
-        assert_eq!(chord_action(&plain(KeyCode::Char('['))), Some(Action::ResizePreview(-1)));
-        assert_eq!(chord_action(&plain(KeyCode::Char(']'))), Some(Action::ResizePreview(1)));
+        assert_eq!(
+            chord_action(&plain(KeyCode::Char('['))),
+            Some(Action::ResizePreview(-1))
+        );
+        assert_eq!(
+            chord_action(&plain(KeyCode::Char(']'))),
+            Some(Action::ResizePreview(1))
+        );
         assert_eq!(chord_action(&plain(KeyCode::Char('?'))), Some(Action::Help));
     }
 

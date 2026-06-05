@@ -12,12 +12,19 @@ pub struct PreviewConfig {
     pub width_pct: u16,
 }
 
-fn default_true() -> bool { true }
-fn default_width_pct() -> u16 { 50 }
+fn default_true() -> bool {
+    true
+}
+fn default_width_pct() -> u16 {
+    50
+}
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        PreviewConfig { visible: true, width_pct: 50 }
+        PreviewConfig {
+            visible: true,
+            width_pct: 50,
+        }
     }
 }
 
@@ -30,7 +37,9 @@ pub struct ColumnsConfig {
     pub order: Vec<String>,
 }
 
-fn default_keymap() -> String { "search".to_string() }
+fn default_keymap() -> String {
+    "search".to_string()
+}
 
 #[derive(Debug, Deserialize)]
 pub struct Config {
@@ -128,7 +137,10 @@ mod tests {
         let cfg = Config::default();
         // Claude default ends in .claude/projects, Codex default ends in .codex
         assert!(cfg.data_dir(AgentId::Claude).ends_with("projects"));
-        assert!(cfg.data_dir(AgentId::Codex).to_string_lossy().contains(".codex"));
+        assert!(cfg
+            .data_dir(AgentId::Codex)
+            .to_string_lossy()
+            .contains(".codex"));
     }
 
     #[test]
@@ -138,9 +150,15 @@ mod tests {
             claude = "/custom/claude"
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
-        assert_eq!(cfg.data_dir(AgentId::Claude), std::path::PathBuf::from("/custom/claude"));
+        assert_eq!(
+            cfg.data_dir(AgentId::Claude),
+            std::path::PathBuf::from("/custom/claude")
+        );
         // unset agent falls back to default
-        assert!(cfg.data_dir(AgentId::Codex).to_string_lossy().contains(".codex"));
+        assert!(cfg
+            .data_dir(AgentId::Codex)
+            .to_string_lossy()
+            .contains(".codex"));
     }
 
     #[test]
@@ -179,7 +197,12 @@ mod tests {
     fn ui_state_roundtrips() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("ui_state.toml");
-        UiState { preview_visible: false, preview_width_pct: 35 }.save(&p).unwrap();
+        UiState {
+            preview_visible: false,
+            preview_width_pct: 35,
+        }
+        .save(&p)
+        .unwrap();
         let loaded = UiState::load(&p).unwrap();
         assert!(!loaded.preview_visible);
         assert_eq!(loaded.preview_width_pct, 35);

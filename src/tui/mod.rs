@@ -16,7 +16,10 @@ pub enum Action {
     /// Query changed; the loop should (debounced) re-search.
     Search,
     /// Resume the selected session.
-    Resume { index: usize, yolo: bool },
+    Resume {
+        index: usize,
+        yolo: bool,
+    },
     /// Scroll the preview pane.
     ScrollPreview(i16),
     /// Grow/shrink the preview split (+1 grow, -1 shrink).
@@ -31,7 +34,10 @@ pub enum Action {
 enum Mode {
     Main,
     /// Yolo confirmation for the pending session index; `yolo` is the toggle.
-    YoloModal { index: usize, yolo: bool },
+    YoloModal {
+        index: usize,
+        yolo: bool,
+    },
 }
 
 pub struct App {
@@ -83,9 +89,17 @@ impl App {
     }
 
     pub fn set_results(&mut self, results: Vec<Session>) {
-        // mark which rows support yolo (test default: Claude/Codex both do)
-        self.yolo_supported = results.iter().map(|_| true).collect();
+        self.yolo_supported = results.iter().map(|_| false).collect();
         self.results = results;
+        if self.selected >= self.results.len() {
+            self.selected = self.results.len().saturating_sub(1);
+        }
+    }
+
+    pub fn set_results_with_yolo(&mut self, results: Vec<Session>, yolo_supported: Vec<bool>) {
+        self.yolo_supported = yolo_supported;
+        self.results = results;
+        self.yolo_supported.resize(self.results.len(), false);
         if self.selected >= self.results.len() {
             self.selected = self.results.len().saturating_sub(1);
         }
@@ -103,12 +117,24 @@ impl App {
         };
     }
 
-    pub fn preview_visible(&self) -> bool { self.preview_visible }
-    pub fn preview_width_pct(&self) -> u16 { self.preview_width_pct }
-    pub fn preview_scroll(&self) -> u16 { self.preview_scroll }
-    pub fn help_open(&self) -> bool { self.help_open }
-    pub fn keymap_preset(&self) -> keymap::Preset { self.keymap }
-    pub fn set_keymap(&mut self, p: keymap::Preset) { self.keymap = p; }
+    pub fn preview_visible(&self) -> bool {
+        self.preview_visible
+    }
+    pub fn preview_width_pct(&self) -> u16 {
+        self.preview_width_pct
+    }
+    pub fn preview_scroll(&self) -> u16 {
+        self.preview_scroll
+    }
+    pub fn help_open(&self) -> bool {
+        self.help_open
+    }
+    pub fn keymap_preset(&self) -> keymap::Preset {
+        self.keymap
+    }
+    pub fn set_keymap(&mut self, p: keymap::Preset) {
+        self.keymap = p;
+    }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
         self.preview_width_pct = width_pct.clamp(20, 80);
@@ -132,9 +158,18 @@ impl App {
         // Yolo confirmation modal.
         if let Mode::YoloModal { index, yolo } = self.mode {
             return match key.code {
-                KeyCode::Esc => { self.mode = Mode::Main; Action::None }
-                KeyCode::Tab => { self.mode = Mode::YoloModal { index, yolo: !yolo }; Action::None }
-                KeyCode::Enter => { self.mode = Mode::Main; Action::Resume { index, yolo } }
+                KeyCode::Esc => {
+                    self.mode = Mode::Main;
+                    Action::None
+                }
+                KeyCode::Tab => {
+                    self.mode = Mode::YoloModal { index, yolo: !yolo };
+                    Action::None
+                }
+                KeyCode::Enter => {
+                    self.mode = Mode::Main;
+                    Action::Resume { index, yolo }
+                }
                 _ => Action::None,
             };
         }
@@ -225,10 +260,19 @@ impl App {
                 self.preview_scroll = next.max(0) as u16;
                 Action::None
             }
-            Action::Help => { self.help_open = true; Action::None }
+            Action::Help => {
+                self.help_open = true;
+                Action::None
+            }
             Action::Resume { yolo, .. } => {
-                if self.results.is_empty() { Action::None }
-                else { Action::Resume { index: self.selected, yolo } }
+                if self.results.is_empty() {
+                    Action::None
+                } else {
+                    Action::Resume {
+                        index: self.selected,
+                        yolo,
+                    }
+                }
             }
             other => other,
         }
@@ -285,13 +329,22 @@ impl App {
         let idx = self.selected;
         let supports = self.yolo_supported.get(idx).copied().unwrap_or(false);
         if force_yolo {
-            return Action::Resume { index: idx, yolo: true };
+            return Action::Resume {
+                index: idx,
+                yolo: true,
+            };
         }
         if supports {
-            self.mode = Mode::YoloModal { index: idx, yolo: false };
+            self.mode = Mode::YoloModal {
+                index: idx,
+                yolo: false,
+            };
             Action::None
         } else {
-            Action::Resume { index: idx, yolo: false }
+            Action::Resume {
+                index: idx,
+                yolo: false,
+            }
         }
     }
 }
@@ -314,16 +367,25 @@ mod tests {
 
     fn sess(id: &str) -> Session {
         Session {
-            id: id.into(), agent: AgentId::Claude, title: id.into(),
-            directory: "/d".into(), timestamp: 1, content: String::new(),
-            message_count: 0, mtime: 0, yolo: false,
-            branch: None, repo_url: None,
+            id: id.into(),
+            agent: AgentId::Claude,
+            title: id.into(),
+            directory: "/d".into(),
+            timestamp: 1,
+            content: String::new(),
+            message_count: 0,
+            mtime: 0,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
         }
     }
 
     fn app_with(n: usize) -> App {
         let mut app = App::new();
         app.set_results((0..n).map(|i| sess(&format!("s{i}"))).collect());
+        app.set_yolo_supported((0..n).map(|_| true).collect());
         app
     }
 
@@ -417,7 +479,10 @@ mod tests {
         let mut app = app_with(2);
         app.handle_key(key(KeyCode::Down)); // select index 1
         match app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)) {
-            Action::Resume { index, yolo } => { assert_eq!(index, 1); assert!(yolo); }
+            Action::Resume { index, yolo } => {
+                assert_eq!(index, 1);
+                assert!(yolo);
+            }
             other => panic!("expected yolo resume, got {other:?}"),
         }
     }

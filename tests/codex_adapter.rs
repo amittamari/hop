@@ -61,7 +61,8 @@ fn scan_keys_by_full_uuid() {
 fn codex_captures_branch_and_repo_url() {
     use hop::adapters::codex::CodexAdapter;
     use hop::adapters::Adapter;
-    let path = std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
+    let path =
+        std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
     let a = CodexAdapter::new(std::path::PathBuf::from("/unused"));
     let s = a.parse(path).unwrap();
     assert_eq!(s.branch.as_deref(), Some("main"));
@@ -73,7 +74,8 @@ fn codex_transcript_roles_and_filters_internals() {
     use hop::adapters::codex::CodexAdapter;
     use hop::adapters::Adapter;
     use hop::core::Role;
-    let path = std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
+    let path =
+        std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
     let a = CodexAdapter::new(std::path::PathBuf::from("/unused"));
     let msgs = a.transcript(path).unwrap();
     // only the user_message + agent_message survive; response_item/function_call/token_count dropped

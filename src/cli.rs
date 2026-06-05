@@ -1,7 +1,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(name = "hop", version, about = "Search and resume coding-agent sessions")]
+#[command(
+    name = "hop",
+    version,
+    about = "Search and resume coding-agent sessions"
+)]
 pub struct Cli {
     /// Pre-fill the search query.
     pub query: Option<String>,

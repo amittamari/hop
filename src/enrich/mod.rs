@@ -35,7 +35,7 @@ pub trait Enricher: Send + Sync {
     }
 }
 
-/// Branch: from `Session.branch`, falling back to `.git/HEAD` of the directory.
+/// Branch: from indexed session metadata.
 pub struct BranchEnricher;
 
 impl Enricher for BranchEnricher {
@@ -46,22 +46,9 @@ impl Enricher for BranchEnricher {
         EnrichKind::Fast
     }
     fn resolve(&self, s: &Session) -> Option<EnrichValue> {
-        let b = s
-            .branch
-            .clone()
-            .or_else(|| branch_from_git_head(&s.directory))?;
+        let b = s.branch.clone()?;
         Some(EnrichValue { text: b })
     }
-}
-
-fn branch_from_git_head(dir: &str) -> Option<String> {
-    if dir.is_empty() {
-        return None;
-    }
-    let head = std::fs::read_to_string(Path::new(dir).join(".git").join("HEAD")).ok()?;
-    head.trim()
-        .strip_prefix("ref: refs/heads/")
-        .map(|s| s.to_string())
 }
 
 /// Repo: `repo_url` basename when present, else the directory basename.
@@ -80,7 +67,10 @@ impl Enricher for RepoEnricher {
                 return Some(EnrichValue { text: name });
             }
         }
-        let base = Path::new(&s.directory).file_name()?.to_string_lossy().to_string();
+        let base = Path::new(&s.directory)
+            .file_name()?
+            .to_string_lossy()
+            .to_string();
         if base.is_empty() {
             None
         } else {
@@ -107,32 +97,54 @@ mod tests {
 
     fn sess(branch: Option<&str>, repo_url: Option<&str>, dir: &str) -> Session {
         Session {
-            id: "a".into(), agent: AgentId::Claude, title: "t".into(),
-            directory: dir.into(), timestamp: 1, content: String::new(),
-            message_count: 0, mtime: 0, yolo: false,
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "t".into(),
+            directory: dir.into(),
+            timestamp: 1,
+            content: String::new(),
+            message_count: 0,
+            mtime: 0,
+            yolo: false,
             branch: branch.map(|s| s.to_string()),
             repo_url: repo_url.map(|s| s.to_string()),
+            source_path: None,
         }
     }
 
     #[test]
     fn branch_from_data() {
         assert_eq!(
-            BranchEnricher.resolve(&sess(Some("feat/x"), None, "/w")).unwrap().text,
+            BranchEnricher
+                .resolve(&sess(Some("feat/x"), None, "/w"))
+                .unwrap()
+                .text,
             "feat/x"
         );
     }
 
     #[test]
     fn repo_from_url_then_dir() {
-        assert_eq!(repo_name_from_url("git@github.com:me/web.git").as_deref(), Some("web"));
-        assert_eq!(repo_name_from_url("https://github.com/me/web").as_deref(), Some("web"));
         assert_eq!(
-            RepoEnricher.resolve(&sess(None, Some("git@github.com:me/web.git"), "/a/b")).unwrap().text,
+            repo_name_from_url("git@github.com:me/web.git").as_deref(),
+            Some("web")
+        );
+        assert_eq!(
+            repo_name_from_url("https://github.com/me/web").as_deref(),
+            Some("web")
+        );
+        assert_eq!(
+            RepoEnricher
+                .resolve(&sess(None, Some("git@github.com:me/web.git"), "/a/b"))
+                .unwrap()
+                .text,
             "web"
         );
         assert_eq!(
-            RepoEnricher.resolve(&sess(None, None, "/a/myproj")).unwrap().text,
+            RepoEnricher
+                .resolve(&sess(None, None, "/a/myproj"))
+                .unwrap()
+                .text,
             "myproj"
         );
     }

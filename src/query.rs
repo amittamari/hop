@@ -156,7 +156,10 @@ fn complete_value(partial: &str, candidates: &[&str]) -> Option<String> {
     if partial.is_empty() {
         return None;
     }
-    let matches: Vec<&&str> = candidates.iter().filter(|c| c.starts_with(partial)).collect();
+    let matches: Vec<&&str> = candidates
+        .iter()
+        .filter(|c| c.starts_with(partial))
+        .collect();
     // Only complete when unambiguous and not already complete.
     match matches.as_slice() {
         [only] if **only != partial => Some((**only).to_string()),
@@ -209,7 +212,10 @@ mod tests {
         assert_eq!(parse("date:month").date, Some(DateFilter::LastMonth));
         assert_eq!(parse("date:<1h").date, Some(DateFilter::Within(3600)));
         assert_eq!(parse("date:<2d").date, Some(DateFilter::Within(2 * 86400)));
-        assert_eq!(parse("date:>1w").date, Some(DateFilter::OlderThan(7 * 86400)));
+        assert_eq!(
+            parse("date:>1w").date,
+            Some(DateFilter::OlderThan(7 * 86400))
+        );
     }
 
     #[test]
@@ -220,14 +226,23 @@ mod tests {
             DateFilter::Yesterday.range(now),
             (Some(now - 2 * 86400), Some(now - 86400))
         );
-        assert_eq!(DateFilter::Within(3600).range(now), (Some(now - 3600), Some(now)));
-        assert_eq!(DateFilter::OlderThan(3600).range(now), (None, Some(now - 3600)));
+        assert_eq!(
+            DateFilter::Within(3600).range(now),
+            (Some(now - 3600), Some(now))
+        );
+        assert_eq!(
+            DateFilter::OlderThan(3600).range(now),
+            (None, Some(now - 3600))
+        );
     }
 
     #[test]
     fn autocomplete_agent_value() {
         assert_eq!(autocomplete("agent:cl").as_deref(), Some("agent:claude"));
-        assert_eq!(autocomplete("bug agent:co").as_deref(), Some("bug agent:codex"));
+        assert_eq!(
+            autocomplete("bug agent:co").as_deref(),
+            Some("bug agent:codex")
+        );
         // already complete -> no suggestion
         assert_eq!(autocomplete("agent:claude"), None);
         // free text -> no suggestion

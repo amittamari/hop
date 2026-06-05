@@ -70,8 +70,8 @@ struct Extracted {
 impl ClaudeAdapter {
     fn extract(&self, path: &Path) -> Result<Extracted> {
         use crate::core::{split_blocks, Message, Role};
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut directory = String::new();
         let mut branch: Option<String> = None;
         let mut first_ts: Option<i64> = None;
@@ -125,7 +125,12 @@ impl ClaudeAdapter {
                 blocks,
             });
         }
-        Ok(Extracted { messages, directory, branch, first_ts })
+        Ok(Extracted {
+            messages,
+            directory,
+            branch,
+            first_ts,
+        })
     }
 }
 
@@ -176,10 +181,12 @@ impl Adapter for ClaudeAdapter {
             .messages
             .iter()
             .find(|m| m.role == Role::User)
-            .and_then(|m| m.blocks.iter().find_map(|b| match b {
-                crate::core::Block::Prose(s) => Some(s.as_str()),
-                _ => None,
-            }))
+            .and_then(|m| {
+                m.blocks.iter().find_map(|b| match b {
+                    crate::core::Block::Prose(s) => Some(s.as_str()),
+                    _ => None,
+                })
+            })
             .map(|t| truncate_title(t, TITLE_MAX))
             .unwrap_or_else(|| "(untitled)".to_string());
         let content = flatten_messages(&ex.messages);
@@ -195,6 +202,7 @@ impl Adapter for ClaudeAdapter {
             yolo: false,
             branch: ex.branch,
             repo_url: None,
+            source_path: Some(path.to_path_buf()),
         })
     }
 
@@ -225,7 +233,11 @@ impl Adapter for ClaudeAdapter {
 fn extract_text(content: &Content, is_user: bool) -> Option<String> {
     match content {
         Content::Text(s) => {
-            if is_user && COMMAND_PREFIXES.iter().any(|p| s.trim_start().starts_with(p)) {
+            if is_user
+                && COMMAND_PREFIXES
+                    .iter()
+                    .any(|p| s.trim_start().starts_with(p))
+            {
                 None
             } else {
                 Some(s.clone())

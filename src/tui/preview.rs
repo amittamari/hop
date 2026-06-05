@@ -100,7 +100,10 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
                 }
             }
             Event::Code(t) => {
-                spans.push(Span::styled(t.to_string(), Style::default().fg(Color::Yellow)));
+                spans.push(Span::styled(
+                    t.to_string(),
+                    Style::default().fg(Color::Yellow),
+                ));
             }
             Event::Text(t) => {
                 let mut style = Style::default();
@@ -153,7 +156,9 @@ pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<L
                     Span::styled("● ", Style::default().fg(theme::agent_color(agent))),
                     Span::styled(
                         agent.badge(),
-                        Style::default().fg(theme::agent_color(agent)).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(theme::agent_color(agent))
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ]));
                 for b in &m.blocks {
@@ -241,7 +246,12 @@ pub fn first_match_line(lines: &[Line<'static>], query: &str) -> Option<usize> {
         return None;
     }
     lines.iter().position(|l| {
-        let text: String = l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().to_lowercase();
+        let text: String = l
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect::<String>()
+            .to_lowercase();
         terms.iter().any(|t| text.contains(t.as_str()))
     })
 }
@@ -253,20 +263,36 @@ mod tests {
 
     fn msgs() -> Vec<Message> {
         vec![
-            Message { role: Role::User, blocks: vec![Block::Prose("fix the auth bug".into())] },
-            Message { role: Role::Agent, blocks: vec![
-                Block::Prose("the refresh token dropped".into()),
-                Block::Code { lang: Some("rust".into()), text: "fn refresh() {}".into() },
-            ]},
+            Message {
+                role: Role::User,
+                blocks: vec![Block::Prose("fix the auth bug".into())],
+            },
+            Message {
+                role: Role::Agent,
+                blocks: vec![
+                    Block::Prose("the refresh token dropped".into()),
+                    Block::Code {
+                        lang: Some("rust".into()),
+                        text: "fn refresh() {}".into(),
+                    },
+                ],
+            },
         ]
     }
 
     #[test]
     fn transcript_has_role_prefixes() {
         let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude);
-        let joined: String = lines.iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
-            .collect::<Vec<_>>().join("\n");
+        let joined: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(joined.contains("› fix the auth bug"));
         assert!(joined.contains("● CLAUDE"));
         assert!(joined.contains("fn refresh"));
@@ -282,8 +308,12 @@ mod tests {
     #[test]
     fn match_terms_highlighted() {
         let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude);
-        let any_reverse = lines.iter().flat_map(|l| &l.spans)
-            .any(|s| s.content.contains("auth") && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED));
+        let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
+            s.content.contains("auth")
+                && s.style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+        });
         assert!(any_reverse);
     }
 
@@ -297,8 +327,14 @@ mod tests {
     #[test]
     fn prose_bullets_get_marker() {
         let lines = render_prose("- one\n- two");
-        let joined: String = lines.iter()
-            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        let joined: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("• one"));
@@ -308,8 +344,12 @@ mod tests {
     #[test]
     fn prose_bold_is_styled_bold() {
         let lines = render_prose("**strong**");
-        let bold = lines.iter().flat_map(|l| &l.spans)
-            .any(|s| s.content.contains("strong") && s.style.add_modifier.contains(ratatui::style::Modifier::BOLD));
+        let bold = lines.iter().flat_map(|l| &l.spans).any(|s| {
+            s.content.contains("strong")
+                && s.style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::BOLD)
+        });
         assert!(bold);
     }
 
@@ -339,7 +379,9 @@ mod tests {
         // did not panic; and the ASCII term is still reverse-highlighted
         let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("latte")
-                && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
+                && s.style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
         });
         assert!(any_rev);
     }

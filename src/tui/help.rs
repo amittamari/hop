@@ -50,7 +50,10 @@ pub fn render(f: &mut Frame, preset: Preset) {
     f.render_widget(Clear, rect);
     let block = Block::default().borders(Borders::ALL).title(" help ");
     f.render_widget(
-        Paragraph::new(body).block(block).alignment(Alignment::Left).style(Style::default()),
+        Paragraph::new(body)
+            .block(block)
+            .alignment(Alignment::Left)
+            .style(Style::default()),
         rect,
     );
 }
@@ -62,9 +65,16 @@ mod tests {
     #[test]
     fn search_help_lists_core_bindings() {
         let l = lines(Preset::Search);
-        let text: String = l.iter()
-            .map(|x| x.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
-            .collect::<Vec<_>>().join("\n");
+        let text: String = l
+            .iter()
+            .map(|x| {
+                x.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("Ctrl+P"));
         assert!(text.contains("Ctrl+Y"));
         assert!(text.contains("Tab"));
@@ -73,9 +83,16 @@ mod tests {
 
     #[test]
     fn modal_help_adds_modal_section() {
-        let text: String = lines(Preset::Modal).iter()
-            .map(|x| x.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
-            .collect::<Vec<_>>().join("\n");
+        let text: String = lines(Preset::Modal)
+            .iter()
+            .map(|x| {
+                x.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(text.contains("Modal mode"));
     }
 }

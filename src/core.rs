@@ -44,7 +44,10 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
             // any other line — including indented backtick examples — is captured verbatim.
             let trimmed = t.trim();
             if trimmed.len() >= 3 && trimmed.chars().all(|c| c == '`') {
-                out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
+                out.push(Block::Code {
+                    lang: lang.take(),
+                    text: code.join("\n"),
+                });
                 code.clear();
                 in_code = false;
             } else {
@@ -55,7 +58,11 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
         if let Some(rest) = t.trim_start().strip_prefix("```") {
             flush_prose(&mut prose, &mut out);
             let l = rest.trim();
-            lang = if l.is_empty() { None } else { Some(l.to_string()) };
+            lang = if l.is_empty() {
+                None
+            } else {
+                Some(l.to_string())
+            };
             in_code = true;
             continue;
         }
@@ -63,7 +70,10 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
     }
     if in_code {
         // unterminated fence: keep what we have as code
-        out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
+        out.push(Block::Code {
+            lang: lang.take(),
+            text: code.join("\n"),
+        });
     } else {
         flush_prose(&mut prose, &mut out);
     }
@@ -124,6 +134,14 @@ impl AgentId {
 }
 
 pub type SessionId = String;
+pub type DocumentKey = String;
+
+/// Stable index identity for a session row. Raw session ids are only unique
+/// within an agent, so indexed state uses `agent:id` while resume commands keep
+/// the raw id.
+pub fn document_key(agent: AgentId, id: &str) -> DocumentKey {
+    format!("{}:{id}", agent.slug())
+}
 
 /// Cheap stat-level scan result for one session file.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +170,14 @@ pub struct Session {
     pub branch: Option<String>,
     /// Git remote URL when the agent records it (Codex). None otherwise.
     pub repo_url: Option<String>,
+    /// Source JSONL path used for preview transcript loading.
+    pub source_path: Option<PathBuf>,
+}
+
+impl Session {
+    pub fn document_key(&self) -> DocumentKey {
+        document_key(self.agent, &self.id)
+    }
 }
 
 /// Collapse whitespace runs to single spaces and truncate to `max` chars
@@ -213,22 +239,37 @@ mod tests {
     fn split_blocks_separates_fenced_code() {
         let input = "before\n```rust\nfn x() {}\n```\nafter";
         let blocks = split_blocks(input);
-        assert_eq!(blocks, vec![
-            Block::Prose("before".into()),
-            Block::Code { lang: Some("rust".into()), text: "fn x() {}".into() },
-            Block::Prose("after".into()),
-        ]);
+        assert_eq!(
+            blocks,
+            vec![
+                Block::Prose("before".into()),
+                Block::Code {
+                    lang: Some("rust".into()),
+                    text: "fn x() {}".into()
+                },
+                Block::Prose("after".into()),
+            ]
+        );
     }
 
     #[test]
     fn split_blocks_plain_prose_is_single_block() {
-        assert_eq!(split_blocks("just text"), vec![Block::Prose("just text".into())]);
+        assert_eq!(
+            split_blocks("just text"),
+            vec![Block::Prose("just text".into())]
+        );
     }
 
     #[test]
     fn split_blocks_unlabeled_fence_has_no_lang() {
         let blocks = split_blocks("```\nraw\n```");
-        assert_eq!(blocks, vec![Block::Code { lang: None, text: "raw".into() }]);
+        assert_eq!(
+            blocks,
+            vec![Block::Code {
+                lang: None,
+                text: "raw".into()
+            }]
+        );
     }
 
     #[test]
@@ -240,18 +281,30 @@ mod tests {
     fn split_blocks_unterminated_fence_kept_as_code() {
         assert_eq!(
             split_blocks("```rust\nlet x=1;"),
-            vec![Block::Code { lang: Some("rust".into()), text: "let x=1;".into() }]
+            vec![Block::Code {
+                lang: Some("rust".into()),
+                text: "let x=1;".into()
+            }]
         );
     }
 
     #[test]
     fn flatten_messages_joins_prose_and_code() {
         let msgs = vec![
-            Message { role: Role::User, blocks: vec![Block::Prose("hi".into())] },
-            Message { role: Role::Agent, blocks: vec![
-                Block::Prose("fixed".into()),
-                Block::Code { lang: Some("rust".into()), text: "let x=1;".into() },
-            ]},
+            Message {
+                role: Role::User,
+                blocks: vec![Block::Prose("hi".into())],
+            },
+            Message {
+                role: Role::Agent,
+                blocks: vec![
+                    Block::Prose("fixed".into()),
+                    Block::Code {
+                        lang: Some("rust".into()),
+                        text: "let x=1;".into(),
+                    },
+                ],
+            },
         ];
         assert_eq!(flatten_messages(&msgs), "hi\nfixed\nlet x=1;");
     }

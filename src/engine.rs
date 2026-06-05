@@ -1,5 +1,5 @@
 use crate::adapters::Adapter;
-use crate::core::Session;
+use crate::core::{document_key, Message, Session};
 use crate::index::{diff, SearchIndex};
 use crate::query::{self, ParsedQuery};
 use anyhow::Result;
@@ -70,7 +70,20 @@ impl Engine {
     }
 
     pub fn adapter_for(&self, agent: crate::core::AgentId) -> Option<&dyn Adapter> {
-        self.adapters.iter().find(|a| a.id() == agent).map(|b| b.as_ref())
+        self.adapters
+            .iter()
+            .find(|a| a.id() == agent)
+            .map(|b| b.as_ref())
+    }
+
+    pub fn transcript_for(&self, session: &Session) -> Option<Vec<Message>> {
+        let path = session.source_path.as_deref()?;
+        self.adapter_for(session.agent)?.transcript(path).ok()
+    }
+
+    pub fn supports_yolo(&self, session: &Session) -> bool {
+        self.adapter_for(session.agent)
+            .is_some_and(|a| a.supports_yolo())
     }
 
     #[cfg(test)]
@@ -85,28 +98,32 @@ impl Engine {
         let mut writer = self.index.writer()?;
         let mut parse_errors = 0usize;
 
-        // gather scans, keyed across all adapters
+        // gather scans, keyed across all adapters by namespaced document key
         let mut all_scanned = std::collections::HashMap::new();
-        let mut owner = std::collections::HashMap::new(); // id -> adapter index
+        let mut owner = std::collections::HashMap::new(); // document key -> adapter index
         for (ai, adapter) in self.adapters.iter().enumerate() {
             if !adapter.is_available() {
                 continue;
             }
             for (id, entry) in adapter.scan()? {
-                owner.insert(id.clone(), ai);
-                all_scanned.insert(id, entry);
+                let key = document_key(adapter.id(), &id);
+                owner.insert(key.clone(), ai);
+                all_scanned.insert(key, entry);
             }
         }
 
         let (changed, deleted) = diff(&known, &all_scanned);
-        for id in &deleted {
-            self.index.delete(&mut writer, id);
+        for key in &deleted {
+            self.index.delete(&mut writer, key);
         }
-        for (id, entry) in &changed {
-            let ai = owner[id];
+        for (key, entry) in &changed {
+            let ai = owner[key];
             match self.adapters[ai].parse(&entry.path) {
                 Ok(mut s) => {
                     s.mtime = entry.mtime;
+                    if s.source_path.is_none() {
+                        s.source_path = Some(entry.path.clone());
+                    }
                     self.index.upsert(&mut writer, &s);
                 }
                 Err(_) => parse_errors += 1,
@@ -139,21 +156,25 @@ impl Engine {
                         continue;
                     }
                     for (id, entry) in adapter.scan()? {
-                        owner.insert(id.clone(), ai);
-                        all_scanned.insert(id, entry);
+                        let key = document_key(adapter.id(), &id);
+                        owner.insert(key.clone(), ai);
+                        all_scanned.insert(key, entry);
                     }
                 }
                 let (changed, deleted) = diff(&known, &all_scanned);
-                for id in &deleted {
-                    index.delete(&mut writer, id);
+                for key in &deleted {
+                    index.delete(&mut writer, key);
                 }
                 // batch commits every 200 upserts so rows stream in
                 let mut since_commit = 0;
-                for (id, entry) in &changed {
-                    let ai = owner[id];
+                for (key, entry) in &changed {
+                    let ai = owner[key];
                     match adapters[ai].parse(&entry.path) {
                         Ok(mut s) => {
                             s.mtime = entry.mtime;
+                            if s.source_path.is_none() {
+                                s.source_path = Some(entry.path.clone());
+                            }
                             index.upsert(&mut writer, &s);
                             since_commit += 1;
                         }
@@ -193,20 +214,38 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     struct FakeAdapter {
+        agent: AgentId,
         sessions: Vec<Session>,
     }
 
     impl Adapter for FakeAdapter {
-        fn id(&self) -> AgentId { AgentId::Claude }
-        fn is_available(&self) -> bool { true }
+        fn id(&self) -> AgentId {
+            self.agent
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
         fn scan(&self) -> anyhow::Result<HashMap<SessionId, ScanEntry>> {
-            Ok(self.sessions.iter().map(|s| {
-                (s.id.clone(), ScanEntry { path: PathBuf::from(&s.id), mtime: s.mtime })
-            }).collect())
+            Ok(self
+                .sessions
+                .iter()
+                .map(|s| {
+                    (
+                        s.id.clone(),
+                        ScanEntry {
+                            path: PathBuf::from(&s.id),
+                            mtime: s.mtime,
+                        },
+                    )
+                })
+                .collect())
         }
         fn parse(&self, path: &Path) -> anyhow::Result<Session> {
             let id = path.to_string_lossy().to_string();
-            self.sessions.iter().find(|s| s.id == id).cloned()
+            self.sessions
+                .iter()
+                .find(|s| s.id == id)
+                .cloned()
                 .ok_or_else(|| anyhow::anyhow!("not found"))
         }
         fn resume_command(&self, s: &Session, _yolo: bool) -> Vec<String> {
@@ -215,23 +254,39 @@ mod tests {
         fn transcript(&self, _path: &Path) -> anyhow::Result<Vec<crate::core::Message>> {
             Ok(Vec::new())
         }
-        fn supports_yolo(&self) -> bool { true }
+        fn supports_yolo(&self) -> bool {
+            true
+        }
     }
 
     fn sess(id: &str, title: &str) -> Session {
+        sess_for(AgentId::Claude, id, title)
+    }
+
+    fn sess_for(agent: AgentId, id: &str, title: &str) -> Session {
         Session {
-            id: id.into(), agent: AgentId::Claude, title: title.into(),
-            directory: "/d".into(), timestamp: 100, content: title.into(),
-            message_count: 1, mtime: 10, yolo: false,
-            branch: None, repo_url: None,
+            id: id.into(),
+            agent,
+            title: title.into(),
+            directory: "/d".into(),
+            timestamp: 100,
+            content: title.into(),
+            message_count: 1,
+            mtime: 10,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
         }
     }
 
     #[test]
     fn sync_then_search_finds_indexed_sessions() {
         let dir = tempfile::tempdir().unwrap();
-        let adapters: Vec<Box<dyn Adapter>> =
-            vec![Box::new(FakeAdapter { sessions: vec![sess("a", "auth bug"), sess("b", "deploy")] })];
+        let adapters: Vec<Box<dyn Adapter>> = vec![Box::new(FakeAdapter {
+            agent: AgentId::Claude,
+            sessions: vec![sess("a", "auth bug"), sess("b", "deploy")],
+        })];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
 
         // synchronous full sync (the blocking core that the bg thread also calls)
@@ -246,8 +301,10 @@ mod tests {
     #[test]
     fn deletion_pruned_on_resync() {
         let dir = tempfile::tempdir().unwrap();
-        let adapters: Vec<Box<dyn Adapter>> =
-            vec![Box::new(FakeAdapter { sessions: vec![sess("a", "auth")] })];
+        let adapters: Vec<Box<dyn Adapter>> = vec![Box::new(FakeAdapter {
+            agent: AgentId::Claude,
+            sessions: vec![sess("a", "auth")],
+        })];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
         engine.sync_once().unwrap();
         engine.set_query("");
@@ -255,10 +312,43 @@ mod tests {
         assert_eq!(engine.results().len(), 1);
 
         // adapter now returns nothing -> session pruned
-        let empty: Vec<Box<dyn Adapter>> = vec![Box::new(FakeAdapter { sessions: vec![] })];
+        let empty: Vec<Box<dyn Adapter>> = vec![Box::new(FakeAdapter {
+            agent: AgentId::Claude,
+            sessions: vec![],
+        })];
         engine.replace_adapters(empty);
         engine.sync_once().unwrap();
         engine.search().unwrap();
         assert_eq!(engine.results().len(), 0);
+    }
+
+    #[test]
+    fn sync_namespaces_overlapping_raw_ids_by_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let adapters: Vec<Box<dyn Adapter>> = vec![
+            Box::new(FakeAdapter {
+                agent: AgentId::Claude,
+                sessions: vec![sess_for(AgentId::Claude, "same", "auth claude")],
+            }),
+            Box::new(FakeAdapter {
+                agent: AgentId::Codex,
+                sessions: vec![sess_for(AgentId::Codex, "same", "auth codex")],
+            }),
+        ];
+        let mut engine = Engine::new(dir.path(), adapters).unwrap();
+
+        engine.sync_once().unwrap();
+        engine.set_query("auth");
+        engine.search().unwrap();
+
+        assert_eq!(engine.results().len(), 2);
+        assert!(engine
+            .results()
+            .iter()
+            .any(|s| s.id == "same" && s.agent == AgentId::Claude));
+        assert!(engine
+            .results()
+            .iter()
+            .any(|s| s.id == "same" && s.agent == AgentId::Codex));
     }
 }

@@ -62,7 +62,10 @@ fn main() -> Result<()> {
         render_enrichers.push(Box::new(GhPrEnricher));
     }
     let service = if pr_enabled {
-        Some(EnrichmentService::spawn(vec![Box::new(GhPrEnricher)], enrich_cache_path()))
+        Some(EnrichmentService::spawn(
+            vec![Box::new(GhPrEnricher)],
+            enrich_cache_path(),
+        ))
     } else {
         None
     };
@@ -111,14 +114,16 @@ fn run_tui(
     app.set_preview(init_preview.0, init_preview.1);
     sync_results_into_app(engine, &mut app);
 
-    let columns: Vec<hop::columns::Column> = hop::columns::default_columns()
-        .into_iter()
-        .filter(|c| !config.columns.disabled.iter().any(|d| d == c.id))
-        .collect();
+    let columns = hop::columns::configured_columns(
+        hop::columns::default_columns(),
+        &config.columns.disabled,
+        &config.columns.order,
+    );
 
     // slow-enrichment state
     let mut resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let mut requested: std::collections::HashSet<(String, &'static str)> = Default::default();
+    let mut fast_cache: HashMap<(String, &'static str), Option<String>> = HashMap::new();
 
     // memoized preview state, rebuilt only when (selection, query) changes
     let mut transcript: Vec<Message> = Vec::new();
@@ -130,20 +135,18 @@ fn run_tui(
     let outcome = (|| -> Result<Option<(hop::core::Session, bool)>> {
         loop {
             // re-parse the selected session's transcript on selection change
-            let sel_id = engine.results().get(app.selected()).map(|s| s.id.clone());
-            if app.preview_visible() && sel_id != transcript_for {
+            let selected = engine.results().get(app.selected());
+            let sel_key = selected.map(|s| s.document_key());
+            if app.preview_visible() && sel_key != transcript_for {
                 transcript = match engine.results().get(app.selected()) {
-                    Some(s) => engine
-                        .adapter_for(s.agent)
-                        .and_then(|a| latest_transcript(a, s))
-                        .unwrap_or_default(),
+                    Some(s) => engine.transcript_for(s).unwrap_or_default(),
                     None => Vec::new(),
                 };
-                transcript_for = sel_id.clone();
+                transcript_for = sel_key.clone();
             }
 
             // rebuild memoized preview lines when selection or query changes
-            let pkey = (sel_id.clone().unwrap_or_default(), app.query().to_string());
+            let pkey = (sel_key.clone().unwrap_or_default(), app.query().to_string());
             if app.preview_visible() && preview_key.as_ref() != Some(&pkey) {
                 let agent = engine
                     .results()
@@ -159,24 +162,43 @@ fn run_tui(
 
             let now = jiff::Timestamp::now().as_second();
             terminal.draw(|f| {
-                hop::tui::view::render(f, &app, now, &columns, render_enrichers, &resolved, &preview_lines, preview_base)
+                hop::tui::view::render(
+                    f,
+                    &app,
+                    now,
+                    &columns,
+                    render_enrichers,
+                    &mut fast_cache,
+                    &resolved,
+                    &preview_lines,
+                    preview_base,
+                )
             })?;
 
-            // request PR enrichment for visible rows (cap to first ~200), dedup'd.
+            // request PR enrichment for visible rows, dedup'd.
             // Clear `content` before sending — PR resolution doesn't need it and
             // it can be large.
             if let Some(svc) = service {
-                for s in engine.results().iter().take(200) {
-                    let key = (s.id.clone(), "pr");
+                let height = terminal.size()?.height.saturating_sub(2) as usize;
+                let visible = hop::tui::view::visible_result_range(
+                    engine.results().len(),
+                    app.selected(),
+                    height,
+                );
+                for s in engine.results().get(visible).unwrap_or_default() {
+                    let key = (s.document_key(), "pr");
                     if !requested.contains(&key) {
-                        requested.insert(key);
+                        requested.insert(key.clone());
                         let mut slim = s.clone();
                         slim.content = String::new();
-                        let _ = svc.req_tx.send(EnrichRequest { session: slim, enricher: "pr" });
+                        let _ = svc.req_tx.send(EnrichRequest {
+                            session: slim,
+                            enricher: "pr",
+                        });
                     }
                 }
                 while let Ok(r) = svc.res_rx.try_recv() {
-                    resolved.insert((r.session_id, r.enricher), r.value.map(|v| v.text));
+                    resolved.insert((r.session_key, r.enricher), r.value.map(|v| v.text));
                 }
             }
 
@@ -186,6 +208,7 @@ fn run_tui(
                         engine.reload()?;
                         engine.search()?;
                         sync_results_into_app(engine, &mut app);
+                        fast_cache.clear();
                         transcript_for = None; // force re-parse next frame
                         preview_key = None;
                     }
@@ -210,6 +233,7 @@ fn run_tui(
             if !app.modal_open() && engine.search_due() {
                 engine.search()?;
                 sync_results_into_app(engine, &mut app);
+                fast_cache.clear();
                 transcript_for = None;
                 preview_key = None;
             }
@@ -225,17 +249,8 @@ fn run_tui(
     outcome
 }
 
-/// Re-parse the on-disk file for `s` into a transcript. The path isn't stored on
-/// the Session, so re-scan the adapter to find it by id (cheap stat-level scan).
-fn latest_transcript(
-    adapter: &dyn hop::adapters::Adapter,
-    s: &hop::core::Session,
-) -> Option<Vec<Message>> {
-    let scanned = adapter.scan().ok()?;
-    let entry = scanned.get(&s.id)?;
-    adapter.transcript(&entry.path).ok()
-}
-
 fn sync_results_into_app(engine: &Engine, app: &mut App) {
-    app.set_results(engine.results().to_vec());
+    let results = engine.results().to_vec();
+    let yolo_supported = results.iter().map(|s| engine.supports_yolo(s)).collect();
+    app.set_results_with_yolo(results, yolo_supported);
 }

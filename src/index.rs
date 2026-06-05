@@ -1,21 +1,26 @@
-use crate::core::{AgentId, ScanEntry, Session, SessionId};
+use crate::core::{AgentId, DocumentKey, ScanEntry, Session};
 use crate::query::ParsedQuery;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
+use std::ops::Bound;
 use std::path::Path;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
-    AllQuery, BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, TermQuery,
+    AllQuery, BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, RangeQuery,
+    TermQuery,
 };
-use tantivy::schema::{Field, IndexRecordOption, Schema, Value, FAST, STORED, STRING, TEXT};
+use tantivy::schema::{
+    Field, IndexRecordOption, Schema, Value, FAST, INDEXED, STORED, STRING, TEXT,
+};
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 const EXACT_BOOST: f32 = 5.0;
-const FETCH_CAP: usize = 5_000;
+const FETCH_PAGE: usize = 1_000;
 const WRITER_HEAP: usize = 50_000_000;
 
 struct Fields {
+    doc_key: Field,
     id: Field,
     agent: Field,
     title: Field,
@@ -27,6 +32,7 @@ struct Fields {
     yolo: Field,
     branch: Field,
     repo_url: Field,
+    source_path: Field,
 }
 
 pub struct SearchIndex {
@@ -38,17 +44,19 @@ pub struct SearchIndex {
 fn build_schema() -> (Schema, Fields) {
     let mut b = Schema::builder();
     let f = Fields {
+        doc_key: b.add_text_field("doc_key", STRING | STORED),
         id: b.add_text_field("id", STRING | STORED),
         agent: b.add_text_field("agent", STRING | STORED),
         title: b.add_text_field("title", TEXT | STORED),
         content: b.add_text_field("content", TEXT | STORED),
         directory: b.add_text_field("directory", STRING | STORED),
-        timestamp: b.add_u64_field("timestamp", FAST | STORED),
+        timestamp: b.add_u64_field("timestamp", INDEXED | FAST | STORED),
         mtime: b.add_u64_field("mtime", STORED),
         message_count: b.add_u64_field("message_count", STORED),
         yolo: b.add_u64_field("yolo", STORED),
         branch: b.add_text_field("branch", STRING | STORED),
         repo_url: b.add_text_field("repo_url", STRING | STORED),
+        source_path: b.add_text_field("source_path", STRING | STORED),
     };
     (b.build(), f)
 }
@@ -93,8 +101,10 @@ impl SearchIndex {
     }
 
     pub fn upsert(&self, w: &mut IndexWriter, s: &Session) {
-        w.delete_term(Term::from_field_text(self.f.id, &s.id));
+        let doc_key = s.document_key();
+        w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
         let mut doc = TantivyDocument::default();
+        doc.add_text(self.f.doc_key, &doc_key);
         doc.add_text(self.f.id, &s.id);
         doc.add_text(self.f.agent, s.agent.slug());
         doc.add_text(self.f.title, &s.title);
@@ -110,15 +120,18 @@ impl SearchIndex {
         if let Some(r) = &s.repo_url {
             doc.add_text(self.f.repo_url, r);
         }
+        if let Some(path) = &s.source_path {
+            doc.add_text(self.f.source_path, &path.to_string_lossy());
+        }
         let _ = w.add_document(doc);
     }
 
-    pub fn delete(&self, w: &mut IndexWriter, id: &str) {
-        w.delete_term(Term::from_field_text(self.f.id, id));
+    pub fn delete(&self, w: &mut IndexWriter, doc_key: &str) {
+        w.delete_term(Term::from_field_text(self.f.doc_key, doc_key));
     }
 
-    /// id -> mtime for every indexed session (drives incremental diff).
-    pub fn known_mtimes(&self) -> Result<HashMap<SessionId, i64>> {
+    /// document_key -> mtime for every indexed session (drives incremental diff).
+    pub fn known_mtimes(&self) -> Result<HashMap<DocumentKey, i64>> {
         let searcher = self.reader.searcher();
         let n = searcher.num_docs().max(1) as usize;
         let hits = searcher.search(
@@ -128,10 +141,10 @@ impl SearchIndex {
         let mut map = HashMap::new();
         for (_, addr) in hits {
             let doc: TantivyDocument = searcher.doc(addr)?;
-            let id = doc.get_first(self.f.id).and_then(|v| v.as_str());
+            let doc_key = doc.get_first(self.f.doc_key).and_then(|v| v.as_str());
             let mtime = doc.get_first(self.f.mtime).and_then(|v| v.as_u64());
-            if let (Some(id), Some(m)) = (id, mtime) {
-                map.insert(id.to_string(), m as i64);
+            if let (Some(doc_key), Some(m)) = (doc_key, mtime) {
+                map.insert(doc_key.to_string(), m as i64);
             }
         }
         Ok(map)
@@ -191,59 +204,83 @@ impl SearchIndex {
             ));
         }
 
+        if let Some(date) = q.date {
+            let (lo, hi) = date.range(now);
+            if hi.is_some_and(|hi| hi < 0) {
+                return Ok(Vec::new());
+            }
+            if let (Some(lo), Some(hi)) = (lo, hi) {
+                if lo > hi {
+                    return Ok(Vec::new());
+                }
+            }
+            let lower = lo
+                .map(|lo| Bound::Included(Term::from_field_u64(self.f.timestamp, lo.max(0) as u64)))
+                .unwrap_or(Bound::Unbounded);
+            let upper = hi
+                .map(|hi| Bound::Included(Term::from_field_u64(self.f.timestamp, hi as u64)))
+                .unwrap_or(Bound::Unbounded);
+            clauses.push((Occur::Must, Box::new(RangeQuery::new(lower, upper))));
+        }
+
         let query = BooleanQuery::new(clauses);
 
-        // --- collect (recency order for empty free-text, else score) ---
-        let addrs: Vec<tantivy::DocAddress> = if q.free_text.trim().is_empty() {
-            searcher
-                .search(
-                    &query,
-                    &TopDocs::with_limit(FETCH_CAP)
-                        .order_by_u64_field("timestamp", tantivy::Order::Desc),
-                )?
-                .into_iter()
-                .map(|(_, a)| a)
-                .collect()
-        } else {
-            searcher
-                .search(&query, &TopDocs::with_limit(FETCH_CAP).order_by_score())?
-                .into_iter()
-                .map(|(_, a)| a)
-                .collect()
-        };
-
-        // --- reconstruct + post-filter dir & date ---
-        let date_range = q.date.map(|d| d.range(now));
+        // --- collect pages until post-filters produce enough rows or hits are exhausted ---
+        let total_hits = searcher.search(&query, &Count)?;
         let mut out = Vec::new();
-        for addr in addrs {
-            let doc: TantivyDocument = searcher.doc(addr)?;
-            let s = self.to_session(&doc);
-            if !dir_ok(&s.directory, q) {
-                continue;
-            }
-            if let Some((lo, hi)) = date_range {
-                if let Some(lo) = lo {
-                    if s.timestamp < lo {
-                        continue;
-                    }
-                }
-                if let Some(hi) = hi {
-                    if s.timestamp > hi {
-                        continue;
-                    }
-                }
-            }
-            out.push(s);
-            if out.len() >= limit {
+        let mut offset = 0usize;
+        while out.len() < limit && offset < total_hits {
+            let page_limit = FETCH_PAGE.min(total_hits - offset);
+            let addrs: Vec<tantivy::DocAddress> = if q.free_text.trim().is_empty() {
+                searcher
+                    .search(
+                        &query,
+                        &TopDocs::with_limit(page_limit)
+                            .and_offset(offset)
+                            .order_by_u64_field("timestamp", tantivy::Order::Desc),
+                    )?
+                    .into_iter()
+                    .map(|(_, a)| a)
+                    .collect()
+            } else {
+                searcher
+                    .search(
+                        &query,
+                        &TopDocs::with_limit(page_limit)
+                            .and_offset(offset)
+                            .order_by_score(),
+                    )?
+                    .into_iter()
+                    .map(|(_, a)| a)
+                    .collect()
+            };
+            if addrs.is_empty() {
                 break;
+            }
+            offset += addrs.len();
+
+            for addr in addrs {
+                let doc: TantivyDocument = searcher.doc(addr)?;
+                let s = self.to_session(&doc);
+                if !dir_ok(&s.directory, q) {
+                    continue;
+                }
+                out.push(s);
+                if out.len() >= limit {
+                    break;
+                }
             }
         }
         Ok(out)
     }
 
     fn to_session(&self, doc: &TantivyDocument) -> Session {
-        let get_str =
-            |f: Field| doc.get_first(f).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let get_str = |f: Field| {
+            doc.get_first(f)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string()
+        };
         let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
         Session {
             id: get_str(self.f.id),
@@ -255,8 +292,30 @@ impl SearchIndex {
             message_count: get_u64(self.f.message_count) as u32,
             mtime: get_u64(self.f.mtime) as i64,
             yolo: get_u64(self.f.yolo) != 0,
-            branch: { let b = get_str(self.f.branch); if b.is_empty() { None } else { Some(b) } },
-            repo_url: { let r = get_str(self.f.repo_url); if r.is_empty() { None } else { Some(r) } },
+            branch: {
+                let b = get_str(self.f.branch);
+                if b.is_empty() {
+                    None
+                } else {
+                    Some(b)
+                }
+            },
+            repo_url: {
+                let r = get_str(self.f.repo_url);
+                if r.is_empty() {
+                    None
+                } else {
+                    Some(r)
+                }
+            },
+            source_path: {
+                let p = get_str(self.f.source_path);
+                if p.is_empty() {
+                    None
+                } else {
+                    Some(p.into())
+                }
+            },
         }
     }
 }
@@ -270,7 +329,9 @@ fn dir_ok(directory: &str, q: &ParsedQuery) -> bool {
 /// Escape characters that would make tantivy's QueryParser error out.
 fn sanitize(s: &str) -> String {
     s.replace(
-        ['+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"'],
+        [
+            '+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"',
+        ],
         " ",
     )
 }
@@ -278,9 +339,9 @@ fn sanitize(s: &str) -> String {
 /// Pure incremental diff. Returns (changed[(id, entry)], deleted[id]).
 /// Changed = scanned mtime > known + 1ms, or id absent from known.
 pub fn diff(
-    known: &HashMap<SessionId, i64>,
-    scanned: &HashMap<SessionId, ScanEntry>,
-) -> (Vec<(SessionId, ScanEntry)>, Vec<SessionId>) {
+    known: &HashMap<DocumentKey, i64>,
+    scanned: &HashMap<DocumentKey, ScanEntry>,
+) -> (Vec<(DocumentKey, ScanEntry)>, Vec<DocumentKey>) {
     let mut changed = Vec::new();
     for (id, entry) in scanned {
         match known.get(id) {
@@ -288,7 +349,7 @@ pub fn diff(
             _ => changed.push((id.clone(), entry.clone())),
         }
     }
-    let deleted: Vec<SessionId> = known
+    let deleted: Vec<DocumentKey> = known
         .keys()
         .filter(|id| !scanned.contains_key(*id))
         .cloned()

@@ -19,13 +19,16 @@ impl CodexAdapter {
     }
 
     fn session_roots(&self) -> Vec<PathBuf> {
-        vec![self.root.join("sessions"), self.root.join("archived_sessions")]
+        vec![
+            self.root.join("sessions"),
+            self.root.join("archived_sessions"),
+        ]
     }
 
     fn extract(&self, path: &Path) -> Result<Extracted> {
         use crate::core::{split_blocks, Message, Role};
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut directory = String::new();
         let mut branch = None;
         let mut repo_url = None;
@@ -86,7 +89,14 @@ impl CodexAdapter {
                 _ => {}
             }
         }
-        Ok(Extracted { messages, directory, branch, repo_url, first_ts, yolo })
+        Ok(Extracted {
+            messages,
+            directory,
+            branch,
+            repo_url,
+            first_ts,
+            yolo,
+        })
     }
 }
 
@@ -162,10 +172,12 @@ impl Adapter for CodexAdapter {
             .messages
             .iter()
             .find(|m| m.role == Role::User)
-            .and_then(|m| m.blocks.iter().find_map(|b| match b {
-                Block::Prose(s) => Some(s.as_str()),
-                _ => None,
-            }))
+            .and_then(|m| {
+                m.blocks.iter().find_map(|b| match b {
+                    Block::Prose(s) => Some(s.as_str()),
+                    _ => None,
+                })
+            })
             .map(|t| truncate_title(t, TITLE_MAX))
             .unwrap_or_else(|| "(untitled)".to_string());
         let content = flatten_messages(&ex.messages);
@@ -181,6 +193,7 @@ impl Adapter for CodexAdapter {
             yolo: ex.yolo,
             branch: ex.branch,
             repo_url: ex.repo_url,
+            source_path: Some(path.to_path_buf()),
         })
     }
 

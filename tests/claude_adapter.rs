@@ -21,7 +21,9 @@ fn parses_id_cwd_and_excludes_noise() {
 
     // content keeps only real user + assistant text
     assert!(s.content.contains("fix the auth refresh token bug"));
-    assert!(s.content.contains("The refresh token was dropped on retry."));
+    assert!(s
+        .content
+        .contains("The refresh token was dropped on retry."));
     // excluded: local-command output, slash-command, tool_result, tool_use, isMeta
     assert!(!s.content.contains("noise"));
     assert!(!s.content.contains("/clear"));
@@ -80,5 +82,7 @@ fn claude_transcript_has_roles_and_code() {
     assert_eq!(msgs.len(), 2);
     assert_eq!(msgs[0].role, Role::User);
     assert_eq!(msgs[1].role, Role::Agent);
-    assert!(matches!(msgs[1].blocks.last(), Some(Block::Code { lang, .. }) if lang.as_deref() == Some("rust")));
+    assert!(
+        matches!(msgs[1].blocks.last(), Some(Block::Code { lang, .. }) if lang.as_deref() == Some("rust"))
+    );
 }
