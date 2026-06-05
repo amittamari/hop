@@ -1,5 +1,5 @@
 //! Pluggable result-list columns and the responsive layout solver. Pure logic:
-//! produces per-row cell text and resolved widths; rendering lives in the TUI.
+//! produces resolved widths from column definitions; rendering lives in the TUI.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Align {
@@ -15,6 +15,8 @@ pub struct Column {
     pub align: Align,
     /// Higher drops first when the pane is narrow. `u8::MAX` = never drop.
     pub priority: u8,
+    /// Hard floor for the column. Non-flex columns can grow to fit visible
+    /// content, but only flex columns absorb leftover width.
     pub min_width: u16,
     pub flex: bool,
 }
@@ -35,7 +37,7 @@ pub fn default_columns() -> Vec<Column> {
             header: "REPO",
             align: Align::Left,
             priority: 10,
-            min_width: 14,
+            min_width: 4,
             flex: false,
         },
         Column {
@@ -43,7 +45,7 @@ pub fn default_columns() -> Vec<Column> {
             header: "BRANCH",
             align: Align::Left,
             priority: 20,
-            min_width: 18,
+            min_width: 6,
             flex: false,
         },
         Column {
@@ -117,10 +119,35 @@ const GAP: u16 = 1;
 /// Drops columns by descending `priority` until the rest fit; TITLE always
 /// survives and flexes to fill leftover space.
 pub fn solve_layout(columns: &[Column], total_width: u16) -> Vec<(usize, u16)> {
+    solve_layout_with_desired(columns, total_width, &[])
+}
+
+/// Like [`solve_layout`], but lets callers provide desired widths for visible
+/// content. Non-flex columns grow toward those desired widths first; leftover
+/// width goes to the flex column.
+pub fn solve_layout_with_desired(
+    columns: &[Column],
+    total_width: u16,
+    desired_widths: &[u16],
+) -> Vec<(usize, u16)> {
     let mut kept: Vec<usize> = (0..columns.len()).collect();
 
+    let floor = |i: usize| -> u16 {
+        columns[i]
+            .min_width
+            .max(columns[i].header.chars().count() as u16)
+    };
+
+    let desired = |i: usize| -> u16 {
+        desired_widths
+            .get(i)
+            .copied()
+            .unwrap_or_else(|| floor(i))
+            .max(floor(i))
+    };
+
     let needed = |kept: &[usize]| -> u16 {
-        let cols: u16 = kept.iter().map(|&i| columns[i].min_width).sum();
+        let cols: u16 = kept.iter().map(|&i| floor(i)).sum();
         let gaps = (kept.len().saturating_sub(1)) as u16 * GAP;
         cols + gaps
     };
@@ -138,19 +165,29 @@ pub fn solve_layout(columns: &[Column], total_width: u16) -> Vec<(usize, u16)> {
         }
     }
 
-    // Assign widths: min_width to each, extra to the flex column.
+    // Assign floors, then grow non-flex columns up to visible content. Any
+    // remaining width is won by the flex column, which is the title by default.
     let used = needed(&kept);
-    let extra = total_width.saturating_sub(used);
-    kept.into_iter()
-        .map(|i| {
-            let w = if columns[i].flex {
-                columns[i].min_width + extra
-            } else {
-                columns[i].min_width
-            };
-            (i, w)
-        })
-        .collect()
+    let mut extra = total_width.saturating_sub(used);
+    let mut out: Vec<(usize, u16)> = kept.iter().map(|&i| (i, floor(i))).collect();
+
+    for (i, width) in out.iter_mut() {
+        if columns[*i].flex {
+            continue;
+        }
+        let grow_by = desired(*i).saturating_sub(*width).min(extra);
+        *width += grow_by;
+        extra -= grow_by;
+    }
+
+    if extra > 0 {
+        if let Some((i, width)) = out.iter_mut().find(|(i, _)| columns[*i].flex) {
+            *width += extra;
+            debug_assert!(columns[*i].flex);
+        }
+    }
+
+    out
 }
 
 /// Pad/truncate `s` to exactly `width` columns per `align`.
@@ -193,7 +230,7 @@ mod tests {
     fn volatile_columns_drop_before_repo_and_branch_when_narrow() {
         let cols = default_columns();
         // width that forces some drops but still has room for the context columns
-        let layout = solve_layout(&cols, 58);
+        let layout = solve_layout(&cols, 38);
         let ids: Vec<&str> = layout.iter().map(|&(i, _)| cols[i].id).collect();
         assert!(ids.contains(&"repo"));
         assert!(ids.contains(&"branch"));
@@ -215,6 +252,24 @@ mod tests {
             title_w > 12,
             "title should grow past its min on a wide pane"
         );
+    }
+
+    #[test]
+    fn desired_non_flex_widths_grow_before_title_takes_leftover() {
+        let cols = default_columns();
+        let desired = vec![6, 3, 18, 60, 4, 5, 4];
+        let layout = solve_layout_with_desired(&cols, 100, &desired);
+        let width = |id| {
+            layout
+                .iter()
+                .find(|&&(i, _)| cols[i].id == id)
+                .map(|&(_, w)| w)
+                .unwrap()
+        };
+
+        assert_eq!(width("repo"), 4); // header is wider than the visible value
+        assert_eq!(width("branch"), 18);
+        assert!(width("title") > cols.iter().find(|c| c.id == "title").unwrap().min_width);
     }
 
     #[test]

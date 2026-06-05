@@ -180,25 +180,28 @@ impl Session {
     }
 }
 
+/// Collapse whitespace runs to single spaces, trimming ends.
+pub fn normalize_title(raw: &str) -> String {
+    let mut out = String::new();
+    let mut prev_space = false;
+    for c in raw.trim().chars() {
+        if c.is_whitespace() {
+            if !prev_space {
+                out.push(' ');
+            }
+            prev_space = true;
+        } else {
+            out.push(c);
+            prev_space = false;
+        }
+    }
+    out
+}
+
 /// Collapse whitespace runs to single spaces and truncate to `max` chars
 /// (counting the ellipsis), trimming ends.
 pub fn truncate_title(raw: &str, max: usize) -> String {
-    let collapsed: String = {
-        let mut out = String::new();
-        let mut prev_space = false;
-        for c in raw.trim().chars() {
-            if c.is_whitespace() {
-                if !prev_space {
-                    out.push(' ');
-                }
-                prev_space = true;
-            } else {
-                out.push(c);
-                prev_space = false;
-            }
-        }
-        out
-    };
+    let collapsed = normalize_title(raw);
     let count = collapsed.chars().count();
     if count <= max {
         return collapsed;
@@ -207,6 +210,26 @@ pub fn truncate_title(raw: &str, max: usize) -> String {
     let mut s: String = collapsed.chars().take(keep).collect();
     s.push('…');
     s
+}
+
+/// Derive the display/search title from a source-specific title candidate or
+/// the first user prose message. Width truncation is a rendering concern.
+pub fn derive_session_title(explicit: Option<&str>, messages: &[Message]) -> String {
+    let raw = explicit.or_else(|| {
+        messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .and_then(|m| {
+                m.blocks.iter().find_map(|b| match b {
+                    Block::Prose(s) => Some(s.as_str()),
+                    _ => None,
+                })
+            })
+    });
+
+    raw.map(normalize_title)
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "(untitled)".to_string())
 }
 
 #[cfg(test)]
@@ -233,6 +256,34 @@ mod tests {
         assert_eq!(truncate_title("hello world", 5), "hell…");
         // collapses internal whitespace/newlines
         assert_eq!(truncate_title("a\n  b\tc", 100), "a b c");
+    }
+
+    #[test]
+    fn normalize_title_collapses_without_truncating() {
+        let title = "one\n  two\tthree four five six";
+        assert_eq!(normalize_title(title), "one two three four five six");
+        assert!(normalize_title(title).chars().count() > 10);
+    }
+
+    #[test]
+    fn derive_session_title_prefers_explicit_then_first_user_prose() {
+        let messages = vec![Message {
+            role: Role::User,
+            blocks: vec![
+                Block::Code {
+                    lang: None,
+                    text: "ignored".into(),
+                },
+                Block::Prose("first\nuser\tprompt".into()),
+            ],
+        }];
+
+        assert_eq!(
+            derive_session_title(Some("explicit  title"), &messages),
+            "explicit title"
+        );
+        assert_eq!(derive_session_title(None, &messages), "first user prompt");
+        assert_eq!(derive_session_title(None, &[]), "(untitled)");
     }
 
     #[test]

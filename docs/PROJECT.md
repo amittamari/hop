@@ -56,7 +56,10 @@ See `README.md` for current keybindings and query syntax.
 
 Adapters are responsible for turning source-specific JSONL shapes into stable
 `core::Session` and `core::Message` values. Downstream modules should not depend
-on raw Claude or Codex JSON.
+on raw Claude or Codex JSON. When multiple adapters need the same source-agnostic
+policy, keep that policy in `core` helpers and have adapters supply only their
+source-specific candidates. Examples include title fallback/normalization and
+transcript flattening.
 
 ## Quality Bar
 

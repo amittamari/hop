@@ -82,26 +82,32 @@ pub fn render(
     let list_inner_w = list_area
         .width
         .saturating_sub(if preview_area.is_some() { 1 } else { 0 });
-    let layout = results_list::layout_for(&cols, list_inner_w);
     let (list_header_area, list_rows_area) = split_list_area(list_area);
-    f.render_widget(
-        Paragraph::new(results_list::header_line(&layout, cols)),
-        list_header_area,
-    );
-
     let visible = visible_result_range(
         app.results().len(),
         app.selected(),
         list_rows_area.height as usize,
     );
-    let items: Vec<ListItem> = app
-        .results()
-        .get(visible.clone())
-        .unwrap_or_default()
+    let visible_results = app.results().get(visible.clone()).unwrap_or_default();
+    let layout = results_list::layout_for_rows(
+        cols,
+        list_inner_w,
+        visible_results,
+        enrichers,
+        fast_cache,
+        resolved,
+        now,
+    );
+    f.render_widget(
+        Paragraph::new(results_list::header_line(&layout, cols)),
+        list_header_area,
+    );
+
+    let items: Vec<ListItem> = visible_results
         .iter()
         .map(|s| {
             ListItem::new(results_list::row_line(
-                s, &layout, &cols, enrichers, fast_cache, resolved, now,
+                s, &layout, cols, enrichers, fast_cache, resolved, now,
             ))
         })
         .collect();

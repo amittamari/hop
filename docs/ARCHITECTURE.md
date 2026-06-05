@@ -37,9 +37,11 @@ TUI loop.
 ## Module Responsibilities
 
 - `src/core.rs`: shared domain types such as `Session`, `AgentId`, `Message`,
-  `Block`, and helpers for titles and transcript flattening.
+  `Block`, and source-agnostic helpers for title derivation, title
+  normalization, and transcript flattening.
 - `src/adapters/`: source-specific integration. Adapters scan files, parse raw
-  JSONL into `core` types, provide preview transcripts, and build resume commands.
+  JSONL into `core` types, extract source-specific metadata candidates, provide
+  preview transcripts, and build resume commands.
 - `src/query.rs`: parses user query text into a structured query independent of
   Tantivy.
 - `src/index.rs`: owns Tantivy schema, upsert/delete, incremental diff helpers,
@@ -83,6 +85,12 @@ TUI loop.
   where possible. Backend-facing APIs should expose stable data and events
   without assuming ratatui, crossterm, terminal restoration, or Unix `exec`
   handoff.
+- **B-010 Core Derivation Boundary:** Source-specific parsing belongs in
+  adapters, but cross-agent derivation policy belongs in `core`. If Claude and
+  Codex need the same rule, such as title fallback order, title whitespace
+  normalization, or transcript flattening, prefer a shared core helper over
+  duplicating the policy in each adapter. Width-specific truncation remains a
+  rendering concern.
 
 ## Current Invariants
 

@@ -1,7 +1,7 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
 
-use crate::columns::{fit, solve_layout, Column};
+use crate::columns::{fit, solve_layout, solve_layout_with_desired, Column};
 use crate::core::Session;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::{theme, view::rel_time};
@@ -108,6 +108,46 @@ pub fn layout_for(columns: &[Column], width: u16) -> Vec<(usize, u16)> {
     solve_layout(columns, width)
 }
 
+/// Solve the layout using only the rows currently visible in the viewport.
+pub fn layout_for_rows(
+    columns: &[Column],
+    width: u16,
+    rows: &[Session],
+    enrichers: &[Box<dyn Enricher>],
+    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
+    resolved: &HashMap<(String, &'static str), Option<String>>,
+    now: i64,
+) -> Vec<(usize, u16)> {
+    let desired = desired_widths(columns, rows, enrichers, fast_cache, resolved, now);
+    solve_layout_with_desired(columns, width, &desired)
+}
+
+fn desired_widths(
+    columns: &[Column],
+    rows: &[Session],
+    enrichers: &[Box<dyn Enricher>],
+    fast_cache: &mut HashMap<(String, &'static str), Option<String>>,
+    resolved: &HashMap<(String, &'static str), Option<String>>,
+    now: i64,
+) -> Vec<u16> {
+    let mut widths: Vec<u16> = columns
+        .iter()
+        .map(|col| col.header.chars().count() as u16)
+        .collect();
+
+    for row in rows {
+        for (i, col) in columns.iter().enumerate() {
+            if col.flex {
+                continue;
+            }
+            let (text, _) = cell(row, col, enrichers, fast_cache, resolved, now);
+            widths[i] = widths[i].max(text.chars().count() as u16);
+        }
+    }
+
+    widths
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,19 +175,20 @@ mod tests {
     #[test]
     fn row_renders_repo_branch_title() {
         let cols = default_columns();
-        let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let mut fast_cache = HashMap::new();
         let resolved = HashMap::new();
-        let line = row_line(
-            &sess(),
-            &layout,
+        let row = sess();
+        let layout = layout_for_rows(
             &cols,
+            120,
+            std::slice::from_ref(&row),
             &enr,
             &mut fast_cache,
             &resolved,
             3600,
         );
+        let line = row_line(&row, &layout, &cols, &enr, &mut fast_cache, &resolved, 3600);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("api")); // repo from dir basename
@@ -172,6 +213,29 @@ mod tests {
     }
 
     #[test]
+    fn visible_row_content_sizes_repo_and_branch_before_title_flexes() {
+        let cols = default_columns();
+        let mut row = sess();
+        row.directory = "/work/responsive-editor".into();
+        row.branch = Some("workflow/ghostty-terminal".into());
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
+        let mut fast_cache = HashMap::new();
+        let resolved = HashMap::new();
+        let layout = layout_for_rows(&cols, 120, &[row], &enr, &mut fast_cache, &resolved, 0);
+        let width = |id| {
+            layout
+                .iter()
+                .find(|&&(i, _)| cols[i].id == id)
+                .map(|&(_, w)| w)
+                .unwrap()
+        };
+
+        assert_eq!(width("repo"), "responsive-editor".len() as u16);
+        assert_eq!(width("branch"), "workflow/ghostty-terminal".len() as u16);
+        assert!(width("title") > 10);
+    }
+
+    #[test]
     fn pending_pr_shows_glyph() {
         let cols = default_columns();
         let layout = layout_for(&cols, 120);
@@ -186,7 +250,6 @@ mod tests {
     #[test]
     fn pr_cell_reads_resolved_with_full_enricher_list() {
         let cols = default_columns();
-        let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![
             Box::new(RepoEnricher),
             Box::new(BranchEnricher),
@@ -195,7 +258,17 @@ mod tests {
         let mut fast_cache = HashMap::new();
         let mut resolved = HashMap::new();
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
-        let line = row_line(&sess(), &layout, &cols, &enr, &mut fast_cache, &resolved, 0);
+        let row = sess();
+        let layout = layout_for_rows(
+            &cols,
+            120,
+            std::slice::from_ref(&row),
+            &enr,
+            &mut fast_cache,
+            &resolved,
+            0,
+        );
+        let line = row_line(&row, &layout, &cols, &enr, &mut fast_cache, &resolved, 0);
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("#42")); // resolved PR rendered
         assert!(text.contains("feat/auth")); // fast branch still rendered

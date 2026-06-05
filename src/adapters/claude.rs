@@ -1,11 +1,9 @@
 use crate::adapters::Adapter;
-use crate::core::{truncate_title, AgentId, ScanEntry, Session, SessionId};
+use crate::core::{derive_session_title, AgentId, ScanEntry, Session, SessionId};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-const TITLE_MAX: usize = 80;
 
 pub struct ClaudeAdapter {
     /// Root holding `<encoded-cwd>/<session-uuid>.jsonl` (default ~/.claude/projects).
@@ -185,27 +183,14 @@ impl Adapter for ClaudeAdapter {
     }
 
     fn parse(&self, path: &Path) -> Result<Session> {
-        use crate::core::{flatten_messages, Role};
+        use crate::core::flatten_messages;
         let id = path
             .file_stem()
             .and_then(|s| s.to_str())
             .context("session file has no stem")?
             .to_string();
         let ex = self.extract(path)?;
-        let title = ex.title.as_deref().or_else(|| {
-            ex.messages
-                .iter()
-                .find(|m| m.role == Role::User)
-                .and_then(|m| {
-                    m.blocks.iter().find_map(|b| match b {
-                        crate::core::Block::Prose(s) => Some(s.as_str()),
-                        _ => None,
-                    })
-                })
-        });
-        let title = title
-            .map(|t| truncate_title(t, TITLE_MAX))
-            .unwrap_or_else(|| "(untitled)".to_string());
+        let title = derive_session_title(ex.title.as_deref(), &ex.messages);
         let content = flatten_messages(&ex.messages);
         Ok(Session {
             id,

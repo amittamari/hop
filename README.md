@@ -30,10 +30,13 @@ The branch comes from conversation data (Claude's `gitBranch`, Codex's
 falls back to the directory basename; the full directory path is shown in the
 preview header rather than as a column. Claude titles prefer the recorded
 `aiTitle`/summary when present, then fall back to the first real user prompt.
+Titles are whitespace-normalized in the index and truncated only to the rendered
+column width.
 The `PR` column is resolved in the background via the `gh` CLI and cached on
 disk, so it never blocks the UI (`⟳` while resolving, `—` if none).
-Narrow terminals drop columns by priority (PR → MSGS → TIME → BRANCH → REPO); the title
-always survives, but repo and branch get useful width before the title expands.
+Narrow terminals drop columns by priority (PR → MSGS → TIME → BRANCH → REPO).
+Repo and branch size to visible content when space allows; leftover width goes
+to the title.
 
 ## Query syntax
 

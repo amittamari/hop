@@ -85,6 +85,34 @@ fn codex_transcript_roles_and_filters_internals() {
 }
 
 #[test]
+fn codex_preserves_long_normalized_title() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp
+        .path()
+        .join("rollout-2026-06-04T10-00-00-longtitle.jsonl");
+    let long_title = "please review the terminal result table and make the repository and branch columns fit their visible content before the title column receives leftover width";
+    let meta = serde_json::json!({
+        "type": "session_meta",
+        "timestamp": "2026-06-04T10:00:00.000Z",
+        "payload": { "id": "longtitle", "cwd": "/w" }
+    });
+    let message = serde_json::json!({
+        "type": "event_msg",
+        "timestamp": "2026-06-04T10:00:01.000Z",
+        "payload": {
+            "type": "user_message",
+            "message": long_title.replace(' ', " \n ")
+        }
+    });
+    std::fs::write(&file, format!("{meta}\n{message}\n")).unwrap();
+
+    let adapter = CodexAdapter::new(PathBuf::from("/unused"));
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.title, long_title);
+    assert!(s.title.chars().count() > 80);
+}
+
+#[test]
 fn codex_filters_event_message_tags_and_external_tool_blocks() {
     use hop::core::{Block, Role};
 

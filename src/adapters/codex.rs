@@ -1,12 +1,10 @@
 use crate::adapters::claude::{file_mtime_ms, parse_ts_secs};
 use crate::adapters::Adapter;
-use crate::core::{truncate_title, AgentId, ScanEntry, Session, SessionId};
+use crate::core::{derive_session_title, AgentId, ScanEntry, Session, SessionId};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-const TITLE_MAX: usize = 80;
 
 pub struct CodexAdapter {
     /// ~/.codex (we read sessions/ and archived_sessions/ under it).
@@ -236,25 +234,14 @@ impl Adapter for CodexAdapter {
     }
 
     fn parse(&self, path: &Path) -> Result<Session> {
-        use crate::core::{flatten_messages, Block, Role};
+        use crate::core::flatten_messages;
         let id = path
             .file_stem()
             .and_then(|s| s.to_str())
             .map(session_id_from_filename)
             .unwrap_or_else(|| "unknown".to_string());
         let ex = self.extract(path)?;
-        let title = ex
-            .messages
-            .iter()
-            .find(|m| m.role == Role::User)
-            .and_then(|m| {
-                m.blocks.iter().find_map(|b| match b {
-                    Block::Prose(s) => Some(s.as_str()),
-                    _ => None,
-                })
-            })
-            .map(|t| truncate_title(t, TITLE_MAX))
-            .unwrap_or_else(|| "(untitled)".to_string());
+        let title = derive_session_title(None, &ex.messages);
         let content = flatten_messages(&ex.messages);
         Ok(Session {
             id,

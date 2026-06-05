@@ -89,6 +89,32 @@ fn claude_uses_top_level_summary_title() {
 }
 
 #[test]
+fn claude_preserves_long_normalized_title() {
+    use hop::adapters::claude::ClaudeAdapter;
+    use hop::adapters::Adapter;
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("s.jsonl");
+    let long_title = "please review the terminal result table and make the repository and branch columns fit their visible content before the title column receives leftover width";
+    let line = serde_json::json!({
+        "type": "user",
+        "cwd": "/w",
+        "timestamp": "2026-06-04T13:20:16.361Z",
+        "message": {
+            "role": "user",
+            "content": long_title.replace(' ', " \n ")
+        }
+    });
+    fs::write(&file, format!("{line}\n")).unwrap();
+
+    let a = ClaudeAdapter::new(tmp.path().to_path_buf());
+    let s = a.parse(&file).unwrap();
+    assert_eq!(s.title, long_title);
+    assert!(s.title.chars().count() > 80);
+}
+
+#[test]
 fn claude_captures_branch_and_filters_internals() {
     use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
