@@ -4,7 +4,35 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Debug, Deserialize)]
+pub struct PreviewConfig {
+    #[serde(default = "default_true")]
+    pub visible: bool,
+    #[serde(default = "default_width_pct")]
+    pub width_pct: u16,
+}
+
+fn default_true() -> bool { true }
+fn default_width_pct() -> u16 { 50 }
+
+impl Default for PreviewConfig {
+    fn default() -> Self {
+        PreviewConfig { visible: true, width_pct: 50 }
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
+pub struct ColumnsConfig {
+    #[serde(default)]
+    pub disabled: Vec<String>,
+    /// Optional explicit order (column ids); empty = default order.
+    #[serde(default)]
+    pub order: Vec<String>,
+}
+
+fn default_keymap() -> String { "search".to_string() }
+
+#[derive(Debug, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub data_dirs: HashMap<String, PathBuf>,
@@ -13,6 +41,25 @@ pub struct Config {
     pub theme: HashMap<String, String>,
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
+    #[serde(default)]
+    pub preview: PreviewConfig,
+    #[serde(default = "default_keymap")]
+    pub keymap: String,
+    #[serde(default)]
+    pub columns: ColumnsConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            data_dirs: HashMap::new(),
+            theme: HashMap::new(),
+            keybindings: HashMap::new(),
+            preview: PreviewConfig::default(),
+            keymap: default_keymap(),
+            columns: ColumnsConfig::default(),
+        }
+    }
 }
 
 impl Config {
@@ -72,5 +119,37 @@ mod tests {
         assert_eq!(cfg.data_dir(AgentId::Claude), std::path::PathBuf::from("/custom/claude"));
         // unset agent falls back to default
         assert!(cfg.data_dir(AgentId::Codex).to_string_lossy().contains(".codex"));
+    }
+
+    #[test]
+    fn preview_and_keymap_defaults() {
+        let cfg = Config::default();
+        assert!(cfg.preview.visible);
+        assert_eq!(cfg.preview.width_pct, 50);
+        assert_eq!(cfg.keymap, "search");
+    }
+
+    #[test]
+    fn preview_and_keymap_from_toml() {
+        let toml = r#"
+            keymap = "modal"
+            [preview]
+            visible = false
+            width_pct = 40
+        "#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        assert!(!cfg.preview.visible);
+        assert_eq!(cfg.preview.width_pct, 40);
+        assert_eq!(cfg.keymap, "modal");
+    }
+
+    #[test]
+    fn disabled_columns_from_toml() {
+        let toml = r#"
+            [columns]
+            disabled = ["pr", "msgs"]
+        "#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        assert!(cfg.columns.disabled.contains(&"pr".to_string()));
     }
 }
