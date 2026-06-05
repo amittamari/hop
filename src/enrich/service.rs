@@ -70,6 +70,11 @@ impl EnrichmentService {
 
             while let Ok(req) = req_rx.recv() {
                 let Some(enr) = enrichers.iter().find(|e| e.id() == req.enricher) else {
+                    let _ = res_tx.send(EnrichResult {
+                        session_id: req.session.id.clone(),
+                        enricher: req.enricher,
+                        value: None,
+                    });
                     continue;
                 };
                 let key = enr.cache_key(&req.session);

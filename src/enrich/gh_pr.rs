@@ -3,7 +3,6 @@
 
 use super::{EnrichKind, EnrichValue, Enricher};
 use crate::core::Session;
-use crate::enrich::repo_name_from_url;
 use std::time::Duration;
 
 pub struct GhPrEnricher;
@@ -27,7 +26,7 @@ impl Enricher for GhPrEnricher {
         let repo = s
             .repo_url
             .as_deref()
-            .and_then(repo_name_from_url)
+            .and_then(owner_repo_from_url)
             .unwrap_or_else(|| s.directory.clone());
         format!("{}@{}", repo, s.branch.as_deref().unwrap_or(""))
     }
@@ -60,16 +59,24 @@ pub fn parse_pr_number(json: &str) -> Option<u64> {
     v.as_array()?.first()?.get("number")?.as_u64()
 }
 
-/// `git@github.com:owner/repo.git` / `https://github.com/owner/repo` -> `owner/repo`.
+/// `git@github.com:owner/repo.git` / `https://github.com/owner/repo(/...)` -> `owner/repo`.
+/// Requires the host to be exactly github.com (a boundary char `/` or `@` must
+/// precede it, so `notgithub.com` is rejected) and returns only the first two
+/// path segments, ignoring any trailing path.
 pub fn owner_repo_from_url(url: &str) -> Option<String> {
     let t = url.trim().trim_end_matches(".git");
-    if let Some(rest) = t.split("github.com").nth(1) {
-        let rest = rest.trim_start_matches([':', '/']);
-        if rest.matches('/').count() >= 1 && !rest.is_empty() {
-            return Some(rest.to_string());
+    let idx = t.find("github.com")?;
+    if idx > 0 {
+        let prev = t[..idx].chars().last()?;
+        if prev != '/' && prev != '@' {
+            return None;
         }
     }
-    None
+    let rest = t[idx + "github.com".len()..].trim_start_matches([':', '/']);
+    let mut segs = rest.split('/').filter(|s| !s.is_empty());
+    let owner = segs.next()?;
+    let repo = segs.next()?;
+    Some(format!("{owner}/{repo}"))
 }
 
 #[cfg(test)]
@@ -88,6 +95,8 @@ mod tests {
         assert_eq!(owner_repo_from_url("git@github.com:me/web.git").as_deref(), Some("me/web"));
         assert_eq!(owner_repo_from_url("https://github.com/me/web").as_deref(), Some("me/web"));
         assert_eq!(owner_repo_from_url("file:///tmp/x"), None);
+        assert_eq!(owner_repo_from_url("https://github.com/owner/repo/tree/main").as_deref(), Some("owner/repo"));
+        assert_eq!(owner_repo_from_url("https://notgithub.com/owner/repo"), None);
     }
 
     #[test]
