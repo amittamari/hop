@@ -61,8 +61,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // search input
     let total = app.results().len();
     let pos = if total == 0 { 0 } else { app.selected() + 1 };
+
     let mode = app.interaction_mode();
-    let prefix = format!("{} ❯ ", mode.label());
+
     // The query input is "focused" only in Search mode; in Navigate the caret
     // is hidden, so brighten the prompt + query when focused and dim it when
     // parked to signal where keystrokes go.
@@ -78,12 +79,6 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         Style::default().fg(theme::DIM)
     };
     let header = Line::from(vec![
-        Span::styled(
-            mode.label(),
-            Style::default()
-                .fg(theme::ACCENT)
-                .add_modifier(Modifier::BOLD),
-        ),
         Span::styled(" ❯ ", prompt_style),
         Span::styled(app.query().to_string(), query_style),
         Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
@@ -93,7 +88,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
         let x = chunks[0]
             .x
-            .saturating_add(crate::columns::display_width(&prefix) as u16)
+            .saturating_add(crate::columns::display_width(" ❯ ") as u16)
             .saturating_add(crate::columns::display_width(query_prefix) as u16);
         let x = x.min(chunks[0].right().saturating_sub(1));
         f.set_cursor_position(Position::new(x, chunks[0].y));
