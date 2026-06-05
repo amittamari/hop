@@ -91,4 +91,4 @@ but are reserved and not applied yet.
 For contributor and agent context, start with `AGENTS.md`, then read
 `docs/PROJECT.md` and `docs/ARCHITECTURE.md`. Dated specs, review artifacts, and
 execution plans live under `docs/specs/`, `docs/reviews/`, and
-`docs/superpowers/plans/`.
+`docs/plans/`.

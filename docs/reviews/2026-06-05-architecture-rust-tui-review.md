@@ -19,8 +19,8 @@ The most important next step is to harden stable application boundaries before a
 - `README.md`
 - `docs/specs/2026-06-04-hop-design.md`
 - `docs/specs/2026-06-04-hop-tui-v2-design.md`
-- `docs/superpowers/plans/2026-06-04-hop.md`
-- `docs/superpowers/plans/2026-06-04-hop-tui-v2.md`
+- `docs/plans/superpowers-2026-06-04-hop.md`
+- `docs/plans/superpowers-2026-06-04-hop-tui-v2.md`
 - `src/` and `tests/`
 - Ratatui docs:
   - https://ratatui.rs/concepts/application-patterns/

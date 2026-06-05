@@ -2,7 +2,7 @@
 
 This file is the short entry point for coding agents. Keep it small. Durable
 project knowledge belongs in `docs/`, and detailed historical plans stay under
-`docs/superpowers/plans/`.
+`docs/plans/`.
 
 ## Start Here
 
@@ -10,7 +10,7 @@ project knowledge belongs in `docs/`, and detailed historical plans stay under
 - Architecture map: `docs/ARCHITECTURE.md`
 - User-facing usage: `README.md`
 - Historical design specs: `docs/specs/`
-- Existing implementation plans: `docs/superpowers/plans/`
+- Existing implementation plans: `docs/plans/`
 - Dated review/action artifacts: `docs/reviews/`
 
 ## What This Repo Builds

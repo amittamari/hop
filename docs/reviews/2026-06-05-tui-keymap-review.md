@@ -18,7 +18,7 @@ Recommended direction: keep the overall keymap shape, but make global commands t
 - `docs/ARCHITECTURE.md`
 - `docs/specs/2026-06-04-hop-design.md`
 - `docs/specs/2026-06-04-hop-tui-v2-design.md`
-- `docs/superpowers/plans/2026-06-04-hop-tui-v2.md`
+- `docs/plans/superpowers-2026-06-04-hop-tui-v2.md`
 - `docs/reviews/2026-06-05-architecture-rust-tui-review.md`
 - `src/tui/keymap.rs`
 - `src/tui/mod.rs`
@@ -66,7 +66,7 @@ Modal `keymap = "modal"` preset:
 
 That is surprising for a search-palette UI. In this model, plain printable keys generally type unless the user is in a navigation/normal mode. Commands that must work everywhere are usually non-printable keys or modified chords.
 
-This also contradicts the implementation plan note in `docs/superpowers/plans/2026-06-04-hop-tui-v2.md`, which says printable `?`, `[`, and `]` should act as controls only when the query is empty and type literally otherwise.
+This also contradicts the implementation plan note in `docs/plans/superpowers-2026-06-04-hop-tui-v2.md`, which says printable `?`, `[`, and `]` should act as controls only when the query is empty and type literally otherwise.
 
 **Action candidate:** Keep `Ctrl+P`, `Ctrl+U`, `Ctrl+D`, and `Ctrl+Y` as global chords. Move plain `?`, `[`, and `]` handling into `App::handle_key` so they are commands only when the query is empty, or replace them with non-printable/modified alternatives.
 
