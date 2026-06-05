@@ -13,6 +13,7 @@ pub(super) enum Command {
     ResizePreview(i8),
     Help,
     ResumeSelected { yolo: bool },
+    ToggleKeymapPreset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,7 @@ pub(super) fn empty_query_chord_action(key: &KeyEvent) -> Option<Command> {
         (KeyCode::Char('['), false) => Some(Command::ResizePreview(-1)),
         (KeyCode::Char(']'), false) => Some(Command::ResizePreview(1)),
         (KeyCode::Char('?'), false) => Some(Command::Help),
+        (KeyCode::Char('`'), false) => Some(Command::ToggleKeymapPreset),
         _ => None,
     }
 }

@@ -186,6 +186,18 @@ impl App {
     pub fn set_keymap(&mut self, p: keymap::Preset) {
         self.keymap = p;
     }
+    pub fn toggle_keymap(&mut self) {
+        match self.keymap {
+            keymap::Preset::Search => {
+                self.set_keymap(keymap::Preset::Modal);
+                self.navigate = true;
+            },
+            keymap::Preset::Modal => {
+                self.set_keymap(keymap::Preset::Search);
+                self.navigate = false;
+            },
+        }
+    }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
         self.preview_width_pct = width_pct.clamp(20, 80);
@@ -372,6 +384,10 @@ impl App {
                     }
                 }
             }
+            keymap::Command::ToggleKeymapPreset => {
+                self.toggle_keymap();
+                Action::None
+            }
         }
     }
 
@@ -410,6 +426,10 @@ impl App {
             }
             KeyCode::Char('/') => {
                 self.navigate = false; // back to live search
+                Action::None
+            }
+            KeyCode::Char('`') => {
+                self.toggle_keymap();
                 Action::None
             }
             KeyCode::Enter => self.activate(false),
@@ -811,5 +831,20 @@ mod tests {
         assert_eq!(app.preview_scroll(), 2);
         app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::CONTROL));
         assert_eq!(app.preview_scroll(), 8);
+    }
+
+    #[test]
+    fn backtick_toggles_keymap_preset_mode() {
+        let mut app = app_with(0);
+        assert_eq!(app.keymap_preset(), keymap::Preset::Search);
+        assert!(!app.navigate);
+
+        app.handle_key(key(KeyCode::Char('`')));
+        assert_eq!(app.keymap_preset(), keymap::Preset::Modal);
+        assert!(app.navigate);
+
+        app.handle_key(key(KeyCode::Char('`')));
+        assert_eq!(app.keymap_preset(), keymap::Preset::Search);
+        assert!(!app.navigate);
     }
 }
