@@ -1,7 +1,7 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::Enricher;
-use crate::tui::{help, results_list, theme, App, EscAction, InteractionMode};
+use crate::tui::{help, results_list, theme, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -62,29 +62,18 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let total = app.results().len();
     let pos = if total == 0 { 0 } else { app.selected() + 1 };
 
-    let mode = app.interaction_mode();
-
-    // The query input is "focused" only in Search mode; in Navigate the caret
-    // is hidden, so brighten the prompt + query when focused and dim it when
-    // parked to signal where keystrokes go.
-    let focused = mode == InteractionMode::Search;
-    let prompt_style = if focused {
-        Style::default().fg(theme::ACCENT)
-    } else {
-        Style::default().fg(theme::DIM)
-    };
-    let query_style = if focused {
-        Style::default().fg(theme::SELECTED_FG)
-    } else {
-        Style::default().fg(theme::DIM)
-    };
+    // The query input is always live, so the prompt and query stay bright and
+    // the caret is shown whenever no overlay is covering the input.
     let header = Line::from(vec![
-        Span::styled(" ❯ ", prompt_style),
-        Span::styled(app.query().to_string(), query_style),
+        Span::styled(" ❯ ", Style::default().fg(theme::ACCENT)),
+        Span::styled(
+            app.query().to_string(),
+            Style::default().fg(theme::SELECTED_FG),
+        ),
         Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
-    if mode == InteractionMode::Search && !app.help_open() && !app.modal_open() {
+    if !app.help_open() && !app.modal_open() {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
         let x = chunks[0]
             .x
@@ -196,11 +185,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 
     // footer
-    let footer = footer_help(app.interaction_mode());
-    f.render_widget(
-        Paragraph::new(footer_line(footer, app.esc_action(), model.status)),
-        chunks[2],
-    );
+    f.render_widget(Paragraph::new(footer_line(model.status)), chunks[2]);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
@@ -209,7 +194,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f, app.keymap_preset());
+        help::render(f);
     }
 }
 
@@ -224,9 +209,11 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-fn footer_line(base: &str, esc: EscAction, status: &StatusLine) -> Line<'static> {
+const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
+
+fn footer_line(status: &StatusLine) -> Line<'static> {
     let mut spans = Vec::new();
-    let (label, rest) = base.split_once(" · ").unwrap_or((base, ""));
+    let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
     spans.push(Span::styled(
         label.to_string(),
         Style::default()
@@ -239,11 +226,6 @@ fn footer_line(base: &str, esc: EscAction, status: &StatusLine) -> Line<'static>
             Style::default().fg(theme::DIM),
         ));
     }
-    // Esc hint reflects the live behavior (quit vs. step back to nav).
-    spans.push(Span::styled(
-        format!(" · {}", esc.hint()),
-        Style::default().fg(theme::DIM),
-    ));
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {sync}"),
@@ -269,17 +251,6 @@ fn footer_line(base: &str, esc: EscAction, status: &StatusLine) -> Line<'static>
         ));
     }
     Line::from(spans)
-}
-
-fn footer_help(mode: InteractionMode) -> &'static str {
-    match mode {
-        InteractionMode::Search => {
-            "SEARCH · type query · ↑↓ move · Enter resume · ? help · ` toggle keymap mode"
-        }
-        InteractionMode::Navigate => {
-            "NAV · j/k move · / search · Enter resume · ? help · ` toggle keymap mode"
-        }
-    }
 }
 
 fn render_yolo_modal(
@@ -665,11 +636,11 @@ mod tests {
     }
 
     #[test]
-    fn renders_mode_indicator_and_mode_footer() {
+    fn renders_single_mode_footer_hints() {
         use crate::enrich::Enricher;
         use std::collections::HashMap;
 
-        let mut app = App::new();
+        let app = App::new();
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
@@ -699,39 +670,10 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(text.contains("SEARCH"));
-        assert!(text.contains("type query"));
-
-        app.set_keymap(crate::tui::keymap::Preset::Modal);
-        app.handle_key(ratatui::crossterm::event::KeyEvent::new(
-            ratatui::crossterm::event::KeyCode::Esc,
-            ratatui::crossterm::event::KeyModifiers::NONE,
-        ));
-        term.draw(|f| {
-            render(
-                f,
-                &app,
-                RenderModel {
-                    now: 100,
-                    columns: &cols,
-                    enrichers: &enr,
-                    resolved: &resolved,
-                    preview_lines: &[],
-                    status: &StatusLine::default(),
-                    modal_command: None,
-                },
-            )
-        })
-        .unwrap();
-        let text: String = term
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
-        assert!(text.contains("NAV"));
-        assert!(text.contains("j/k move"));
+        assert!(text.contains("type to search"));
+        assert!(text.contains("Esc clear/quit"));
+        // No mode indicators remain.
+        assert!(!text.contains("NAV"));
     }
 
     #[test]

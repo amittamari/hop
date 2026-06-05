@@ -1,6 +1,6 @@
-//! Keymap presets. The default "search" preset keeps the query always-live and
-//! puts actions on arrows/PgUp-Dn/Ctrl-chords. The "modal" preset adds a
-//! navigate mode where single letters act.
+//! Keymap for the single live-search interaction model. Typing always edits the
+//! query; navigation lives on the arrows and preview actions on Ctrl-chords, so
+//! no key ever does double duty and there are no modes to track.
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -11,62 +11,24 @@ pub(super) enum Command {
     ScrollPreview(i16),
     JumpPreviewMatch(i16),
     ResizePreview(i8),
-    Help,
-    ResumeSelected { yolo: bool },
-    ToggleKeymapPreset,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Preset {
-    Search,
-    Modal,
-}
-
-impl Preset {
-    pub fn parse(s: &str) -> Preset {
-        match s {
-            "modal" => Preset::Modal,
-            _ => Preset::Search,
-        }
-    }
-}
-
-impl std::str::FromStr for Preset {
-    type Err = std::convert::Infallible;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Preset::parse(s))
-    }
-}
-
-/// Resolve a key to a command that is independent of mode/query editing. These
-/// chords work in both presets. Returns None if the key isn't a bound chord.
-#[cfg(test)]
-fn chord_action(key: &KeyEvent) -> Option<Command> {
-    control_chord_action(key).or_else(|| empty_query_chord_action(key))
-}
-
+/// Resolve a Ctrl-chord to a command. Returns None if the key isn't a bound
+/// chord. Requiring Ctrl keeps these from ever colliding with query editing.
+/// Line-editing chords (Ctrl+A/E/W) are handled directly by `App::handle_key`.
 pub(super) fn control_chord_action(key: &KeyEvent) -> Option<Command> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    match (key.code, ctrl) {
-        (KeyCode::Char('c'), true) => Some(Command::Quit),
-        (KeyCode::Char('p'), true) => Some(Command::TogglePreview),
-        (KeyCode::Char('u'), true) => Some(Command::ScrollPreview(-1)),
-        (KeyCode::Char('d'), true) => Some(Command::ScrollPreview(1)),
-        (KeyCode::Char('b'), true) => Some(Command::JumpPreviewMatch(-1)),
-        (KeyCode::Char('n'), true) => Some(Command::JumpPreviewMatch(1)),
-        (KeyCode::Char('y'), true) => Some(Command::ResumeSelected { yolo: true }),
-        _ => None,
+    if !key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
     }
-}
-
-pub(super) fn empty_query_chord_action(key: &KeyEvent) -> Option<Command> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    match (key.code, ctrl) {
-        (KeyCode::Char('['), false) => Some(Command::ResizePreview(-1)),
-        (KeyCode::Char(']'), false) => Some(Command::ResizePreview(1)),
-        (KeyCode::Char('?'), false) => Some(Command::Help),
-        (KeyCode::Char('`'), false) => Some(Command::ToggleKeymapPreset),
+    match key.code {
+        KeyCode::Char('c') => Some(Command::Quit),
+        KeyCode::Char('p') => Some(Command::TogglePreview),
+        KeyCode::Char('u') => Some(Command::ScrollPreview(-1)),
+        KeyCode::Char('d') => Some(Command::ScrollPreview(1)),
+        KeyCode::Char('b') => Some(Command::JumpPreviewMatch(-1)),
+        KeyCode::Char('n') => Some(Command::JumpPreviewMatch(1)),
+        KeyCode::Left => Some(Command::ResizePreview(-1)),
+        KeyCode::Right => Some(Command::ResizePreview(1)),
         _ => None,
     }
 }
@@ -75,8 +37,8 @@ pub(super) fn empty_query_chord_action(key: &KeyEvent) -> Option<Command> {
 mod tests {
     use super::*;
 
-    fn ctrl(c: char) -> KeyEvent {
-        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    fn ctrl(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::CONTROL)
     }
     fn plain(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -84,40 +46,40 @@ mod tests {
 
     #[test]
     fn ctrl_chords_map() {
-        assert_eq!(chord_action(&ctrl('p')), Some(Command::TogglePreview));
-        assert!(matches!(chord_action(&ctrl('u')), Some(Command::ScrollPreview(n)) if n < 0));
+        assert_eq!(
+            control_chord_action(&ctrl(KeyCode::Char('p'))),
+            Some(Command::TogglePreview)
+        );
         assert!(matches!(
-            chord_action(&ctrl('n')),
+            control_chord_action(&ctrl(KeyCode::Char('u'))),
+            Some(Command::ScrollPreview(n)) if n < 0
+        ));
+        assert!(matches!(
+            control_chord_action(&ctrl(KeyCode::Char('n'))),
             Some(Command::JumpPreviewMatch(n)) if n > 0
         ));
-        assert!(matches!(
-            chord_action(&ctrl('y')),
-            Some(Command::ResumeSelected { yolo: true })
-        ));
-        assert_eq!(chord_action(&ctrl('c')), Some(Command::Quit));
+        assert_eq!(
+            control_chord_action(&ctrl(KeyCode::Char('c'))),
+            Some(Command::Quit)
+        );
     }
 
     #[test]
-    fn bracket_resizes_and_question_helps() {
+    fn ctrl_arrows_resize_preview() {
         assert_eq!(
-            chord_action(&plain(KeyCode::Char('['))),
+            control_chord_action(&ctrl(KeyCode::Left)),
             Some(Command::ResizePreview(-1))
         );
         assert_eq!(
-            chord_action(&plain(KeyCode::Char(']'))),
+            control_chord_action(&ctrl(KeyCode::Right)),
             Some(Command::ResizePreview(1))
-        );
-        assert_eq!(
-            chord_action(&plain(KeyCode::Char('?'))),
-            Some(Command::Help)
         );
     }
 
     #[test]
-    fn preset_parsing() {
-        assert_eq!(Preset::parse("modal"), Preset::Modal);
-        assert_eq!(Preset::parse("search"), Preset::Search);
-        assert_eq!(Preset::parse("nonsense"), Preset::Search);
-        assert_eq!("modal".parse::<Preset>().unwrap(), Preset::Modal);
+    fn plain_keys_are_not_chords() {
+        assert_eq!(control_chord_action(&plain(KeyCode::Char('p'))), None);
+        assert_eq!(control_chord_action(&plain(KeyCode::Left)), None);
+        assert_eq!(control_chord_action(&plain(KeyCode::Char('?'))), None);
     }
 }

@@ -1,6 +1,5 @@
-//! Centered help overlay listing the active keymap.
+//! Centered help overlay listing the keymap.
 
-use crate::tui::keymap::Preset;
 use crate::tui::theme;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
@@ -8,8 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
-pub fn lines(preset: Preset) -> Vec<Line<'static>> {
-    let mut out = vec![
+pub fn lines() -> Vec<Line<'static>> {
+    vec![
         section("Navigation"),
         Line::from("  ↑/↓        move selection"),
         Line::from("  PgUp/PgDn  page list"),
@@ -18,7 +17,7 @@ pub fn lines(preset: Preset) -> Vec<Line<'static>> {
         Line::from(""),
         section("Preview"),
         Line::from("  Ctrl+P     toggle preview"),
-        Line::from("  [ / ]      resize preview"),
+        Line::from("  Ctrl+←/→   resize preview"),
         Line::from(""),
         section("Search Editing"),
         Line::from("  ←/→        move cursor"),
@@ -30,23 +29,11 @@ pub fn lines(preset: Preset) -> Vec<Line<'static>> {
         Line::from(""),
         section("Actions"),
         Line::from("  Enter      resume"),
-        Line::from("  Ctrl+Y     yolo prompt"),
         Line::from("  Tab        autocomplete keyword"),
         Line::from("  ?          toggle help"),
-        Line::from("  `          toggle keymap mode (search/navigate)"),
-        Line::from("  Esc        quit"),
+        Line::from("  Esc        clear query / quit"),
         Line::from("  Ctrl+C     quit"),
-    ];
-    if preset == Preset::Modal {
-        out.push(Line::from(""));
-        out.push(section("Modal Mode"));
-        out.push(Line::from("  Esc        enter NAV"));
-        out.push(Line::from("  j/k        move selection"));
-        out.push(Line::from("  g/G        top / bottom"));
-        out.push(Line::from("  /          search"));
-        out.push(Line::from("  p          preview"));
-    }
-    out
+    ]
 }
 
 fn section(label: &'static str) -> Line<'static> {
@@ -59,13 +46,13 @@ fn section(label: &'static str) -> Line<'static> {
 }
 
 /// Render the overlay centered over the frame.
-pub fn render(f: &mut Frame, preset: Preset) {
+pub fn render(f: &mut Frame) {
     let area = f.area();
     if area.width < 8 || area.height < 6 {
         return;
     }
 
-    let body = lines(preset);
+    let body = lines();
     let w = 58u16.min(area.width.saturating_sub(4)).max(8);
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
@@ -103,9 +90,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn search_help_lists_core_bindings() {
-        let l = lines(Preset::Search);
-        let text: String = l
+    fn help_lists_core_bindings() {
+        let text: String = lines()
             .iter()
             .map(|x| {
                 x.spans
@@ -117,23 +103,11 @@ mod tests {
             .join("\n");
         assert!(text.contains("Ctrl+P"));
         assert!(text.contains("Ctrl+N/B"));
-        assert!(text.contains("Ctrl+Y"));
+        assert!(text.contains("Ctrl+←/→"));
         assert!(text.contains("Tab"));
-        assert!(!text.contains("Modal mode"));
-    }
-
-    #[test]
-    fn modal_help_adds_modal_section() {
-        let text: String = lines(Preset::Modal)
-            .iter()
-            .map(|x| {
-                x.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("Modal Mode"));
+        assert!(text.contains("clear query / quit"));
+        // The removed modal keymap and its toggles are gone.
+        assert!(!text.to_lowercase().contains("modal"));
+        assert!(!text.contains("Ctrl+Y"));
     }
 }

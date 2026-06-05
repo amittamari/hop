@@ -33,40 +33,6 @@ enum Mode {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InteractionMode {
-    Search,
-    Navigate,
-}
-
-impl InteractionMode {
-    pub fn label(self) -> &'static str {
-        match self {
-            InteractionMode::Search => "SEARCH",
-            InteractionMode::Navigate => "NAV",
-        }
-    }
-}
-
-/// What pressing Esc does in the current state. Single source of truth shared
-/// by the key handler and the footer hint so the two can never disagree.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EscAction {
-    /// Exit the app.
-    Quit,
-    /// Step back from the query input into navigate mode (Modal keymap).
-    EnterNav,
-}
-
-impl EscAction {
-    pub fn hint(self) -> &'static str {
-        match self {
-            EscAction::Quit => "Esc quit",
-            EscAction::EnterNav => "Esc ↩ nav",
-        }
-    }
-}
-
 pub struct App {
     query: String,
     query_cursor: usize,
@@ -80,8 +46,6 @@ pub struct App {
     preview_header_visible: bool,
     preview_scroll: u16,
     help_open: bool,
-    keymap: keymap::Preset,
-    navigate: bool,
     list_page_size: usize,
     preview_scroll_step: u16,
     preview_matches: Vec<u16>,
@@ -102,8 +66,6 @@ impl App {
             preview_header_visible: true,
             preview_scroll: 0,
             help_open: false,
-            keymap: keymap::Preset::Search,
-            navigate: false,
             list_page_size: 10,
             preview_scroll_step: 8,
             preview_matches: Vec::new(),
@@ -129,22 +91,6 @@ impl App {
     }
     pub fn modal_open(&self) -> bool {
         matches!(self.mode, Mode::YoloModal { .. })
-    }
-    pub fn interaction_mode(&self) -> InteractionMode {
-        if self.keymap == keymap::Preset::Modal && self.navigate {
-            InteractionMode::Navigate
-        } else {
-            InteractionMode::Search
-        }
-    }
-    /// What Esc does right now. In the Modal keymap, Esc steps back from the
-    /// query input into navigate mode; everywhere else it quits.
-    pub fn esc_action(&self) -> EscAction {
-        if self.keymap == keymap::Preset::Modal && !self.navigate {
-            EscAction::EnterNav
-        } else {
-            EscAction::Quit
-        }
     }
     pub fn yolo_modal(&self) -> Option<(usize, bool)> {
         match self.mode {
@@ -208,24 +154,6 @@ impl App {
     pub fn help_open(&self) -> bool {
         self.help_open
     }
-    pub fn keymap_preset(&self) -> keymap::Preset {
-        self.keymap
-    }
-    pub fn set_keymap(&mut self, p: keymap::Preset) {
-        self.keymap = p;
-    }
-    pub fn toggle_keymap(&mut self) {
-        match self.keymap {
-            keymap::Preset::Search => {
-                self.set_keymap(keymap::Preset::Modal);
-                self.navigate = true;
-            },
-            keymap::Preset::Modal => {
-                self.set_keymap(keymap::Preset::Search);
-                self.navigate = false;
-            },
-        }
-    }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
         self.preview_width_pct = width_pct.clamp(20, 80);
@@ -282,19 +210,19 @@ impl App {
         if let Some(act) = keymap::control_chord_action(&key) {
             return self.apply_command(act);
         }
-        // Modal preset: navigate mode consumes letter keys.
-        if self.keymap == keymap::Preset::Modal && self.navigate {
-            return self.handle_navigate(key);
-        }
         // Main search handling.
         match key.code {
-            KeyCode::Esc => match self.esc_action() {
-                EscAction::EnterNav => {
-                    self.navigate = true; // leave query → navigate
-                    Action::None
+            // Esc clears a non-empty query, then quits when already empty.
+            KeyCode::Esc => {
+                if self.query.is_empty() {
+                    Action::Quit
+                } else {
+                    self.query.clear();
+                    self.query_cursor = 0;
+                    self.preview_scroll = 0;
+                    Action::Search
                 }
-                EscAction::Quit => Action::Quit,
-            },
+            }
             KeyCode::Down => {
                 if !self.results.is_empty() {
                     self.selected = (self.selected + 1).min(self.results.len() - 1);
@@ -360,12 +288,12 @@ impl App {
             KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.delete_query_word_before_cursor()
             }
+            // `?` is reserved for help in every state, so it never types.
+            KeyCode::Char('?') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.help_open = true;
+                Action::None
+            }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
-                if self.query.is_empty() {
-                    if let Some(act) = keymap::empty_query_chord_action(&key) {
-                        return self.apply_command(act);
-                    }
-                }
                 self.insert_query_char(c)
             }
             _ => Action::None,
@@ -394,73 +322,6 @@ impl App {
                 self.jump_preview_match(d);
                 Action::None
             }
-            keymap::Command::Help => {
-                self.help_open = true;
-                Action::None
-            }
-            keymap::Command::ResumeSelected { yolo } => {
-                if self.results.is_empty() {
-                    Action::None
-                } else if yolo {
-                    self.open_yolo_modal_with(true);
-                    Action::None
-                } else {
-                    Action::Resume {
-                        index: self.selected,
-                        yolo,
-                    }
-                }
-            }
-            keymap::Command::ToggleKeymapPreset => {
-                self.toggle_keymap();
-                Action::None
-            }
-        }
-    }
-
-    fn handle_navigate(&mut self, key: KeyEvent) -> Action {
-        match key.code {
-            KeyCode::Esc => Action::Quit,
-            KeyCode::Char('j') | KeyCode::Down => {
-                if !self.results.is_empty() {
-                    self.selected = (self.selected + 1).min(self.results.len() - 1);
-                }
-                self.preview_scroll = 0;
-                Action::None
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                self.selected = self.selected.saturating_sub(1);
-                self.preview_scroll = 0;
-                Action::None
-            }
-            KeyCode::Char('g') => {
-                self.selected = 0;
-                self.preview_scroll = 0;
-                Action::None
-            }
-            KeyCode::Char('G') => {
-                self.selected = self.results.len().saturating_sub(1);
-                self.preview_scroll = 0;
-                Action::None
-            }
-            KeyCode::Char('p') => {
-                self.preview_visible = !self.preview_visible;
-                Action::None
-            }
-            KeyCode::Char('?') => {
-                self.help_open = true;
-                Action::None
-            }
-            KeyCode::Char('/') => {
-                self.navigate = false; // back to live search
-                Action::None
-            }
-            KeyCode::Char('`') => {
-                self.toggle_keymap();
-                Action::None
-            }
-            KeyCode::Enter => self.activate(false),
-            _ => Action::None,
         }
     }
 
@@ -699,17 +560,6 @@ mod tests {
     }
 
     #[test]
-    fn brackets_resize_preview_width() {
-        let mut app = app_with(1);
-        let before = app.preview_width_pct();
-        app.handle_key(key(KeyCode::Char(']')));
-        assert!(app.preview_width_pct() > before);
-        app.handle_key(key(KeyCode::Char('[')));
-        app.handle_key(key(KeyCode::Char('[')));
-        assert!(app.preview_width_pct() < before);
-    }
-
-    #[test]
     fn question_toggles_help_and_esc_closes_it() {
         let mut app = app_with(1);
         app.handle_key(key(KeyCode::Char('?')));
@@ -719,45 +569,24 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_y_opens_yolo_modal_for_selected_row() {
-        let mut app = app_with(2);
-        app.handle_key(key(KeyCode::Down)); // select index 1
-        assert_eq!(
-            app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
-            Action::None
-        );
-        assert_eq!(app.yolo_modal(), Some((1, true)));
-
-        match app.handle_key(key(KeyCode::Enter)) {
-            Action::Resume { index, yolo } => {
-                assert_eq!(index, 1);
-                assert!(yolo);
-            }
-            other => panic!("expected yolo resume, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn plain_command_chars_type_when_query_nonempty() {
+    fn bracket_chars_type_into_query() {
+        // `[` and `]` no longer resize; they are ordinary query characters now.
         let mut app = app_with(1);
-        app.handle_key(key(KeyCode::Char('a')));
         let before = app.preview_width_pct();
         assert_eq!(app.handle_key(key(KeyCode::Char('['))), Action::Search);
+        assert_eq!(app.handle_key(key(KeyCode::Char(']'))), Action::Search);
+        assert_eq!(app.query(), "[]");
         assert_eq!(app.preview_width_pct(), before);
-        assert_eq!(app.query(), "a[");
-        assert_eq!(app.handle_key(key(KeyCode::Char('?'))), Action::Search);
-        assert!(!app.help_open());
-        assert_eq!(app.query(), "a[?");
     }
 
     #[test]
-    fn plain_command_chars_still_work_when_query_empty() {
+    fn question_opens_help_and_never_types() {
+        // `?` is reserved for help in every state, even mid-query.
         let mut app = app_with(1);
-        let before = app.preview_width_pct();
-        assert_eq!(app.handle_key(key(KeyCode::Char('['))), Action::None);
-        assert!(app.preview_width_pct() < before);
+        app.handle_key(key(KeyCode::Char('a')));
         assert_eq!(app.handle_key(key(KeyCode::Char('?'))), Action::None);
         assert!(app.help_open());
+        assert_eq!(app.query(), "a");
     }
 
     #[test]
@@ -771,48 +600,28 @@ mod tests {
     }
 
     #[test]
-    fn search_preset_esc_still_quits() {
-        let mut app = app_with(3); // default = search preset
+    fn esc_clears_query_then_quits() {
+        let mut app = app_with(3);
+        for c in "abc".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        assert_eq!(app.query(), "abc");
+        // First Esc clears the query and re-searches.
+        assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::Search);
+        assert_eq!(app.query(), "");
+        // Second Esc (empty query) quits.
         assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::Quit);
     }
 
     #[test]
-    fn esc_action_tracks_state_for_footer_hint() {
-        // Search preset: Esc quits, in both query and (n/a) states.
-        let app = app_with(3);
-        assert_eq!(app.esc_action(), EscAction::Quit);
-        assert_eq!(app.esc_action().hint(), "Esc quit");
-
-        // Modal preset, query focused: Esc steps back to nav.
-        let mut app = app_with(3);
-        app.set_keymap(keymap::Preset::Modal);
-        app.navigate = false;
-        assert_eq!(app.esc_action(), EscAction::EnterNav);
-        assert_eq!(app.esc_action().hint(), "Esc ↩ nav");
-
-        // Modal preset, nav focused: Esc quits.
-        app.navigate = true;
-        assert_eq!(app.esc_action(), EscAction::Quit);
-        assert_eq!(app.esc_action().hint(), "Esc quit");
-    }
-
-    #[test]
-    fn modal_esc_enters_navigate_then_letters_move() {
-        let mut app = app_with(3);
-        app.set_keymap(keymap::Preset::Modal);
-        // Esc enters navigate mode instead of quitting
-        assert_eq!(app.handle_key(key(KeyCode::Esc)), Action::None);
-        // letters now navigate
-        app.handle_key(key(KeyCode::Char('j')));
-        assert_eq!(app.selected(), 1);
-        app.handle_key(key(KeyCode::Char('k')));
-        assert_eq!(app.selected(), 0);
-        app.handle_key(key(KeyCode::Char('G')));
-        assert_eq!(app.selected(), 2);
-        // '/' returns to search so letters type again
-        app.handle_key(key(KeyCode::Char('/')));
-        assert_eq!(app.handle_key(key(KeyCode::Char('a'))), Action::Search);
-        assert_eq!(app.query(), "a");
+    fn ctrl_arrows_resize_preview() {
+        let mut app = app_with(1);
+        let before = app.preview_width_pct();
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+        assert!(app.preview_width_pct() > before);
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert!(app.preview_width_pct() < before);
     }
 
     #[test]
@@ -881,17 +690,10 @@ mod tests {
     }
 
     #[test]
-    fn backtick_toggles_keymap_preset_mode() {
+    fn backtick_types_into_query() {
+        // `` ` `` no longer toggles a keymap mode; it is an ordinary character.
         let mut app = app_with(0);
-        assert_eq!(app.keymap_preset(), keymap::Preset::Search);
-        assert!(!app.navigate);
-
-        app.handle_key(key(KeyCode::Char('`')));
-        assert_eq!(app.keymap_preset(), keymap::Preset::Modal);
-        assert!(app.navigate);
-
-        app.handle_key(key(KeyCode::Char('`')));
-        assert_eq!(app.keymap_preset(), keymap::Preset::Search);
-        assert!(!app.navigate);
+        assert_eq!(app.handle_key(key(KeyCode::Char('`'))), Action::Search);
+        assert_eq!(app.query(), "`");
     }
 }

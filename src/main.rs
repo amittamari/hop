@@ -111,12 +111,6 @@ fn run_tui(
     let mut terminal = ratatui::init();
     let mut app = App::new();
     app.set_query(engine.query().to_string());
-    app.set_keymap(
-        config
-            .keymap
-            .parse()
-            .unwrap_or(hop::tui::keymap::Preset::Search),
-    );
     app.set_preview(init_preview.0, init_preview.1);
     app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);

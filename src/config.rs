@@ -40,11 +40,7 @@ pub struct ColumnsConfig {
     pub order: Vec<String>,
 }
 
-fn default_keymap() -> String {
-    "search".to_string()
-}
-
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub data_dirs: HashMap<String, PathBuf>,
@@ -55,23 +51,8 @@ pub struct Config {
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
     pub preview: PreviewConfig,
-    #[serde(default = "default_keymap")]
-    pub keymap: String,
     #[serde(default)]
     pub columns: ColumnsConfig,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            data_dirs: HashMap::new(),
-            theme: HashMap::new(),
-            keybindings: HashMap::new(),
-            preview: PreviewConfig::default(),
-            keymap: default_keymap(),
-            columns: ColumnsConfig::default(),
-        }
-    }
 }
 
 impl Config {
@@ -165,18 +146,16 @@ mod tests {
     }
 
     #[test]
-    fn preview_and_keymap_defaults() {
+    fn preview_defaults() {
         let cfg = Config::default();
         assert!(cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 50);
         assert!(cfg.preview.metadata_header);
-        assert_eq!(cfg.keymap, "search");
     }
 
     #[test]
-    fn preview_and_keymap_from_toml() {
+    fn preview_from_toml() {
         let toml = r#"
-            keymap = "modal"
             [preview]
             visible = false
             width_pct = 40
@@ -186,7 +165,6 @@ mod tests {
         assert!(!cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 40);
         assert!(!cfg.preview.metadata_header);
-        assert_eq!(cfg.keymap, "modal");
     }
 
     #[test]

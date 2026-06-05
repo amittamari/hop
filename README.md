@@ -31,25 +31,24 @@ hop --rebuild            # Wipe and rebuild the search index
 
 ## ⌨️ Keyboard Shortcuts
 
-### Default (Search-First) Mode
+The query is always live — just start typing to filter. Navigation lives on the
+arrows and secondary actions on `Ctrl` chords, so no key ever does double duty.
 
 | Key | Action |
 | --- | --- |
 | **Typing** | Filters search results |
 | `↑` / `↓` | Move selection up / down |
 | `PgUp` / `PgDn` | Page viewport up / down |
-| `←` / `→` / `Home` / `End` | Edit current search query |
+| `←` / `→` / `Home` / `End` | Move the query cursor |
 | `Tab` | Autocomplete keywords (e.g., `agent:cl` → `agent:claude`) |
-| `Enter` | **Resume selected session** |
-| `Ctrl + Y` | Run "yolo prompt" |
+| `Enter` | **Resume selected session** (prompts for yolo when supported) |
 | `Ctrl + P` | Toggle the preview pane |
 | `Ctrl + U` / `D` | Scroll preview pane up / down by viewport |
 | `Ctrl + N` / `B` | Go to next / previous preview match |
-| `[` / `]` | Resize preview pane *(only when query is empty)* |
-| `?` | Show help menu *(only when query is empty)* |
-| `Esc` | Quit |
-
-> 💡 **Modal (Vim-style) Mode:** If `keymap = "modal"` is enabled, `Esc` switches from **SEARCH** to **NAVIGATE** mode, `/` returns to search, and `Ctrl + C` quits globally.
+| `Ctrl + ←` / `→` | Resize the preview pane |
+| `?` | Show help menu |
+| `Esc` | Clear the query, or quit when it's already empty |
+| `Ctrl + C` | Quit |
 
 ---
 
@@ -102,9 +101,6 @@ Leftover width is dynamically allocated to the conversation Title.
 An optional configuration file can be created in your platform's config directory (e.g., `~/.config/hop/config.toml`).
 
 ```toml
-# Default is "search". Set to "modal" for vim-style navigation.
-keymap = "search"
-
 [preview]
 visible = true
 width_pct = 50
