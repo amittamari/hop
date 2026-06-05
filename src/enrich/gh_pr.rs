@@ -9,7 +9,7 @@ pub struct GhPrEnricher;
 
 impl Enricher for GhPrEnricher {
     fn id(&self) -> &'static str {
-        "gh_pr"
+        "pr"
     }
     fn kind(&self) -> EnrichKind {
         EnrichKind::Slow

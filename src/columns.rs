@@ -24,7 +24,7 @@ pub fn default_columns() -> Vec<Column> {
     vec![
         Column { id: "agent",  header: "",       align: Align::Left,  priority: u8::MAX, min_width: 6,  flex: false },
         Column { id: "repo",   header: "REPO",   align: Align::Left,  priority: 30,      min_width: 8,  flex: false },
-        Column { id: "branch", header: "BRANCH", align: Align::Left,  priority: 40,      min_width: 8,  flex: false },
+        Column { id: "branch", header: "BRANCH", align: Align::Left,  priority: 40,      min_width: 10, flex: false },
         Column { id: "title",  header: "TITLE",  align: Align::Left,  priority: u8::MAX, min_width: 12, flex: true  },
         Column { id: "msgs",   header: "MSGS",   align: Align::Right, priority: 10,      min_width: 4,  flex: false },
         Column { id: "pr",     header: "PR",     align: Align::Left,  priority: 50,      min_width: 5,  flex: false },

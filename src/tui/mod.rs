@@ -1,5 +1,6 @@
 pub mod keymap;
 pub mod preview;
+pub mod results_list;
 pub mod theme;
 pub mod view;
 
