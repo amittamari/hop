@@ -38,6 +38,57 @@ fn parses_id_cwd_and_excludes_noise() {
 }
 
 #[test]
+fn claude_prefers_ai_title_over_first_prompt() {
+    use hop::adapters::claude::ClaudeAdapter;
+    use hop::adapters::Adapter;
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("s.jsonl");
+    fs::write(
+        &file,
+        concat!(
+            r#"{"type":"user","cwd":"/w","timestamp":"2026-06-04T13:20:16.361Z","message":{"role":"user","content":"long raw first prompt that should not be the title"}}"#,
+            "\n",
+            r#"{"type":"ai-title","sessionId":"s","aiTitle":"Concise Claude Conversation Title"}"#,
+            "\n",
+            r#"{"type":"summary","summary":"Later generic summary should not win"}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let a = ClaudeAdapter::new(tmp.path().to_path_buf());
+    let s = a.parse(&file).unwrap();
+    assert_eq!(s.title, "Concise Claude Conversation Title");
+    assert!(s.content.contains("long raw first prompt"));
+}
+
+#[test]
+fn claude_uses_top_level_summary_title() {
+    use hop::adapters::claude::ClaudeAdapter;
+    use hop::adapters::Adapter;
+    use std::fs;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("s.jsonl");
+    fs::write(
+        &file,
+        concat!(
+            r#"{"type":"summary","summary":"Legacy Claude Summary Title","leafUuid":"u"}"#,
+            "\n",
+            r#"{"type":"user","cwd":"/w","timestamp":"2026-06-04T13:20:16.361Z","message":{"role":"user","content":"fallback prompt"}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let a = ClaudeAdapter::new(tmp.path().to_path_buf());
+    let s = a.parse(&file).unwrap();
+    assert_eq!(s.title, "Legacy Claude Summary Title");
+}
+
+#[test]
 fn claude_captures_branch_and_filters_internals() {
     use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;

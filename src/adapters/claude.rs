@@ -22,6 +22,9 @@ impl ClaudeAdapter {
 struct Line {
     #[serde(rename = "type")]
     kind: Option<String>,
+    #[serde(rename = "aiTitle")]
+    ai_title: Option<String>,
+    summary: Option<String>,
     cwd: Option<String>,
     timestamp: Option<String>,
     #[serde(rename = "isMeta")]
@@ -64,6 +67,7 @@ struct Extracted {
     messages: Vec<crate::core::Message>,
     directory: String,
     branch: Option<String>,
+    title: Option<String>,
     first_ts: Option<i64>,
 }
 
@@ -74,6 +78,8 @@ impl ClaudeAdapter {
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut directory = String::new();
         let mut branch: Option<String> = None;
+        let mut title: Option<String> = None;
+        let mut has_ai_title = false;
         let mut first_ts: Option<i64> = None;
         let mut messages: Vec<Message> = Vec::new();
 
@@ -86,6 +92,14 @@ impl ClaudeAdapter {
                 Ok(l) => l,
                 Err(_) => continue,
             };
+            if let Some(t) = nonempty_text(parsed.ai_title.as_deref()) {
+                title = Some(t.to_string());
+                has_ai_title = true;
+            } else if !has_ai_title {
+                if let Some(t) = nonempty_text(parsed.summary.as_deref()) {
+                    title = Some(t.to_string());
+                }
+            }
             if directory.is_empty() {
                 if let Some(cwd) = &parsed.cwd {
                     directory = cwd.clone();
@@ -129,6 +143,7 @@ impl ClaudeAdapter {
             messages,
             directory,
             branch,
+            title,
             first_ts,
         })
     }
@@ -177,16 +192,18 @@ impl Adapter for ClaudeAdapter {
             .context("session file has no stem")?
             .to_string();
         let ex = self.extract(path)?;
-        let title = ex
-            .messages
-            .iter()
-            .find(|m| m.role == Role::User)
-            .and_then(|m| {
-                m.blocks.iter().find_map(|b| match b {
-                    crate::core::Block::Prose(s) => Some(s.as_str()),
-                    _ => None,
+        let title = ex.title.as_deref().or_else(|| {
+            ex.messages
+                .iter()
+                .find(|m| m.role == Role::User)
+                .and_then(|m| {
+                    m.blocks.iter().find_map(|b| match b {
+                        crate::core::Block::Prose(s) => Some(s.as_str()),
+                        _ => None,
+                    })
                 })
-            })
+        });
+        let title = title
             .map(|t| truncate_title(t, TITLE_MAX))
             .unwrap_or_else(|| "(untitled)".to_string());
         let content = flatten_messages(&ex.messages);
@@ -256,6 +273,10 @@ fn extract_text(content: &Content, is_user: bool) -> Option<String> {
             }
         }
     }
+}
+
+fn nonempty_text(s: Option<&str>) -> Option<&str> {
+    s.map(str::trim).filter(|s| !s.is_empty())
 }
 
 pub(crate) fn parse_ts_secs(s: &str) -> Option<i64> {

@@ -26,8 +26,10 @@ Keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo · Ctrl+P tog
 Each result row is an aligned grid: `AGENT · REPO · BRANCH · TITLE · MSGS · PR · TIME`.
 The repo and branch come straight from the conversation data (Claude's `gitBranch`,
 Codex's `git.branch`/`repository_url`); the full directory path is shown in the preview
-header rather than as a column. The `PR` column is resolved in the background via the
-`gh` CLI and cached on disk, so it never blocks the UI (`⟳` while resolving, `—` if none).
+header rather than as a column. Claude titles prefer the recorded `aiTitle`/summary
+when present, then fall back to the first real user prompt. The `PR` column is resolved
+in the background via the `gh` CLI and cached on disk, so it never blocks the UI (`⟳`
+while resolving, `—` if none).
 Narrow terminals drop columns by priority (PR → BRANCH → REPO → TIME → MSGS); the title
 always survives.
 
