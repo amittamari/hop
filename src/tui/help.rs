@@ -1,60 +1,93 @@
 //! Centered help overlay listing the active keymap.
 
 use crate::tui::keymap::Preset;
+use crate::tui::theme;
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
 pub fn lines(preset: Preset) -> Vec<Line<'static>> {
     let mut out = vec![
-        Line::from(Span::raw("Navigation")),
+        section("Navigation"),
         Line::from("  ↑/↓        move selection"),
-        Line::from("  PgUp/PgDn  page list by viewport"),
-        Line::from("  Ctrl+U/D   scroll preview by viewport"),
-        Line::from("  Ctrl+N/B   next / previous preview match"),
+        Line::from("  PgUp/PgDn  page list"),
+        Line::from("  Ctrl+U/D   scroll preview"),
+        Line::from("  Ctrl+N/B   preview matches"),
         Line::from(""),
-        Line::from(Span::raw("Preview")),
+        section("Preview"),
         Line::from("  Ctrl+P     toggle preview"),
-        Line::from("  [ / ]      shrink / grow preview when query empty"),
+        Line::from("  [ / ]      resize preview"),
         Line::from(""),
-        Line::from(Span::raw("Search editing")),
-        Line::from("  ←/→ Home/End move cursor"),
-        Line::from("  Backspace/Delete edit at cursor"),
-        Line::from("  Ctrl+A/E/W start / end / delete word"),
+        section("Search Editing"),
+        Line::from("  ←/→        move cursor"),
+        Line::from("  Home/End   jump cursor"),
+        Line::from("  Backspace  delete left"),
+        Line::from("  Delete     delete at cursor"),
+        Line::from("  Ctrl+A/E   start / end"),
+        Line::from("  Ctrl+W     delete word"),
         Line::from(""),
-        Line::from(Span::raw("Actions")),
+        section("Actions"),
         Line::from("  Enter      resume"),
-        Line::from("  Ctrl+Y     yolo resume prompt"),
+        Line::from("  Ctrl+Y     yolo prompt"),
         Line::from("  Tab        autocomplete keyword"),
-        Line::from("  ?          toggle this help when query empty"),
-        Line::from("  Esc/Ctrl+C quit"),
+        Line::from("  ?          toggle help"),
+        Line::from("  Esc        quit"),
+        Line::from("  Ctrl+C     quit"),
     ];
     if preset == Preset::Modal {
         out.push(Line::from(""));
-        out.push(Line::from(Span::raw("Modal mode")));
-        out.push(Line::from("  Esc        leave query → navigate"));
-        out.push(Line::from("  j/k g/G    move / top-bottom"));
-        out.push(Line::from("  / p        search / preview"));
+        out.push(section("Modal Mode"));
+        out.push(Line::from("  Esc        enter NAV"));
+        out.push(Line::from("  j/k        move selection"));
+        out.push(Line::from("  g/G        top / bottom"));
+        out.push(Line::from("  /          search"));
+        out.push(Line::from("  p          preview"));
     }
     out
+}
+
+fn section(label: &'static str) -> Line<'static> {
+    Line::from(Span::styled(
+        label,
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    ))
 }
 
 /// Render the overlay centered over the frame.
 pub fn render(f: &mut Frame, preset: Preset) {
     let area = f.area();
-    let w = 44u16.min(area.width.saturating_sub(2));
+    if area.width < 8 || area.height < 6 {
+        return;
+    }
+
     let body = lines(preset);
-    let h = (body.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let w = 58u16.min(area.width.saturating_sub(4)).max(8);
+    let h = (body.len() as u16 + 4)
+        .min(area.height.saturating_sub(2))
+        .max(4);
     let rect = Rect {
         x: area.x + (area.width.saturating_sub(w)) / 2,
         y: area.y + (area.height.saturating_sub(h)) / 2,
         width: w,
         height: h,
     };
+    f.buffer_mut()
+        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
     f.render_widget(Clear, rect);
-    let block = Block::default().borders(Borders::ALL).title(" help ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(theme::ACCENT))
+        .title(" help ")
+        .title_style(
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
+        )
+        .padding(Padding::symmetric(2, 1));
     f.render_widget(
         Paragraph::new(body)
             .block(block)
@@ -100,6 +133,6 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(text.contains("Modal mode"));
+        assert!(text.contains("Modal Mode"));
     }
 }

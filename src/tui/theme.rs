@@ -10,3 +10,8 @@ pub fn agent_color(agent: AgentId) -> Color {
 
 pub const ACCENT: Color = Color::Cyan;
 pub const DIM: Color = Color::DarkGray;
+pub const DIVIDER: Color = Color::Rgb(55, 65, 81);
+pub const OVERLAY_DIM: Color = Color::Rgb(64, 64, 64);
+pub const PREVIEW_TEXT: Color = Color::Rgb(205, 213, 219);
+pub const SELECTED_BG: Color = Color::Rgb(20, 83, 91);
+pub const SELECTED_FG: Color = Color::White;

@@ -5,7 +5,9 @@ use crate::tui::{help, results_list, theme, App, InteractionMode};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph, Wrap,
+};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -43,6 +45,9 @@ pub struct RenderModel<'a> {
     pub modal_command: Option<&'a [String]>,
 }
 
+const SELECTION_MARKER: &str = "❯ ";
+const SELECTION_MARKER_WIDTH: u16 = 2;
+
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -59,8 +64,13 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let mode = app.interaction_mode();
     let prefix = format!("{} ❯ ", mode.label());
     let header = Line::from(vec![
-        Span::styled(mode.label(), Style::default().fg(theme::ACCENT)),
-        Span::raw(" ❯ "),
+        Span::styled(
+            mode.label(),
+            Style::default()
+                .fg(theme::ACCENT)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" ❯ ", Style::default().fg(theme::DIM)),
         Span::raw(app.query().to_string()),
         Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
     ]);
@@ -89,9 +99,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // column grid
     let cols = model.columns;
-    let list_inner_w = list_area
-        .width
-        .saturating_sub(if preview_area.is_some() { 1 } else { 0 });
+    let list_inner_w = list_area.width.saturating_sub(SELECTION_MARKER_WIDTH);
     let (list_header_area, list_rows_area) = split_list_area(list_area);
     let visible = visible_result_range(
         app.results().len(),
@@ -107,10 +115,11 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    f.render_widget(
-        Paragraph::new(results_list::header_line(&layout, cols)),
-        list_header_area,
-    );
+    let mut header = results_list::header_line(&layout, cols);
+    header
+        .spans
+        .insert(0, Span::raw(" ".repeat(SELECTION_MARKER_WIDTH as usize)));
+    f.render_widget(Paragraph::new(header), list_header_area);
 
     let items: Vec<ListItem> = visible_results
         .iter()
@@ -129,18 +138,27 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     if !items.is_empty() {
         state.select(Some(app.selected().saturating_sub(visible.start)));
     }
-    let list_block = if preview_area.is_some() {
-        Block::default().borders(Borders::RIGHT)
-    } else {
-        Block::default()
-    };
     let list = List::new(items)
-        .block(list_block)
-        .highlight_style(ratatui::style::Style::default().bg(theme::ACCENT));
+        .highlight_symbol(SELECTION_MARKER)
+        .highlight_spacing(HighlightSpacing::Always)
+        .highlight_style(
+            Style::default()
+                .fg(theme::SELECTED_FG)
+                .bg(theme::SELECTED_BG)
+                .add_modifier(Modifier::BOLD),
+        );
     f.render_stateful_widget(list, list_rows_area, &mut state);
 
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
+        let preview_block = Block::default()
+            .borders(Borders::LEFT)
+            .border_style(Style::default().fg(theme::DIVIDER))
+            .padding(Padding::left(1));
+        let preview_area = area;
+        let area = preview_block.inner(area);
+        f.render_widget(preview_block, preview_area);
+
         let selected = app.results().get(app.selected());
         let (header_area, transcript_area) =
             if app.preview_header_visible() && selected.is_some() && area.height >= 3 {
@@ -154,12 +172,14 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, model.now, model.resolved)),
+                Paragraph::new(preview_header_lines(session, model.now, model.resolved))
+                    .style(Style::default().fg(theme::PREVIEW_TEXT)),
                 header_area,
             );
         }
         f.render_widget(
             Paragraph::new(model.preview_lines.to_vec())
+                .style(Style::default().fg(theme::PREVIEW_TEXT))
                 .wrap(Wrap { trim: false })
                 .scroll((app.preview_scroll(), 0)),
             transcript_area,
@@ -168,10 +188,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // footer
     let footer = footer_help(app.interaction_mode());
-    f.render_widget(
-        Paragraph::new(footer_line(footer, model.status)).fg(theme::DIM),
-        chunks[2],
-    );
+    f.render_widget(Paragraph::new(footer_line(footer, model.status)), chunks[2]);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
@@ -195,32 +212,55 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
     (chunks[0], chunks[1])
 }
 
-fn footer_line(base: &str, status: &StatusLine) -> String {
-    let mut parts = vec![base.to_string()];
+fn footer_line(base: &str, status: &StatusLine) -> Line<'static> {
+    let mut spans = Vec::new();
+    let (label, rest) = base.split_once(" · ").unwrap_or((base, ""));
+    spans.push(Span::styled(
+        label.to_string(),
+        Style::default()
+            .fg(theme::ACCENT)
+            .add_modifier(Modifier::BOLD),
+    ));
+    if !rest.is_empty() {
+        spans.push(Span::styled(
+            format!(" · {rest}"),
+            Style::default().fg(theme::DIM),
+        ));
+    }
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
-        parts.push(sync.to_string());
+        spans.push(Span::styled(
+            format!(" · {sync}"),
+            Style::default().fg(theme::DIM),
+        ));
     }
     if status.pr_pending > 0 {
-        parts.push(format!("pr {} pending", status.pr_pending));
+        spans.push(Span::styled(
+            format!(" · pr {} pending", status.pr_pending),
+            Style::default().fg(theme::DIM),
+        ));
     }
     if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
-        parts.push(format!("filters {filters}"));
+        spans.push(Span::styled(
+            format!(" · filters {filters}"),
+            Style::default().fg(theme::DIM),
+        ));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
-        parts.push(warning.to_string());
+        spans.push(Span::styled(
+            format!(" · {warning}"),
+            Style::default().fg(theme::ACCENT),
+        ));
     }
-    parts.join(" · ")
+    Line::from(spans)
 }
 
 fn footer_help(mode: InteractionMode) -> &'static str {
     match mode {
         InteractionMode::Search => {
-            "SEARCH · type query · ↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · ctrl+u/d scroll · ctrl+n/b matches · [ ] size · ? help · esc quit"
+            "SEARCH · type query · ↑↓ move · Enter resume · ? help · Esc quit"
         }
-        InteractionMode::Navigate => {
-            "NAV · j/k move · g/G top/bottom · / search · p preview · enter resume · ? help · esc quit"
-        }
-        InteractionMode::Modal => "MODAL · tab toggle yolo · enter confirm · esc cancel",
+        InteractionMode::Navigate => "NAV · j/k move · / search · Enter resume · ? help · Esc quit",
+        InteractionMode::Modal => "MODAL · Tab toggle yolo · Enter confirm · Esc cancel",
     }
 }
 
@@ -291,6 +331,8 @@ fn render_yolo_modal(
         Line::from("Tab toggles yolo · Enter resumes · Esc cancels"),
     ];
 
+    f.buffer_mut()
+        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
@@ -554,6 +596,54 @@ mod tests {
         assert!(text.contains("pr 1 pending"));
         assert!(text.contains("filters agent:claude"));
         assert!(text.contains("source unavailable"));
+    }
+
+    #[test]
+    fn selected_result_has_marker_and_focus_style() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(80, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
+            )
+        })
+        .unwrap();
+
+        let buf = term.backend().buffer();
+        assert_eq!(buf[(0, 2)].symbol(), SELECTION_MARKER.trim());
+        assert_eq!(buf[(0, 2)].bg, theme::SELECTED_BG);
+        assert_eq!(buf[(2, 2)].fg, theme::SELECTED_FG);
+        assert_eq!(buf[(2, 2)].bg, theme::SELECTED_BG);
     }
 
     #[test]
