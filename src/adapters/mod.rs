@@ -29,3 +29,16 @@ pub fn default_adapters(cfg: &crate::config::Config) -> Vec<Box<dyn Adapter>> {
         Box::new(codex::CodexAdapter::new(cfg.data_dir(AgentId::Codex))),
     ]
 }
+
+pub(crate) fn parse_ts_secs(s: &str) -> Option<i64> {
+    let ts: jiff::Timestamp = s.parse().ok()?;
+    Some(ts.as_second())
+}
+
+pub(crate) fn file_mtime_ms(entry: &std::fs::DirEntry) -> Result<i64> {
+    let modified = entry.metadata()?.modified()?;
+    let dur = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Ok(i64::try_from(dur.as_millis()).unwrap_or(i64::MAX))
+}
