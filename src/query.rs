@@ -1,4 +1,5 @@
 use crate::core::AgentId;
+use jiff::{tz::TimeZone, Timestamp};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AgentFilter {
@@ -29,13 +30,48 @@ impl DateFilter {
     pub fn range(self, now: i64) -> (Option<i64>, Option<i64>) {
         const D: i64 = 86_400;
         match self {
-            DateFilter::Today => (Some(now - D), Some(now)),
-            DateFilter::Yesterday => (Some(now - 2 * D), Some(now - D)),
+            DateFilter::Today => self
+                .calendar_day_range(now, TimeZone::system(), 0)
+                .unwrap_or((Some(now - D), Some(now))),
+            DateFilter::Yesterday => self
+                .calendar_day_range(now, TimeZone::system(), -1)
+                .unwrap_or((Some(now - 2 * D), Some(now - D))),
             DateFilter::LastWeek => (Some(now - 7 * D), Some(now)),
             DateFilter::LastMonth => (Some(now - 30 * D), Some(now)),
             DateFilter::Within(s) => (Some(now - s), Some(now)),
             DateFilter::OlderThan(s) => (None, Some(now - s)),
         }
+    }
+
+    fn calendar_day_range(
+        self,
+        now: i64,
+        tz: TimeZone,
+        day_offset: i32,
+    ) -> Option<(Option<i64>, Option<i64>)> {
+        debug_assert!(matches!(self, DateFilter::Today | DateFilter::Yesterday));
+
+        let now = Timestamp::from_second(now).ok()?.to_zoned(tz.clone());
+        let today = now.date();
+        let start_date = match day_offset {
+            0 => today,
+            -1 => today.yesterday().ok()?,
+            _ => return None,
+        };
+        let end_date = start_date.tomorrow().ok()?;
+        let start = start_date
+            .to_zoned(tz.clone())
+            .ok()?
+            .timestamp()
+            .as_second();
+        let end = end_date
+            .to_zoned(tz)
+            .ok()?
+            .timestamp()
+            .as_second()
+            .checked_sub(1)?;
+
+        Some((Some(start), Some(end)))
     }
 }
 
@@ -221,10 +257,13 @@ mod tests {
     #[test]
     fn date_range_windows() {
         let now = 1_000_000i64;
-        assert_eq!(DateFilter::Today.range(now), (Some(now - 86400), Some(now)));
         assert_eq!(
-            DateFilter::Yesterday.range(now),
-            (Some(now - 2 * 86400), Some(now - 86400))
+            DateFilter::LastWeek.range(now),
+            (Some(now - 7 * 86400), Some(now))
+        );
+        assert_eq!(
+            DateFilter::LastMonth.range(now),
+            (Some(now - 30 * 86400), Some(now))
         );
         assert_eq!(
             DateFilter::Within(3600).range(now),
@@ -233,6 +272,63 @@ mod tests {
         assert_eq!(
             DateFilter::OlderThan(3600).range(now),
             (None, Some(now - 3600))
+        );
+    }
+
+    #[test]
+    fn date_today_uses_local_calendar_day() {
+        let tz = TimeZone::get("America/New_York").unwrap();
+        let now = jiff::civil::date(2024, 3, 10)
+            .at(12, 0, 0, 0)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second();
+
+        let expected_start = jiff::civil::date(2024, 3, 10)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second();
+        let expected_end = jiff::civil::date(2024, 3, 11)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second()
+            - 1;
+
+        assert_eq!(
+            DateFilter::Today.calendar_day_range(now, tz, 0),
+            Some((Some(expected_start), Some(expected_end)))
+        );
+        assert_ne!(expected_start, now - 86_400);
+    }
+
+    #[test]
+    fn date_yesterday_uses_previous_local_calendar_day() {
+        let tz = TimeZone::get("America/New_York").unwrap();
+        let now = jiff::civil::date(2024, 3, 10)
+            .at(12, 0, 0, 0)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second();
+
+        let expected_start = jiff::civil::date(2024, 3, 9)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second();
+        let expected_end = jiff::civil::date(2024, 3, 10)
+            .to_zoned(tz.clone())
+            .unwrap()
+            .timestamp()
+            .as_second()
+            - 1;
+
+        assert_eq!(
+            DateFilter::Yesterday.calendar_day_range(now, tz, -1),
+            Some((Some(expected_start), Some(expected_end)))
         );
     }
 

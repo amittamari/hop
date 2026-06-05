@@ -9,7 +9,7 @@ use hop::enrich::gh_pr::GhPrEnricher;
 use hop::enrich::service::{EnrichRequest, EnrichmentService};
 use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
-use hop::tui::{preview, Action, App};
+use hop::tui::{preview, view::StatusLine, Action, App};
 use ratatui::crossterm::event::{self, Event};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -132,6 +132,8 @@ fn run_tui(
     let mut preview_lines: Vec<ratatui::text::Line<'static>> = Vec::new();
     let mut preview_key: Option<(String, String)> = None;
     let mut preview_base: u16 = 0;
+    let mut transcript_source_unavailable = false;
+    let mut sync_status = Some("syncing".to_string());
 
     let outcome = (|| -> Result<Option<(hop::core::Session, bool)>> {
         loop {
@@ -139,22 +141,42 @@ fn run_tui(
             let selected = engine.results().get(app.selected());
             let sel_key = selected.map(|s| s.document_key());
             if app.preview_visible() && sel_key != transcript_for {
-                transcript = match engine.results().get(app.selected()) {
-                    Some(s) => engine.transcript_for(s).unwrap_or_default(),
-                    None => Vec::new(),
-                };
+                match engine.results().get(app.selected()) {
+                    Some(s) => match engine.transcript_for(s) {
+                        Some(msgs) => {
+                            transcript = msgs;
+                            transcript_source_unavailable = false;
+                        }
+                        None => {
+                            transcript = Vec::new();
+                            transcript_source_unavailable = true;
+                        }
+                    },
+                    None => {
+                        transcript = Vec::new();
+                        transcript_source_unavailable = false;
+                    }
+                }
                 transcript_for = sel_key.clone();
             }
 
             // rebuild memoized preview lines when selection or query changes
             let pkey = (sel_key.clone().unwrap_or_default(), app.query().to_string());
             if app.preview_visible() && preview_key.as_ref() != Some(&pkey) {
-                let agent = engine
-                    .results()
-                    .get(app.selected())
-                    .map(|s| s.agent)
-                    .unwrap_or(hop::core::AgentId::Claude);
-                preview_lines = preview::render_transcript(&transcript, app.query(), agent);
+                preview_lines = if transcript_source_unavailable {
+                    engine
+                        .results()
+                        .get(app.selected())
+                        .map(|s| preview::render_indexed_fallback(&s.content, app.query()))
+                        .unwrap_or_default()
+                } else {
+                    let agent = engine
+                        .results()
+                        .get(app.selected())
+                        .map(|s| s.agent)
+                        .unwrap_or(hop::core::AgentId::Claude);
+                    preview::render_transcript(&transcript, app.query(), agent)
+                };
                 preview_base = preview::first_match_line(&preview_lines, app.query())
                     .map(|i| i as u16)
                     .unwrap_or(0);
@@ -162,6 +184,30 @@ fn run_tui(
             }
 
             let now = jiff::Timestamp::now().as_second();
+            let pr_pending = requested
+                .iter()
+                .filter(|key| !resolved.contains_key(*key))
+                .count();
+            let status = StatusLine {
+                sync: sync_status.clone(),
+                pr_pending,
+                warning: if app.preview_visible()
+                    && selected.is_some()
+                    && transcript_source_unavailable
+                {
+                    Some("source unavailable".to_string())
+                } else {
+                    None
+                },
+                filters: query_filter_summary(app.query()),
+            };
+            let modal_command = app.yolo_modal().and_then(|(index, yolo)| {
+                engine.results().get(index).and_then(|s| {
+                    engine
+                        .adapter_for(s.agent)
+                        .map(|a| a.resume_command(s, yolo))
+                })
+            });
             terminal.draw(|f| {
                 hop::tui::view::render(
                     f,
@@ -173,6 +219,8 @@ fn run_tui(
                     &resolved,
                     &preview_lines,
                     preview_base,
+                    &status,
+                    modal_command.as_deref(),
                 )
             })?;
 
@@ -180,7 +228,7 @@ fn run_tui(
             // Clear `content` before sending — PR resolution doesn't need it and
             // it can be large.
             if let Some(svc) = service {
-                let height = terminal.size()?.height.saturating_sub(2) as usize;
+                let height = terminal.size()?.height.saturating_sub(3) as usize;
                 let visible = hop::tui::view::visible_result_range(
                     engine.results().len(),
                     app.selected(),
@@ -205,13 +253,22 @@ fn run_tui(
 
             if !app.modal_open() {
                 while let Ok(update) = updates.try_recv() {
-                    if let Update::Refresh = update {
-                        engine.reload()?;
-                        engine.search()?;
-                        sync_results_into_app(engine, &mut app);
-                        fast_cache.clear();
-                        transcript_for = None; // force re-parse next frame
-                        preview_key = None;
+                    match update {
+                        Update::Refresh => {
+                            engine.reload()?;
+                            engine.search()?;
+                            sync_results_into_app(engine, &mut app);
+                            fast_cache.clear();
+                            transcript_for = None; // force re-parse next frame
+                            preview_key = None;
+                        }
+                        Update::Done { parse_errors } => {
+                            sync_status = Some(if parse_errors == 0 {
+                                "sync complete".to_string()
+                            } else {
+                                format!("sync complete; parse errors {parse_errors}")
+                            });
+                        }
                     }
                 }
             }
@@ -254,4 +311,25 @@ fn sync_results_into_app(engine: &Engine, app: &mut App) {
     let results = engine.results().to_vec();
     let yolo_supported = results.iter().map(|s| engine.supports_yolo(s)).collect();
     app.set_results_with_yolo(results, yolo_supported);
+}
+
+fn query_filter_summary(query: &str) -> Option<String> {
+    let filters: Vec<&str> = query
+        .split_whitespace()
+        .filter(|tok| {
+            let body = tok
+                .strip_prefix('-')
+                .or_else(|| tok.strip_prefix('!'))
+                .unwrap_or(tok);
+            matches!(
+                body.split_once(':').map(|(key, _)| key),
+                Some("agent" | "dir" | "date")
+            )
+        })
+        .collect();
+    if filters.is_empty() {
+        None
+    } else {
+        Some(filters.join(","))
+    }
 }

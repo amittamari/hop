@@ -20,7 +20,7 @@ pub fn lines(preset: Preset) -> Vec<Line<'static>> {
         Line::from(""),
         Line::from(Span::raw("Actions")),
         Line::from("  Enter      resume"),
-        Line::from("  Ctrl+Y     resume (yolo)"),
+        Line::from("  Ctrl+Y     yolo resume prompt"),
         Line::from("  Tab        autocomplete keyword"),
         Line::from("  ?          toggle this help"),
         Line::from("  Esc/Ctrl+C quit"),

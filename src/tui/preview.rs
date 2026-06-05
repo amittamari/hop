@@ -214,6 +214,25 @@ pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<L
     out
 }
 
+pub fn render_indexed_fallback(content: &str, query: &str) -> Vec<Line<'static>> {
+    let mut out = vec![
+        Line::from(Span::styled(
+            "source unavailable - showing indexed text",
+            Style::default().fg(theme::DIM),
+        )),
+        Line::from(""),
+    ];
+    let mut body = render_prose(content);
+    if !query.trim().is_empty() {
+        let terms: Vec<String> = query.split_whitespace().map(|t| t.to_lowercase()).collect();
+        for line in &mut body {
+            *line = highlight_terms(line, &terms);
+        }
+    }
+    out.extend(body);
+    out
+}
+
 fn prefix_first(lines: &mut [Line<'static>], prefix: &'static str, color: Color) {
     if let Some(first) = lines.first_mut() {
         let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
@@ -340,6 +359,30 @@ mod tests {
         let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude);
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("auth")
+                && s.style
+                    .add_modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+        });
+        assert!(any_reverse);
+    }
+
+    #[test]
+    fn indexed_fallback_explains_missing_source_and_highlights() {
+        let lines = render_indexed_fallback("refresh token failed", "token");
+        let joined: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined.contains("source unavailable"));
+        assert!(joined.contains("refresh token failed"));
+        let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
+            s.content.contains("token")
                 && s.style
                     .add_modifier
                     .contains(ratatui::style::Modifier::REVERSED)

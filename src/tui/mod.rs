@@ -89,6 +89,12 @@ impl App {
     pub fn modal_open(&self) -> bool {
         matches!(self.mode, Mode::YoloModal { .. })
     }
+    pub fn yolo_modal(&self) -> Option<(usize, bool)> {
+        match self.mode {
+            Mode::YoloModal { index, yolo } => Some((index, yolo)),
+            Mode::Main => None,
+        }
+    }
 
     pub fn set_results(&mut self, results: Vec<Session>) {
         self.yolo_supported = results.iter().map(|_| false).collect();
@@ -116,6 +122,13 @@ impl App {
         self.mode = Mode::YoloModal {
             index: self.selected,
             yolo: false,
+        };
+    }
+
+    pub fn open_yolo_modal_with(&mut self, yolo: bool) {
+        self.mode = Mode::YoloModal {
+            index: self.selected,
+            yolo,
         };
     }
 
@@ -268,6 +281,9 @@ impl App {
             }
             Action::Resume { yolo, .. } => {
                 if self.results.is_empty() {
+                    Action::None
+                } else if yolo {
+                    self.open_yolo_modal_with(true);
                     Action::None
                 } else {
                     Action::Resume {
@@ -449,6 +465,24 @@ mod tests {
     }
 
     #[test]
+    fn yolo_modal_confirms_original_selected_index() {
+        let mut app = app_with(3);
+        app.handle_key(key(KeyCode::Down));
+        app.handle_key(key(KeyCode::Down));
+        assert_eq!(app.selected(), 2);
+
+        assert_eq!(app.handle_key(key(KeyCode::Enter)), Action::None);
+        assert!(app.modal_open());
+        match app.handle_key(key(KeyCode::Enter)) {
+            Action::Resume { index, yolo } => {
+                assert_eq!(index, 2);
+                assert!(!yolo);
+            }
+            other => panic!("expected resume for selected row, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn ctrl_p_toggles_preview() {
         let mut app = app_with(1);
         assert!(app.preview_visible());
@@ -477,10 +511,16 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_y_resumes_selected_with_yolo() {
+    fn ctrl_y_opens_yolo_modal_for_selected_row() {
         let mut app = app_with(2);
         app.handle_key(key(KeyCode::Down)); // select index 1
-        match app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)) {
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::CONTROL)),
+            Action::None
+        );
+        assert_eq!(app.yolo_modal(), Some((1, true)));
+
+        match app.handle_key(key(KeyCode::Enter)) {
             Action::Resume { index, yolo } => {
                 assert_eq!(index, 1);
                 assert!(yolo);

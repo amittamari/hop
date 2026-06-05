@@ -33,6 +33,21 @@ pub fn row_line(
     Line::from(spans)
 }
 
+pub fn header_line(layout: &[(usize, u16)], columns: &[Column]) -> Line<'static> {
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    for (n, &(ci, width)) in layout.iter().enumerate() {
+        if n > 0 {
+            spans.push(Span::raw(" "));
+        }
+        let col = &columns[ci];
+        spans.push(Span::styled(
+            fit(col.header, width, col.align),
+            Style::default().fg(theme::DIM),
+        ));
+    }
+    Line::from(spans)
+}
+
 fn cell(
     s: &Session,
     col: &Column,
@@ -139,6 +154,21 @@ mod tests {
         assert!(text.contains("feat/auth")); // branch from data
         assert!(text.contains("fix auth")); // title
         assert!(text.contains("12")); // msgs
+    }
+
+    #[test]
+    fn header_renders_visible_column_labels() {
+        let cols = default_columns();
+        let layout = layout_for(&cols, 120);
+        let line = header_line(&layout, &cols);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("AGENT"));
+        assert!(text.contains("REPO"));
+        assert!(text.contains("BRANCH"));
+        assert!(text.contains("TITLE"));
+        assert!(text.contains("MSGS"));
+        assert!(text.contains("PR"));
+        assert!(text.contains("TIME"));
     }
 
     #[test]

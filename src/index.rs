@@ -17,6 +17,7 @@ use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 pub const SCHEMA_VERSION: u32 = 4;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
+const SCORE_BUCKET_SCALE: f32 = 1_000.0;
 const WRITER_HEAP: usize = 50_000_000;
 
 struct Fields {
@@ -248,7 +249,16 @@ impl SearchIndex {
                         &query,
                         &TopDocs::with_limit(page_limit)
                             .and_offset(offset)
-                            .order_by_score(),
+                            .tweak_score(|segment_reader: &tantivy::SegmentReader| {
+                                let timestamps = segment_reader
+                                    .fast_fields()
+                                    .u64("timestamp")
+                                    .unwrap()
+                                    .first_or_default_col(0);
+                                move |doc: tantivy::DocId, score: tantivy::Score| {
+                                    (score_bucket(score), timestamps.get_val(doc))
+                                }
+                            }),
                     )?
                     .into_iter()
                     .map(|(_, a)| a)
@@ -324,6 +334,13 @@ fn dir_ok(directory: &str, q: &ParsedQuery) -> bool {
     let d = directory.to_lowercase();
     q.dirs.include.iter().all(|i| d.contains(&i.to_lowercase()))
         && !q.dirs.exclude.iter().any(|e| d.contains(&e.to_lowercase()))
+}
+
+fn score_bucket(score: tantivy::Score) -> i64 {
+    if !score.is_finite() {
+        return 0;
+    }
+    (score * SCORE_BUCKET_SCALE).round() as i64
 }
 
 /// Escape characters that would make tantivy's QueryParser error out.

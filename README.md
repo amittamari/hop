@@ -18,7 +18,7 @@ the original working directory.
     hop -a claude -d api      # filter by agent + directory
     hop --rebuild             # wipe and rebuild the index
 
-Keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo · Ctrl+P toggle preview ·
+Keys: type to search · ↑↓ move · Enter resume · Ctrl+Y yolo prompt · Ctrl+P toggle preview ·
 `[` / `]` resize preview · Ctrl+U/D scroll preview · Tab autocomplete · ? help · Esc quit.
 
 ## Columns
@@ -41,7 +41,8 @@ always survives, but repo and branch get useful width before the title expands.
 | `agent:claude,codex` | restrict to these agents |
 | `-agent:codex` / `agent:claude,!codex` | exclude an agent |
 | `dir:api` / `-dir:vendor` | directory substring include / exclude |
-| `date:today` `date:yesterday` `date:week` `date:month` | recency windows |
+| `date:today` `date:yesterday` | local calendar-day filters |
+| `date:week` `date:month` | recency windows |
 | `date:<2d` / `date:>1w` | within / older than a duration (`h`/`d`/`w`) |
 
 Press `Tab` to autocomplete keyword values (e.g. `agent:cl` → `agent:claude`).

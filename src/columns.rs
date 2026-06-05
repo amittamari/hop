@@ -24,7 +24,7 @@ pub fn default_columns() -> Vec<Column> {
     vec![
         Column {
             id: "agent",
-            header: "",
+            header: "AGENT",
             align: Align::Left,
             priority: u8::MAX,
             min_width: 6,

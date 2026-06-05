@@ -2,10 +2,10 @@ use crate::columns::Column;
 use crate::core::Session;
 use crate::enrich::Enricher;
 use crate::tui::{help, results_list, theme, App};
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -25,6 +25,14 @@ pub fn rel_time(ts: i64, now: i64) -> String {
     }
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct StatusLine {
+    pub sync: Option<String>,
+    pub pr_pending: usize,
+    pub warning: Option<String>,
+    pub filters: Option<String>,
+}
+
 pub fn render(
     f: &mut Frame,
     app: &App,
@@ -35,6 +43,8 @@ pub fn render(
     resolved: &HashMap<(String, &'static str), Option<String>>,
     preview_lines: &[Line<'static>],
     match_base: u16,
+    status: &StatusLine,
+    modal_command: Option<&[String]>,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -73,10 +83,16 @@ pub fn render(
         .width
         .saturating_sub(if preview_area.is_some() { 1 } else { 0 });
     let layout = results_list::layout_for(&cols, list_inner_w);
+    let (list_header_area, list_rows_area) = split_list_area(list_area);
+    f.render_widget(
+        Paragraph::new(results_list::header_line(&layout, cols)),
+        list_header_area,
+    );
+
     let visible = visible_result_range(
         app.results().len(),
         app.selected(),
-        list_area.height as usize,
+        list_rows_area.height as usize,
     );
     let items: Vec<ListItem> = app
         .results()
@@ -101,7 +117,7 @@ pub fn render(
     let list = List::new(items)
         .block(list_block)
         .highlight_style(ratatui::style::Style::default().bg(theme::ACCENT));
-    f.render_stateful_widget(list, list_area, &mut state);
+    f.render_stateful_widget(list, list_rows_area, &mut state);
 
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
@@ -124,7 +140,9 @@ pub fn render(
         }
         let scroll = match_base.saturating_add(app.preview_scroll());
         f.render_widget(
-            Paragraph::new(preview_lines.to_vec()).scroll((scroll, 0)),
+            Paragraph::new(preview_lines.to_vec())
+                .wrap(Wrap { trim: false })
+                .scroll((scroll, 0)),
             transcript_area,
         );
     }
@@ -133,14 +151,160 @@ pub fn render(
     let footer = if app.modal_open() {
         "tab toggle yolo · enter confirm · esc cancel"
     } else {
-        "↑↓ move · enter resume · ctrl+y yolo · ctrl+p preview · ctrl+u/d scroll · [ ] size · ? help · esc quit"
+        "↑↓ move · enter resume · ctrl+y yolo prompt · ctrl+p preview · ctrl+u/d scroll · [ ] size · ? help · esc quit"
     };
-    f.render_widget(Paragraph::new(footer).fg(theme::DIM), chunks[2]);
+    f.render_widget(
+        Paragraph::new(footer_line(footer, status)).fg(theme::DIM),
+        chunks[2],
+    );
+
+    if let Some((index, yolo)) = app.yolo_modal() {
+        let session = app.results().get(index);
+        render_yolo_modal(f, session, yolo, modal_command);
+    }
 
     // help overlay (drawn last, on top)
     if app.help_open() {
         help::render(f, app.keymap_preset());
     }
+}
+
+fn split_list_area(area: Rect) -> (Rect, Rect) {
+    if area.height == 0 {
+        return (area, area);
+    }
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(area);
+    (chunks[0], chunks[1])
+}
+
+fn footer_line(base: &str, status: &StatusLine) -> String {
+    let mut parts = vec![base.to_string()];
+    if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(sync.to_string());
+    }
+    if status.pr_pending > 0 {
+        parts.push(format!("pr {} pending", status.pr_pending));
+    }
+    if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(format!("filters {filters}"));
+    }
+    if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(warning.to_string());
+    }
+    parts.join(" · ")
+}
+
+fn render_yolo_modal(
+    f: &mut Frame,
+    session: Option<&Session>,
+    yolo: bool,
+    modal_command: Option<&[String]>,
+) {
+    let area = f.area();
+    if area.width < 4 || area.height < 4 {
+        return;
+    }
+    let max_w = area.width.saturating_sub(2);
+    let max_h = area.height.saturating_sub(2);
+    let min_w = 20.min(max_w);
+    let min_h = 6.min(max_h);
+    let w = 72u16.min(max_w).max(min_w);
+    let h = 10u16.min(max_h).max(min_h);
+    let rect = Rect {
+        x: area.x + (area.width.saturating_sub(w)) / 2,
+        y: area.y + (area.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    };
+
+    let title = session
+        .map(|s| fit_for_modal(&s.title, rect.width.saturating_sub(4) as usize))
+        .unwrap_or_else(|| "(no session)".to_string());
+    let directory = session
+        .map(|s| fit_for_modal(&s.directory, rect.width.saturating_sub(15) as usize))
+        .unwrap_or_else(|| "—".to_string());
+    let command = modal_command
+        .map(shell_join)
+        .unwrap_or_else(|| "resume command unavailable".to_string());
+    let command = fit_for_modal(&command, rect.width.saturating_sub(13) as usize);
+    let danger = if yolo {
+        "YOLO on: approvals and sandbox may be bypassed"
+    } else {
+        "YOLO off: normal resume"
+    };
+
+    let body = vec![
+        Line::from(vec![
+            Span::styled("Session  ", Style::default().fg(theme::DIM)),
+            Span::raw(title),
+        ]),
+        Line::from(vec![
+            Span::styled("Directory ", Style::default().fg(theme::DIM)),
+            Span::raw(directory),
+        ]),
+        Line::from(vec![
+            Span::styled("Command   ", Style::default().fg(theme::DIM)),
+            Span::raw(command),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            danger,
+            if yolo {
+                Style::default()
+                    .fg(theme::ACCENT)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme::DIM)
+            },
+        )),
+        Line::from(""),
+        Line::from("Tab toggles yolo · Enter resumes · Esc cancels"),
+    ];
+
+    f.render_widget(Clear, rect);
+    f.render_widget(
+        Paragraph::new(body)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" confirm resume "),
+            )
+            .alignment(Alignment::Left),
+        rect,
+    );
+}
+
+fn shell_join(argv: &[String]) -> String {
+    argv.iter()
+        .map(|arg| {
+            if arg
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_./:@".contains(c))
+            {
+                arg.clone()
+            } else {
+                format!("'{}'", arg.replace('\'', "'\\''"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn fit_for_modal(s: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let len = s.chars().count();
+    if len <= width {
+        return s.to_string();
+    }
+    let keep = width.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
 }
 
 fn preview_header_lines(
@@ -288,15 +452,147 @@ mod tests {
                 &resolved,
                 &lines,
                 base,
+                &StatusLine::default(),
+                None,
             )
         })
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("AGENT"));
+        assert!(text.contains("REPO"));
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("fix auth"));
         assert!(text.contains("feat/auth"));
         assert!(text.contains("/work/api"));
+    }
+
+    #[test]
+    fn renders_yolo_dialog_and_status_footer() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![Session {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            content: "hello".into(),
+            message_count: 3,
+            mtime: 0,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        app.open_yolo_modal_with(true);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let mut fast_cache = HashMap::new();
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let status = StatusLine {
+            sync: Some("sync complete; parse errors 2".to_string()),
+            pr_pending: 1,
+            warning: Some("source unavailable".to_string()),
+            filters: Some("agent:claude".to_string()),
+        };
+        let command = vec![
+            "claude".to_string(),
+            "--dangerously-skip-permissions".to_string(),
+            "--resume".to_string(),
+            "a".to_string(),
+        ];
+
+        let backend = TestBackend::new(180, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                100,
+                &cols,
+                &enr,
+                &mut fast_cache,
+                &resolved,
+                &[],
+                0,
+                &status,
+                Some(&command),
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("confirm resume"));
+        assert!(text.contains("YOLO on"));
+        assert!(text.contains("Session"));
+        assert!(text.contains("fix auth"));
+        assert!(text.contains("Directory"));
+        assert!(text.contains("/work/api"));
+        assert!(text.contains("Command"));
+        assert!(text.contains("claude"));
+        assert!(text.contains("parse errors 2"));
+        assert!(text.contains("pr 1 pending"));
+        assert!(text.contains("filters agent:claude"));
+        assert!(text.contains("source unavailable"));
+    }
+
+    #[test]
+    fn wraps_long_preview_prose() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(true, 50);
+        app.set_preview_header(false);
+        app.set_results(vec![Session {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            content: "hello".into(),
+            message_count: 3,
+            mtime: 0,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let mut fast_cache = HashMap::new();
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let preview_lines = vec![Line::from(
+            "wrap-start one two three four five six seven eight nine ten wrap-end",
+        )];
+
+        let backend = TestBackend::new(80, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                100,
+                &cols,
+                &enr,
+                &mut fast_cache,
+                &resolved,
+                &preview_lines,
+                0,
+                &StatusLine::default(),
+                None,
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("wrap-start"));
+        assert!(text.contains("wrap-end"));
     }
 
     #[test]

@@ -71,7 +71,7 @@ fn exact_ranks_above_fuzzy() {
     );
     idx.upsert(
         &mut w,
-        &sess("fuzzy", "refacter", "refacter", AgentId::Claude, 100, 1),
+        &sess("fuzzy", "refacter", "refacter", AgentId::Claude, 200, 1),
     );
     w.commit().unwrap();
     idx.reload().unwrap();
@@ -79,6 +79,43 @@ fn exact_ranks_above_fuzzy() {
     let q = query::parse("refactor");
     let results = idx.search(&q, 1000, 50).unwrap();
     assert_eq!(results[0].id, "exact"); // exact boosted above edit-distance-1
+}
+
+#[test]
+fn text_search_breaks_equal_scores_by_recency() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    let mut w = idx.writer().unwrap();
+    idx.upsert(
+        &mut w,
+        &sess(
+            "old",
+            "shared topic",
+            "shared topic",
+            AgentId::Claude,
+            100,
+            1,
+        ),
+    );
+    idx.upsert(
+        &mut w,
+        &sess(
+            "new",
+            "shared topic",
+            "shared topic",
+            AgentId::Claude,
+            200,
+            1,
+        ),
+    );
+    w.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("shared");
+    let results = idx.search(&q, 1000, 50).unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, "new");
+    assert_eq!(results[1].id, "old");
 }
 
 #[test]
