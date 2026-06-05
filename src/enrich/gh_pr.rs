@@ -1,0 +1,104 @@
+//! GitHub PR enricher: maps (repo, branch) -> PR number via the `gh` CLI.
+//! Slow (network); resolved in the background and disk-cached.
+
+use super::{EnrichKind, EnrichValue, Enricher};
+use crate::core::Session;
+use crate::enrich::repo_name_from_url;
+use std::time::Duration;
+
+pub struct GhPrEnricher;
+
+impl Enricher for GhPrEnricher {
+    fn id(&self) -> &'static str {
+        "gh_pr"
+    }
+    fn kind(&self) -> EnrichKind {
+        EnrichKind::Slow
+    }
+    fn resolve(&self, s: &Session) -> Option<EnrichValue> {
+        let branch = s.branch.as_deref()?;
+        if branch.is_empty() || branch == "master" || branch == "main" {
+            return None;
+        }
+        let num = gh_pr_number(branch, s.repo_url.as_deref(), &s.directory)?;
+        Some(EnrichValue { text: format!("#{num}") })
+    }
+    fn cache_key(&self, s: &Session) -> String {
+        let repo = s
+            .repo_url
+            .as_deref()
+            .and_then(repo_name_from_url)
+            .unwrap_or_else(|| s.directory.clone());
+        format!("{}@{}", repo, s.branch.as_deref().unwrap_or(""))
+    }
+    fn ttl(&self) -> Duration {
+        Duration::from_secs(60 * 60) // 1h
+    }
+}
+
+/// Run `gh pr list --head <branch> ...` and return the first PR number, if any.
+/// Uses `--repo owner/repo` when derivable from the URL, else runs in `dir`.
+fn gh_pr_number(branch: &str, repo_url: Option<&str>, dir: &str) -> Option<u64> {
+    use std::process::Command;
+    let mut cmd = Command::new("gh");
+    cmd.args(["pr", "list", "--head", branch, "--state", "all", "--limit", "1", "--json", "number"]);
+    if let Some(slug) = repo_url.and_then(owner_repo_from_url) {
+        cmd.args(["--repo", &slug]);
+    } else if !dir.is_empty() {
+        cmd.current_dir(dir);
+    }
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_pr_number(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// Parse `[{"number":4821}]` -> 4821.
+pub fn parse_pr_number(json: &str) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_str(json).ok()?;
+    v.as_array()?.first()?.get("number")?.as_u64()
+}
+
+/// `git@github.com:owner/repo.git` / `https://github.com/owner/repo` -> `owner/repo`.
+pub fn owner_repo_from_url(url: &str) -> Option<String> {
+    let t = url.trim().trim_end_matches(".git");
+    if let Some(rest) = t.split("github.com").nth(1) {
+        let rest = rest.trim_start_matches([':', '/']);
+        if rest.matches('/').count() >= 1 && !rest.is_empty() {
+            return Some(rest.to_string());
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_pr_number() {
+        assert_eq!(parse_pr_number(r#"[{"number":4821}]"#), Some(4821));
+        assert_eq!(parse_pr_number("[]"), None);
+        assert_eq!(parse_pr_number("garbage"), None);
+    }
+
+    #[test]
+    fn owner_repo_extraction() {
+        assert_eq!(owner_repo_from_url("git@github.com:me/web.git").as_deref(), Some("me/web"));
+        assert_eq!(owner_repo_from_url("https://github.com/me/web").as_deref(), Some("me/web"));
+        assert_eq!(owner_repo_from_url("file:///tmp/x"), None);
+    }
+
+    #[test]
+    fn skips_default_branches() {
+        use crate::core::{AgentId, Session};
+        let s = Session {
+            id: "a".into(), agent: AgentId::Claude, title: "t".into(),
+            directory: "/w".into(), timestamp: 1, content: String::new(),
+            message_count: 0, mtime: 0, yolo: false,
+            branch: Some("main".into()), repo_url: None,
+        };
+        assert_eq!(GhPrEnricher.resolve(&s), None);
+    }
+}

@@ -1,6 +1,8 @@
 //! Pluggable per-session enrichment. Fast enrichers resolve inline for visible
 //! rows; slow enrichers resolve in the background (see `service`).
 
+pub mod gh_pr;
+
 use crate::core::Session;
 use std::path::Path;
 use std::time::Duration;
