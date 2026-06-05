@@ -8,9 +8,10 @@ pub mod view;
 use crate::core::SessionSummary;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-/// What the run loop should do after a key event.
+/// What the run loop should do after the app handles a key event.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
+    /// The app handled the key locally, or ignored it.
     None,
     Quit,
     /// Query changed; the loop should (debounced) re-search.
@@ -20,16 +21,6 @@ pub enum Action {
         index: usize,
         yolo: bool,
     },
-    /// Scroll the preview pane.
-    ScrollPreview(i16),
-    /// Jump between preview match positions.
-    JumpPreviewMatch(i16),
-    /// Grow/shrink the preview split (+1 grow, -1 shrink).
-    ResizePreview(i8),
-    /// Toggle preview visibility.
-    TogglePreview,
-    /// Toggle the help overlay.
-    Help,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -253,7 +244,7 @@ impl App {
             };
         }
         if let Some(act) = keymap::control_chord_action(&key) {
-            return self.apply_chord(act);
+            return self.apply_command(act);
         }
         // Modal preset: navigate mode consumes letter keys.
         if self.keymap == keymap::Preset::Modal && self.navigate {
@@ -337,7 +328,7 @@ impl App {
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if self.query.is_empty() {
                     if let Some(act) = keymap::empty_query_chord_action(&key) {
-                        return self.apply_chord(act);
+                        return self.apply_command(act);
                     }
                 }
                 self.insert_query_char(c)
@@ -346,32 +337,33 @@ impl App {
         }
     }
 
-    fn apply_chord(&mut self, act: Action) -> Action {
-        match act {
-            Action::TogglePreview => {
+    fn apply_command(&mut self, command: keymap::Command) -> Action {
+        match command {
+            keymap::Command::Quit => Action::Quit,
+            keymap::Command::TogglePreview => {
                 self.preview_visible = !self.preview_visible;
                 Action::None
             }
-            Action::ResizePreview(d) => {
+            keymap::Command::ResizePreview(d) => {
                 let next = self.preview_width_pct as i32 + (d as i32) * 5;
                 self.preview_width_pct = next.clamp(20, 80) as u16;
                 Action::None
             }
-            Action::ScrollPreview(d) => {
+            keymap::Command::ScrollPreview(d) => {
                 let delta = d as i32 * i32::from(self.preview_scroll_step);
                 let next = self.preview_scroll as i32 + delta;
                 self.preview_scroll = next.max(0) as u16;
                 Action::None
             }
-            Action::JumpPreviewMatch(d) => {
+            keymap::Command::JumpPreviewMatch(d) => {
                 self.jump_preview_match(d);
                 Action::None
             }
-            Action::Help => {
+            keymap::Command::Help => {
                 self.help_open = true;
                 Action::None
             }
-            Action::Resume { yolo, .. } => {
+            keymap::Command::ResumeSelected { yolo } => {
                 if self.results.is_empty() {
                     Action::None
                 } else if yolo {
@@ -384,7 +376,6 @@ impl App {
                     }
                 }
             }
-            other => other,
         }
     }
 

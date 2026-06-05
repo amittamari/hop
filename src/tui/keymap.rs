@@ -2,8 +2,18 @@
 //! puts actions on arrows/PgUp-Dn/Ctrl-chords. The "modal" preset adds a
 //! navigate mode where single letters act.
 
-use crate::tui::Action;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Command {
+    Quit,
+    TogglePreview,
+    ScrollPreview(i16),
+    JumpPreviewMatch(i16),
+    ResizePreview(i8),
+    Help,
+    ResumeSelected { yolo: bool },
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
@@ -28,35 +38,33 @@ impl std::str::FromStr for Preset {
     }
 }
 
-/// Resolve a key to an action that is independent of mode/query editing. These
+/// Resolve a key to a command that is independent of mode/query editing. These
 /// chords work in both presets. Returns None if the key isn't a bound chord.
-pub fn chord_action(key: &KeyEvent) -> Option<Action> {
+#[cfg(test)]
+fn chord_action(key: &KeyEvent) -> Option<Command> {
     control_chord_action(key).or_else(|| empty_query_chord_action(key))
 }
 
-pub fn control_chord_action(key: &KeyEvent) -> Option<Action> {
+pub(super) fn control_chord_action(key: &KeyEvent) -> Option<Command> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match (key.code, ctrl) {
-        (KeyCode::Char('c'), true) => Some(Action::Quit),
-        (KeyCode::Char('p'), true) => Some(Action::TogglePreview),
-        (KeyCode::Char('u'), true) => Some(Action::ScrollPreview(-1)),
-        (KeyCode::Char('d'), true) => Some(Action::ScrollPreview(1)),
-        (KeyCode::Char('b'), true) => Some(Action::JumpPreviewMatch(-1)),
-        (KeyCode::Char('n'), true) => Some(Action::JumpPreviewMatch(1)),
-        (KeyCode::Char('y'), true) => Some(Action::Resume {
-            index: 0,
-            yolo: true,
-        }), // index filled by App
+        (KeyCode::Char('c'), true) => Some(Command::Quit),
+        (KeyCode::Char('p'), true) => Some(Command::TogglePreview),
+        (KeyCode::Char('u'), true) => Some(Command::ScrollPreview(-1)),
+        (KeyCode::Char('d'), true) => Some(Command::ScrollPreview(1)),
+        (KeyCode::Char('b'), true) => Some(Command::JumpPreviewMatch(-1)),
+        (KeyCode::Char('n'), true) => Some(Command::JumpPreviewMatch(1)),
+        (KeyCode::Char('y'), true) => Some(Command::ResumeSelected { yolo: true }),
         _ => None,
     }
 }
 
-pub fn empty_query_chord_action(key: &KeyEvent) -> Option<Action> {
+pub(super) fn empty_query_chord_action(key: &KeyEvent) -> Option<Command> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     match (key.code, ctrl) {
-        (KeyCode::Char('['), false) => Some(Action::ResizePreview(-1)),
-        (KeyCode::Char(']'), false) => Some(Action::ResizePreview(1)),
-        (KeyCode::Char('?'), false) => Some(Action::Help),
+        (KeyCode::Char('['), false) => Some(Command::ResizePreview(-1)),
+        (KeyCode::Char(']'), false) => Some(Command::ResizePreview(1)),
+        (KeyCode::Char('?'), false) => Some(Command::Help),
         _ => None,
     }
 }
@@ -74,30 +82,33 @@ mod tests {
 
     #[test]
     fn ctrl_chords_map() {
-        assert_eq!(chord_action(&ctrl('p')), Some(Action::TogglePreview));
-        assert!(matches!(chord_action(&ctrl('u')), Some(Action::ScrollPreview(n)) if n < 0));
+        assert_eq!(chord_action(&ctrl('p')), Some(Command::TogglePreview));
+        assert!(matches!(chord_action(&ctrl('u')), Some(Command::ScrollPreview(n)) if n < 0));
         assert!(matches!(
             chord_action(&ctrl('n')),
-            Some(Action::JumpPreviewMatch(n)) if n > 0
+            Some(Command::JumpPreviewMatch(n)) if n > 0
         ));
         assert!(matches!(
             chord_action(&ctrl('y')),
-            Some(Action::Resume { yolo: true, .. })
+            Some(Command::ResumeSelected { yolo: true })
         ));
-        assert_eq!(chord_action(&ctrl('c')), Some(Action::Quit));
+        assert_eq!(chord_action(&ctrl('c')), Some(Command::Quit));
     }
 
     #[test]
     fn bracket_resizes_and_question_helps() {
         assert_eq!(
             chord_action(&plain(KeyCode::Char('['))),
-            Some(Action::ResizePreview(-1))
+            Some(Command::ResizePreview(-1))
         );
         assert_eq!(
             chord_action(&plain(KeyCode::Char(']'))),
-            Some(Action::ResizePreview(1))
+            Some(Command::ResizePreview(1))
         );
-        assert_eq!(chord_action(&plain(KeyCode::Char('?'))), Some(Action::Help));
+        assert_eq!(
+            chord_action(&plain(KeyCode::Char('?'))),
+            Some(Command::Help)
+        );
     }
 
     #[test]

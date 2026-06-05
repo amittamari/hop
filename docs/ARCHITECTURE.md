@@ -122,8 +122,10 @@ rows and surface as sync status warnings.
 ## Application Pattern
 
 The TUI currently follows a small-app Ratatui shape: one `App` model handles key
-updates and focused view modules render the model. As interaction grows, prefer a
-TEA-like loop over ad hoc state in the runner:
+updates and focused view modules render the model. Keymaps decode raw keys into
+TUI-local commands; `tui::Action` is reserved for effects the outer run loop must
+perform, such as search, quit, and resume. As interaction grows, prefer a TEA-like
+loop over ad hoc state in the runner:
 
 ```text
 event -> message -> update model -> explicit effects -> render model
