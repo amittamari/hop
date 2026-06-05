@@ -260,7 +260,6 @@ fn footer_help(mode: InteractionMode) -> &'static str {
             "SEARCH · type query · ↑↓ move · Enter resume · ? help · Esc quit"
         }
         InteractionMode::Navigate => "NAV · j/k move · / search · Enter resume · ? help · Esc quit",
-        InteractionMode::Modal => "MODAL · Tab toggle yolo · Enter confirm · Esc cancel",
     }
 }
 

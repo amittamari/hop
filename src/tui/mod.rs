@@ -37,7 +37,6 @@ enum Mode {
 pub enum InteractionMode {
     Search,
     Navigate,
-    Modal,
 }
 
 impl InteractionMode {
@@ -45,7 +44,6 @@ impl InteractionMode {
         match self {
             InteractionMode::Search => "SEARCH",
             InteractionMode::Navigate => "NAV",
-            InteractionMode::Modal => "MODAL",
         }
     }
 }
@@ -114,9 +112,7 @@ impl App {
         matches!(self.mode, Mode::YoloModal { .. })
     }
     pub fn interaction_mode(&self) -> InteractionMode {
-        if self.modal_open() {
-            InteractionMode::Modal
-        } else if self.keymap == keymap::Preset::Modal && self.navigate {
+        if self.keymap == keymap::Preset::Modal && self.navigate {
             InteractionMode::Navigate
         } else {
             InteractionMode::Search
