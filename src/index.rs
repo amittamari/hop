@@ -10,7 +10,7 @@ use tantivy::query::{
 use tantivy::schema::{Field, IndexRecordOption, Schema, Value, FAST, STORED, STRING, TEXT};
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_CAP: usize = 5_000;
 const WRITER_HEAP: usize = 50_000_000;
@@ -25,6 +25,8 @@ struct Fields {
     mtime: Field,
     message_count: Field,
     yolo: Field,
+    branch: Field,
+    repo_url: Field,
 }
 
 pub struct SearchIndex {
@@ -45,6 +47,8 @@ fn build_schema() -> (Schema, Fields) {
         mtime: b.add_u64_field("mtime", STORED),
         message_count: b.add_u64_field("message_count", STORED),
         yolo: b.add_u64_field("yolo", STORED),
+        branch: b.add_text_field("branch", STRING | STORED),
+        repo_url: b.add_text_field("repo_url", STRING | STORED),
     };
     (b.build(), f)
 }
@@ -100,6 +104,12 @@ impl SearchIndex {
         doc.add_u64(self.f.mtime, s.mtime.max(0) as u64);
         doc.add_u64(self.f.message_count, s.message_count as u64);
         doc.add_u64(self.f.yolo, s.yolo as u64);
+        if let Some(b) = &s.branch {
+            doc.add_text(self.f.branch, b);
+        }
+        if let Some(r) = &s.repo_url {
+            doc.add_text(self.f.repo_url, r);
+        }
         let _ = w.add_document(doc);
     }
 
@@ -245,8 +255,8 @@ impl SearchIndex {
             message_count: get_u64(self.f.message_count) as u32,
             mtime: get_u64(self.f.mtime) as i64,
             yolo: get_u64(self.f.yolo) != 0,
-            branch: None,
-            repo_url: None,
+            branch: { let b = get_str(self.f.branch); if b.is_empty() { None } else { Some(b) } },
+            repo_url: { let r = get_str(self.f.repo_url); if r.is_empty() { None } else { Some(r) } },
         }
     }
 }

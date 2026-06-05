@@ -120,3 +120,26 @@ fn known_mtimes_maps_id_to_mtime() {
     assert_eq!(map.get("a"), Some(&42));
     assert_eq!(map.get("b"), Some(&7));
 }
+
+#[test]
+fn branch_roundtrips_through_index() {
+    use hop::core::{AgentId, Session};
+    use hop::index::SearchIndex;
+    use hop::query::ParsedQuery;
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    let mut w = idx.writer().unwrap();
+    let s = Session {
+        id: "a".into(), agent: AgentId::Codex, title: "t".into(),
+        directory: "/w".into(), timestamp: 1, content: "hello".into(),
+        message_count: 1, mtime: 1, yolo: false,
+        branch: Some("feat/x".into()), repo_url: Some("git@github.com:me/web.git".into()),
+    };
+    idx.upsert(&mut w, &s);
+    w.commit().unwrap();
+    idx.reload().unwrap();
+    let out = idx.search(&ParsedQuery::default(), 100, 10).unwrap();
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].branch.as_deref(), Some("feat/x"));
+    assert_eq!(out[0].repo_url.as_deref(), Some("git@github.com:me/web.git"));
+}
