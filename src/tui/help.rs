@@ -33,6 +33,7 @@ pub fn lines(preset: Preset) -> Vec<Line<'static>> {
         Line::from("  Ctrl+Y     yolo prompt"),
         Line::from("  Tab        autocomplete keyword"),
         Line::from("  ?          toggle help"),
+        Line::from("  `          toggle keymap mode (search/navigate)"),
         Line::from("  Esc        quit"),
         Line::from("  Ctrl+C     quit"),
     ];

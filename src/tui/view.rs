@@ -257,9 +257,9 @@ fn footer_line(base: &str, status: &StatusLine) -> Line<'static> {
 fn footer_help(mode: InteractionMode) -> &'static str {
     match mode {
         InteractionMode::Search => {
-            "SEARCH · type query · ↑↓ move · Enter resume · ? help · Esc quit"
+            "SEARCH · type query · ↑↓ move · Enter resume · ? help · ` toggle keymap mode · Esc quit"
         }
-        InteractionMode::Navigate => "NAV · j/k move · / search · Enter resume · ? help · Esc quit",
+        InteractionMode::Navigate => "NAV · j/k move · / search · Enter resume · ? help · ` toggle keymap mode · Esc quit",
     }
 }
 
