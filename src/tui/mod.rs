@@ -1,4 +1,5 @@
 pub mod keymap;
+pub mod preview;
 pub mod theme;
 pub mod view;
 
