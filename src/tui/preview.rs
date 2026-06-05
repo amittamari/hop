@@ -209,7 +209,7 @@ fn highlight_terms(line: &Line<'static>, terms: &[String]) -> Line<'static> {
                 .filter_map(|t| lower[idx..].find(t.as_str()).map(|p| (idx + p, t.len())))
                 .min_by_key(|&(p, _)| p);
             match next {
-                Some((p, len)) => {
+                Some((p, len)) if text.is_char_boundary(p) && text.is_char_boundary(p + len) => {
                     if p > idx {
                         out.push(Span::styled(text[idx..p].to_string(), span.style));
                     }
@@ -219,7 +219,9 @@ fn highlight_terms(line: &Line<'static>, terms: &[String]) -> Line<'static> {
                     ));
                     idx = p + len;
                 }
-                None => {
+                // No match, or a boundary that isn't valid in the original (rare
+                // multi-byte lowercasing): emit the remainder unstyled, no panic.
+                _ => {
                     out.push(Span::styled(text[idx..].to_string(), span.style));
                     break;
                 }
@@ -325,5 +327,20 @@ mod tests {
     fn unknown_lang_falls_back_to_plain() {
         let lines = highlight_code("x = 1", Some("nope-lang"));
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn match_highlight_handles_multibyte_without_panic() {
+        let msgs = vec![Message {
+            role: Role::User,
+            blocks: vec![Block::Prose("café au lait latte".into())],
+        }];
+        let lines = render_transcript(&msgs, "latte", crate::core::AgentId::Claude);
+        // did not panic; and the ASCII term is still reverse-highlighted
+        let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
+            s.content.contains("latte")
+                && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
+        });
+        assert!(any_rev);
     }
 }
