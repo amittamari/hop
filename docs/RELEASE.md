@@ -12,15 +12,16 @@ GitHub Release, then regenerates `Formula/hop.rb` in the tap repo.
 End users install with:
 
 ```sh
-brew install amittamari/hop/hop
+brew install amittamari/tap/hop
 ```
 
 ## One-time setup
 
-1. **Create the tap repo.** Homebrew requires the name `homebrew-<tap>`:
+1. **Create the tap repo.** Homebrew requires the `homebrew-` prefix; the repo
+   name `homebrew-tap` maps to the `amittamari/tap` Homebrew tap:
 
    ```sh
-   gh repo create amittamari/homebrew-hop --public \
+   gh repo create amittamari/homebrew-tap --public \
      --description "Homebrew tap for hop"
    ```
 
@@ -29,7 +30,7 @@ brew install amittamari/hop/hop
 2. **Create a token the workflow can use to push to the tap**, and store it as
    the `HOMEBREW_TAP_TOKEN` secret on this repo.
 
-   - Fine-grained PAT: scope it to `amittamari/homebrew-hop` with
+   - Fine-grained PAT: scope it to `amittamari/homebrew-tap` with
      **Contents: Read and write**.
    - Add it as a secret:
 
@@ -58,12 +59,12 @@ brew install amittamari/hop/hop
    ```
 
    When it finishes you'll have a GitHub Release with four `.tar.gz` assets and
-   an updated `Formula/hop.rb` in `amittamari/homebrew-hop`.
+   an updated `Formula/hop.rb` in `amittamari/homebrew-tap`.
 
 4. Verify the install:
 
    ```sh
-   brew install amittamari/hop/hop
+   brew install amittamari/tap/hop
    hop --version
    ```
 

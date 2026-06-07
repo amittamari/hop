@@ -133,7 +133,7 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           owner="${GITHUB_REPOSITORY%%/*}"
-          tap_repo="https://x-access-token:${TAP_TOKEN}@github.com/${owner}/homebrew-hop.git"
+          tap_repo="https://x-access-token:${TAP_TOKEN}@github.com/${owner}/homebrew-tap.git"
 
           git clone "$tap_repo" tap-repo
           mkdir -p tap-repo/Formula

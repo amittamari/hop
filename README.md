@@ -41,7 +41,7 @@ matter of mapping its on-disk session format to `hop`'s `core` types.
 **Homebrew** (macOS & Linux):
 
 ```bash
-brew install amittamari/hop/hop
+brew install amittamari/tap/hop
 ```
 
 **From source:**
