@@ -2,8 +2,12 @@
 
 `hop` is distributed as a Homebrew tap backed by prebuilt binaries. The
 `.github/workflows/release.yml` workflow runs on every `v*` tag: it builds
-binaries for macOS (arm64 + x86_64) and Linux (arm64 + x86_64), publishes them
-to a GitHub Release, then regenerates `Formula/hop.rb` in the tap repo.
+binaries for macOS (arm64) and Linux (arm64 + x86_64), publishes them to a
+GitHub Release, then regenerates `Formula/hop.rb` in the tap repo.
+
+> Intel macOS (`x86_64-apple-darwin`) is intentionally not built — the GitHub
+> `macos-13` runners queue for a long time. Add a matrix entry + `on_intel`
+> formula block back if you need it.
 
 End users install with:
 

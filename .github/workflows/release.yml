@@ -21,8 +21,6 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             os: macos-14
-          - target: x86_64-apple-darwin
-            os: macos-13
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-22.04
           - target: aarch64-unknown-linux-gnu
@@ -102,10 +100,6 @@ jobs:
               on_arm do
                 url "$(url aarch64-apple-darwin)"
                 sha256 "$(sha aarch64-apple-darwin)"
-              end
-              on_intel do
-                url "$(url x86_64-apple-darwin)"
-                sha256 "$(sha x86_64-apple-darwin)"
               end
             end
 
