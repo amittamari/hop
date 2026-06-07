@@ -141,10 +141,10 @@ jobs:
           cd tap-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
+          git add Formula/hop.rb
+          if git diff --cached --quiet; then
             echo "Formula already up to date."
           else
-            git add Formula/hop.rb
             git commit -m "hop ${version}"
-            git push
+            git push origin HEAD
           fi
