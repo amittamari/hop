@@ -6,15 +6,48 @@ Fast full-text search and resume for coding-agent sessions (**Claude Code** + **
 
 ---
 
+## ✨ Features
+
+* **🔎 Full-text search across every session** — A Tantivy index over your entire Claude Code and Codex history. Fuzzy and exact matching across full conversation transcripts, not just titles.
+* **🤖 Multi-agent, one index** — Claude Code and Codex sessions live side by side, normalized into a single searchable view.
+* **⚡ Instant resume** — Pick a session and `hop` restores the terminal, `chdir`s to the original working directory, and `exec`-replaces itself with the right agent CLI. No copy-pasting paths.
+* **🧮 Rich, responsive results grid** — Agent, repo, branch, title, message count, PR status, and time — with columns that gracefully drop on narrow terminals.
+* **🧹 Clean transcript previews** — On-demand previews strip tool calls, command tags, and system noise, with syntax-highlighted code and highlighted query matches.
+* **🏷️ Powerful query keywords** — Filter by `agent:`, `dir:`, and relative/duration `date:` expressions inline with free-text search.
+* **🔗 GitHub PR awareness** — Associated PRs are resolved in the background via the `gh` CLI and cached on disk.
+* **🚀 Background streaming index** — Existing data renders instantly on launch; new sessions sync in the background without blocking the UI.
+
+---
+
+## 🚧 Not Yet Supported
+
+`hop` currently indexes **Claude Code** and **Codex** sessions. The following
+providers are not yet supported — contributions are welcome:
+
+* **Gemini CLI**
+* **Cursor**
+* **Aider**
+* **opencode**
+
+Each provider is wired in through a session adapter, so adding one is mostly a
+matter of mapping its on-disk session format to `hop`'s `core` types.
+
+---
+
 ## 🚀 Quick Start
 
 ### Installation
 
-Build and install from the local source directory:
+**Homebrew** (macOS & Linux):
+
+```bash
+brew install amittamari/hop/hop
+```
+
+**From source:**
 
 ```bash
 cargo install --locked --path .
-
 ```
 
 ### Usage Examples
@@ -124,3 +157,10 @@ For deeper technical context, explore the following documentation files:
 * **`docs/PROJECT.md`** — Core project goals and scope.
 * **`docs/ARCHITECTURE.md`** — System design and internals.
 * **`docs/specs/`, `docs/reviews/`, `docs/plans/`** — Dated specifications, review artifacts, and execution roadmaps.
+
+---
+
+## 🙏 Credits
+
+Inspired by [angristan/fast-resume](https://github.com/angristan/fast-resume),
+which also served as a reference for the Claude Code and Codex session adapters.
