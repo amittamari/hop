@@ -15,32 +15,6 @@ End users install with:
 brew install amittamari/tap/hop
 ```
 
-## One-time setup
-
-1. **Create the tap repo.** Homebrew requires the `homebrew-` prefix; the repo
-   name `homebrew-tap` maps to the `amittamari/tap` Homebrew tap:
-
-   ```sh
-   gh repo create amittamari/homebrew-tap --public \
-     --description "Homebrew tap for hop"
-   ```
-
-   It can stay empty — the release workflow pushes `Formula/hop.rb` into it.
-
-2. **Create a token the workflow can use to push to the tap**, and store it as
-   the `HOMEBREW_TAP_TOKEN` secret on this repo.
-
-   - Fine-grained PAT: scope it to `amittamari/homebrew-tap` with
-     **Contents: Read and write**.
-   - Add it as a secret:
-
-     ```sh
-     gh secret set HOMEBREW_TAP_TOKEN --repo amittamari/hop
-     # paste the token when prompted
-     ```
-
-   (A classic PAT with `repo` scope also works.)
-
 ## Cutting a release
 
 1. Bump `version` in `Cargo.toml`, run `cargo build` so `Cargo.lock` updates,
