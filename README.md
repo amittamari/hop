@@ -19,21 +19,6 @@ Fast full-text search and resume for coding-agent sessions (**Claude Code** + **
 
 ---
 
-## 🚧 Not Yet Supported
-
-`hop` currently indexes **Claude Code** and **Codex** sessions. The following
-providers are not yet supported — contributions are welcome:
-
-* **Gemini CLI**
-* **Cursor**
-* **Aider**
-* **opencode**
-
-Each provider is wired in through a session adapter, so adding one is mostly a
-matter of mapping its on-disk session format to `hop`'s `core` types.
-
----
-
 ## 🚀 Quick Start
 
 ### Installation
@@ -59,6 +44,21 @@ hop -a claude -d api     # Filter by agent and directory on launch
 hop --rebuild            # Wipe and rebuild the search index
 
 ```
+
+---
+
+## 🚧 Not Yet Supported
+
+`hop` currently indexes **Claude Code** and **Codex** sessions. The following
+providers are not yet supported — contributions are welcome:
+
+* **Gemini CLI**
+* **Cursor**
+* **Aider**
+* **opencode**
+
+Each provider is wired in through a session adapter, so adding one is mostly a
+matter of mapping its on-disk session format to `hop`'s `core` types.
 
 ---
 
