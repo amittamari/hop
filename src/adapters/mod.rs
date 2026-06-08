@@ -1,5 +1,6 @@
 pub mod claude;
 pub mod codex;
+pub mod cursor;
 
 use crate::core::{AgentId, ScanEntry, Session, SessionId};
 use anyhow::Result;
@@ -27,6 +28,7 @@ pub fn default_adapters(cfg: &crate::config::Config) -> Vec<Box<dyn Adapter>> {
     vec![
         Box::new(claude::ClaudeAdapter::new(cfg.data_dir(AgentId::Claude))),
         Box::new(codex::CodexAdapter::new(cfg.data_dir(AgentId::Codex))),
+        Box::new(cursor::CursorAdapter::new(cfg.data_dir(AgentId::Cursor))),
     ]
 }
 
