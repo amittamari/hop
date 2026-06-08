@@ -1,0 +1,4 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nfix the cursor session bug\n</user_query><file_path>/src/main.rs</file_path>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"I'll fix the bug."},{"type":"tool_use","name":"read_file","input":{"path":"/src/main.rs"}}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nlooks good\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"Done."},{"type":"tool_use","name":"write_file","input":{}}]}}

@@ -85,6 +85,7 @@ impl Config {
         match agent {
             AgentId::Claude => home.join(".claude").join("projects"),
             AgentId::Codex => home.join(".codex"),
+            AgentId::Cursor => home.join(".cursor").join("projects"),
         }
     }
 }

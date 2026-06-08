@@ -120,15 +120,17 @@ pub fn is_command_tag_line(text: &str) -> bool {
 pub enum AgentId {
     Claude,
     Codex,
+    Cursor,
 }
 
 impl AgentId {
-    pub const ALL: [AgentId; 2] = [AgentId::Claude, AgentId::Codex];
+    pub const ALL: [AgentId; 3] = [AgentId::Claude, AgentId::Codex, AgentId::Cursor];
 
     pub fn slug(self) -> &'static str {
         match self {
             AgentId::Claude => "claude",
             AgentId::Codex => "codex",
+            AgentId::Cursor => "cursor",
         }
     }
 
@@ -136,6 +138,7 @@ impl AgentId {
         match self {
             AgentId::Claude => "CLAUDE",
             AgentId::Codex => "CODEX",
+            AgentId::Cursor => "CURSOR",
         }
     }
 
@@ -143,6 +146,7 @@ impl AgentId {
         match s {
             "claude" => Some(AgentId::Claude),
             "codex" => Some(AgentId::Codex),
+            "cursor" => Some(AgentId::Cursor),
             _ => None,
         }
     }

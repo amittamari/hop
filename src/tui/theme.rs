@@ -5,6 +5,7 @@ pub fn agent_color(agent: AgentId) -> Color {
     match agent {
         AgentId::Claude => Color::Rgb(245, 158, 11),
         AgentId::Codex => Color::Rgb(139, 92, 246),
+        AgentId::Cursor => Color::Rgb(34, 197, 94),  // green
     }
 }
 
