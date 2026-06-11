@@ -8,6 +8,12 @@
 [workspace]
 # Do not `cargo publish` to crates.io.
 publish = false
+# Disable cargo-semver-checks. It compares our public API against a baseline
+# downloaded from crates.io for the crate name "hop" — but that name is taken by
+# an unrelated crate (the Hop.io platform SDK), so it reports its entire API as
+# "breaking changes". We ship a binary via Homebrew with no library consumers,
+# so semver checking is meaningless here.
+semver_check = false
 # Create the git tag (this is what triggers release.yml).
 git_tag_enable = true
 # Let release.yml own the GitHub Release (binaries + auto-generated notes);
