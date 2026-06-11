@@ -14,6 +14,10 @@ publish = false
 # "breaking changes". We ship a binary via Homebrew with no library consumers,
 # so semver checking is meaningless here.
 semver_check = false
+# Only open a Release PR when there's a feat or fix since the last release.
+# docs/chore/ci-only changes won't trigger a release on their own — they still
+# get folded into the next feat/fix release's changelog.
+release_commits = "^(feat|fix)"
 # Create the git tag (this is what triggers release.yml).
 git_tag_enable = true
 # Let release.yml own the GitHub Release (binaries + auto-generated notes);
