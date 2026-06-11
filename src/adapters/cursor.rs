@@ -89,11 +89,9 @@ fn read_store_meta(chats_root: &Path, workspace: &str, uuid: &str) -> Option<Met
     let hash = format!("{:x}", md5::compute(real.to_string_lossy().as_bytes()));
     let db_path = chats_root.join(&hash).join(uuid).join("store.db");
 
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    )
-    .ok()?;
+    let conn =
+        rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()?;
 
     let hex_value: String = conn
         .query_row("SELECT value FROM meta WHERE key='0'", [], |row| row.get(0))
@@ -129,8 +127,8 @@ fn clean_user_text(text: &str) -> &str {
 
 impl CursorAdapter {
     fn extract(&self, path: &Path) -> Result<Extracted> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("reading {}", path.display()))?;
+        let raw =
+            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut messages: Vec<Message> = Vec::new();
 
         for line in raw.lines() {
@@ -173,7 +171,10 @@ impl CursorAdapter {
             }
 
             let split = split_blocks(&cleaned);
-            messages.push(Message { role, blocks: split });
+            messages.push(Message {
+                role,
+                blocks: split,
+            });
         }
 
         Ok(Extracted { messages })

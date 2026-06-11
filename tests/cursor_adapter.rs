@@ -16,15 +16,16 @@ fn fixture(name: &str) -> PathBuf {
 ///   root/<slug>/agent-transcripts/<uuid>/hook-sidecar.jsonl  (sidecar)
 fn setup_tree(root: &std::path::Path) -> PathBuf {
     let slug = "myproject";
-    let conv_dir = root
-        .join(slug)
-        .join("agent-transcripts")
-        .join(UUID);
+    let conv_dir = root.join(slug).join("agent-transcripts").join(UUID);
     std::fs::create_dir_all(&conv_dir).unwrap();
 
     let canonical = conv_dir.join(format!("{UUID}.jsonl"));
     std::fs::copy(fixture("sample.jsonl"), &canonical).unwrap();
-    std::fs::copy(fixture("hook-sidecar.jsonl"), conv_dir.join("hook-sidecar.jsonl")).unwrap();
+    std::fs::copy(
+        fixture("hook-sidecar.jsonl"),
+        conv_dir.join("hook-sidecar.jsonl"),
+    )
+    .unwrap();
 
     canonical
 }
@@ -131,8 +132,11 @@ fn enriches_from_store_db() {
     conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)", [])
         .unwrap();
     let json = r#"{"name":"My Chat","createdAt":1700000000000,"isRunEverything":true}"#;
-    conn.execute("INSERT INTO meta VALUES ('0', ?1)", [&hex::encode(json.as_bytes())])
-        .unwrap();
+    conn.execute(
+        "INSERT INTO meta VALUES ('0', ?1)",
+        [&hex::encode(json.as_bytes())],
+    )
+    .unwrap();
     drop(conn);
 
     let adapter = CursorAdapter::new(projects_dir);
@@ -179,16 +183,10 @@ fn resume_command_non_yolo_and_yolo() {
     let s = adapter.parse(&canonical).unwrap();
 
     let non_yolo = adapter.resume_command(&s, false);
-    assert_eq!(
-        non_yolo,
-        vec!["cursor-agent", "--resume", UUID]
-    );
+    assert_eq!(non_yolo, vec!["cursor-agent", "--resume", UUID]);
 
     let yolo_cmd = adapter.resume_command(&s, true);
-    assert_eq!(
-        yolo_cmd,
-        vec!["cursor-agent", "--force", "--resume", UUID]
-    );
+    assert_eq!(yolo_cmd, vec!["cursor-agent", "--force", "--resume", UUID]);
 }
 
 // ── Test 6: AgentId round-trip ────────────────────────────────────────────────

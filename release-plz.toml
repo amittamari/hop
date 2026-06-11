@@ -1,0 +1,15 @@
+# release-plz configuration — https://release-plz.dev/docs/config
+#
+# hop ships as prebuilt binaries via a Homebrew tap, not as a crates.io crate.
+# So we disable crates.io publishing and let release-plz only manage the
+# version bump, CHANGELOG.md, and the git tag. The existing release.yml
+# (triggered by the v* tag) builds binaries and updates the tap.
+
+[workspace]
+# Do not `cargo publish` to crates.io.
+publish = false
+# Create the git tag (this is what triggers release.yml).
+git_tag_enable = true
+# Let release.yml own the GitHub Release (binaries + auto-generated notes);
+# release-plz just maintains CHANGELOG.md in-repo and tags.
+git_release_enable = false

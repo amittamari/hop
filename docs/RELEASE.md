@@ -15,27 +15,47 @@ End users install with:
 brew install amittamari/tap/hop
 ```
 
+## How releases work
+
+Releases are driven by [release-plz](https://release-plz.dev) using our
+conventional-commit history. You never hand-edit the version or hand-type a tag.
+
+```
+push to master ──▶ release-plz.yml ──▶ opens/updates a "Release PR"
+                                        (bumps Cargo.toml + CHANGELOG.md)
+       merge the Release PR ──────────▶ release-plz tags vX.Y.Z
+                            tag push ──▶ release.yml builds binaries,
+                                         publishes the GitHub Release,
+                                         regenerates Formula/hop.rb in the tap
+```
+
+- `release-plz.yml` (on every push to `master`) keeps a **Release PR** open. It
+  computes the next version from conventional commits (`feat:` → minor, `fix:` →
+  patch, `feat!:`/`BREAKING CHANGE` → major) and writes `CHANGELOG.md`.
+- Merging that PR makes release-plz create the `vX.Y.Z` git tag.
+- The tag triggers `release.yml` exactly as before: build → GitHub Release → tap
+  formula. Tag and `Cargo.toml` can no longer drift, because the tag is derived
+  from the version release-plz committed.
+- `ci.yml` runs `fmt`, `clippy`, and `cargo test` on every PR and master push, so
+  a release can't ship a build that fails CI.
+
 ## Cutting a release
 
-1. Bump `version` in `Cargo.toml`, run `cargo build` so `Cargo.lock` updates,
-   commit.
-2. Tag and push (the tag drives the workflow):
-
-   ```sh
-   git tag v0.1.0
-   git push origin v0.1.0
-   ```
-
-3. Watch it:
+1. Land your changes on `master` with conventional-commit messages
+   (`feat: …`, `fix: …`). CI must be green.
+2. release-plz opens (or updates) a **Release PR** titled like
+   `chore: release vX.Y.Z`. Review the version bump and generated changelog.
+3. Merge the Release PR. That's it — the tag and `release.yml` run automatically.
+4. Watch it:
 
    ```sh
    gh run watch
    ```
 
-   When it finishes you'll have a GitHub Release with four `.tar.gz` assets and
-   an updated `Formula/hop.rb` in `amittamari/homebrew-tap`.
+   When it finishes you'll have a GitHub Release with the `.tar.gz` assets and an
+   updated `Formula/hop.rb` in `amittamari/homebrew-tap`.
 
-4. Verify the install:
+5. Verify the install:
 
    ```sh
    brew install amittamari/tap/hop
@@ -47,6 +67,23 @@ brew install amittamari/tap/hop
    ```sh
    brew update && brew upgrade hop
    ```
+
+### Manual fallback
+
+The old flow still works if you ever need it — bump `version` in `Cargo.toml`,
+`cargo build` to refresh `Cargo.lock`, commit, then `git tag vX.Y.Z &&
+git push origin vX.Y.Z`. `release.yml` triggers on any `v*` tag regardless of how
+it was created.
+
+## One-time setup
+
+release-plz needs a token that is **not** the default `GITHUB_TOKEN`, because
+tags pushed with `GITHUB_TOKEN` do not trigger other workflows (so `release.yml`
+would never fire). Create a token with `contents: write` + `pull-requests: write`
+on this repo — a fine-grained PAT or a GitHub App token both work — and add it as
+the repo secret `RELEASE_PLZ_TOKEN`. See the
+[release-plz token docs](https://release-plz.dev/docs/github/token) for the
+GitHub App route (recommended for longevity).
 
 ## Notes
 
