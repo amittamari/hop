@@ -1,0 +1,20 @@
+name: semantic-pr
+
+# We squash-merge, so the PR title becomes the commit message on master and is
+# what release-plz reads. Enforce that it follows Conventional Commits.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@e32d7e603df1aa1ba07e981f2a23455dee596825 # v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
