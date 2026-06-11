@@ -5,8 +5,10 @@ on:
     tags:
       - "v*"
 
+# Default to read-only; only the publish job (which creates the release) needs
+# write. The build job runs dependency build scripts and should stay read-only.
 permissions:
-  contents: write
+  contents: read
 
 env:
   BIN: hop
@@ -66,6 +68,8 @@ jobs:
     name: publish release and update tap
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all build artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -134,9 +138,14 @@ jobs:
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
           owner="${GITHUB_REPOSITORY%%/*}"
-          tap_repo="https://x-access-token:${TAP_TOKEN}@github.com/${owner}/homebrew-tap.git"
 
-          git clone "$tap_repo" tap-repo
+          # Pass the token via an auth header instead of embedding it in the
+          # remote URL, so it is never persisted to .git/config or leaked in
+          # git error output.
+          auth_header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$TAP_TOKEN" | base64 | tr -d '\n')"
+
+          git -c "http.extraheader=$auth_header" \
+            clone "https://github.com/${owner}/homebrew-tap.git" tap-repo
           mkdir -p tap-repo/Formula
           cp tap/Formula/hop.rb tap-repo/Formula/hop.rb
           cd tap-repo
@@ -147,5 +156,5 @@ jobs:
             echo "Formula already up to date."
           else
             git commit -m "hop ${version}"
-            git push origin HEAD
+            git -c "http.extraheader=$auth_header" push origin HEAD
           fi

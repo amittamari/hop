@@ -1,0 +1,6 @@
+# Code owners for hop.
+#
+# CI/CD and repo automation are the highest-trust surface: the release
+# workflows run with secrets (RELEASE_PLZ_TOKEN, HOMEBREW_TAP_TOKEN) after a
+# merge to master, so any change here must be read line by line before merging.
+/.github/    @amittamari
