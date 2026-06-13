@@ -46,7 +46,7 @@ fn section(label: &'static str) -> Line<'static> {
 }
 
 /// Render the overlay centered over the frame.
-pub fn render(f: &mut Frame) {
+pub fn render(f: &mut Frame, theme: &crate::tui::theme::Theme) {
     let area = f.area();
     if area.width < 8 || area.height < 6 {
         return;
@@ -64,15 +64,15 @@ pub fn render(f: &mut Frame) {
         height: h,
     };
     f.buffer_mut()
-        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
+        .set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT))
+        .border_style(Style::default().fg(theme.accent))
         .title(" help ")
         .title_style(
             Style::default()
-                .fg(theme::ACCENT)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )
         .padding(Padding::symmetric(2, 1));

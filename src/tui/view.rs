@@ -194,7 +194,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f);
+        help::render(f, app.theme());
     }
 }
 
@@ -322,7 +322,7 @@ fn render_yolo_modal(
     ];
 
     f.buffer_mut()
-        .set_style(area, Style::default().fg(theme.overlay_fg));
+        .set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
@@ -797,5 +797,52 @@ mod tests {
             }
         }
         assert!(found, "expected a 'Y' cell painted with the warning color");
+    }
+
+    #[test]
+    fn yolo_backdrop_dims_background() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+        app.open_yolo_modal_with(true);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(120, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
+            )
+        })
+        .unwrap();
+
+        let buf = term.backend().buffer().clone();
+        let overlay_bg = crate::tui::theme::Theme::default().overlay_bg;
+        assert_eq!(buf[(0, 0)].bg, overlay_bg, "backdrop must set bg, not fg-only");
     }
 }
