@@ -185,11 +185,11 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 
     // footer
-    f.render_widget(Paragraph::new(footer_line(model.status)), chunks[2]);
+    f.render_widget(Paragraph::new(footer_line(model.status, app.theme())), chunks[2]);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        render_yolo_modal(f, session, yolo, model.modal_command);
+        render_yolo_modal(f, session, yolo, model.modal_command, app.theme());
     }
 
     // help overlay (drawn last, on top)
@@ -211,43 +211,43 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
-fn footer_line(status: &StatusLine) -> Line<'static> {
+fn footer_line(status: &StatusLine, theme: &crate::tui::theme::Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
     spans.push(Span::styled(
         label.to_string(),
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
     ));
     if !rest.is_empty() {
         spans.push(Span::styled(
             format!(" · {rest}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {sync}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if status.pr_pending > 0 {
         spans.push(Span::styled(
             format!(" · pr {} pending", status.pr_pending),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · filters {filters}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {warning}"),
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme.warning),
         ));
     }
     Line::from(spans)
@@ -258,6 +258,7 @@ fn render_yolo_modal(
     session: Option<&SessionSummary>,
     yolo: bool,
     modal_command: Option<&[String]>,
+    theme: &crate::tui::theme::Theme,
 ) {
     let area = f.area();
     if area.width < 4 || area.height < 4 {
@@ -294,15 +295,15 @@ fn render_yolo_modal(
 
     let body = vec![
         Line::from(vec![
-            Span::styled("Session  ", Style::default().fg(theme::DIM)),
+            Span::styled("Session  ", Style::default().fg(theme.muted)),
             Span::raw(title),
         ]),
         Line::from(vec![
-            Span::styled("Directory ", Style::default().fg(theme::DIM)),
+            Span::styled("Directory ", Style::default().fg(theme.muted)),
             Span::raw(directory),
         ]),
         Line::from(vec![
-            Span::styled("Command   ", Style::default().fg(theme::DIM)),
+            Span::styled("Command   ", Style::default().fg(theme.muted)),
             Span::raw(command),
         ]),
         Line::from(""),
@@ -310,10 +311,10 @@ fn render_yolo_modal(
             danger,
             if yolo {
                 Style::default()
-                    .fg(theme::ACCENT)
+                    .fg(theme.warning)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::DIM)
+                Style::default().fg(theme.muted)
             },
         )),
         Line::from(""),
@@ -321,7 +322,7 @@ fn render_yolo_modal(
     ];
 
     f.buffer_mut()
-        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
+        .set_style(area, Style::default().fg(theme.overlay_fg));
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
@@ -735,5 +736,66 @@ mod tests {
         assert_eq!(visible_result_range(100, 9, 10), 0..10);
         assert_eq!(visible_result_range(100, 10, 10), 1..11);
         assert_eq!(visible_result_range(100, 99, 10), 90..100);
+    }
+
+    #[test]
+    fn yolo_banner_uses_warning_color_not_accent() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+        app.open_yolo_modal_with(true);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(120, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                },
+            )
+        })
+        .unwrap();
+
+        let buf = term.backend().buffer().clone();
+        let warning = crate::tui::theme::Theme::default().warning;
+        let accent = crate::tui::theme::Theme::default().accent;
+        let (w, h) = (buf.area.width, buf.area.height);
+        let mut found = false;
+        for y in 0..h {
+            for x in 0..w {
+                let cell = &buf[(x, y)];
+                if cell.symbol() == "Y" {
+                    if cell.fg == warning {
+                        found = true;
+                    }
+                    assert_ne!(cell.fg, accent, "YOLO banner must not use accent");
+                }
+            }
+        }
+        assert!(found, "expected a 'Y' cell painted with the warning color");
     }
 }
