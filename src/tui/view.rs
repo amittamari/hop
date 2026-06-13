@@ -50,9 +50,7 @@ const SELECTION_MARKER: &str = "❯ ";
 /// Braille throbber frames, indexed by the per-redraw frame counter. Hand-rolled
 /// to avoid a spinner crate; advances one frame per redraw (the run loop polls
 /// every 50ms, so it animates smoothly).
-pub(crate) const SPINNER_FRAMES: [&str; 10] = [
-    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-];
+pub(crate) const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// The current throbber glyph for a given frame counter.
 fn spinner_frame(frame: u64) -> &'static str {
