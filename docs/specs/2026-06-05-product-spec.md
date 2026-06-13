@@ -102,6 +102,11 @@ and safe around terminal state when handing off to an agent CLI.
   `-repo:<text>` excludes them. The remote is stable across worktrees, so this
   matches every worktree of a repo. Sessions outside a git repo have no remote
   and never satisfy a `repo:` include.
+- When launched from inside a git repo, `hop` auto-prepends a `repo:owner/name`
+  filter (the slug derived from the cwd's `origin` remote) so results default to
+  the current repo. The `--all` flag disables this, as does supplying an explicit
+  `-r`/`repo:` filter; running outside a git repo also skips it. The injected token
+  is editable in the query bar, so the scope can be broadened mid-session.
 - `date:today` and `date:yesterday` use the user's local calendar day.
 - `date:week` means sessions in the last 7 days.
 - `date:month` means sessions in the last 30 days.
@@ -166,6 +171,7 @@ and safe around terminal state when handing off to an agent CLI.
 - `hop -a <agent>` composes an `agent:<agent>` query filter.
 - `hop -d <text>` composes a `dir:<text>` query filter.
 - `hop -r <text>` composes a `repo:<text>` query filter.
+- `hop --all` disables auto-scoping to the current repo (see Query keywords).
 - `hop --rebuild` removes the local index before starting and then rebuilds in
   the normal background sync path.
 - `hop --yolo` forces yolo resume when the selected adapter supports it.

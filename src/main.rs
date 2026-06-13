@@ -49,7 +49,14 @@ fn main() -> Result<()> {
     let bg_adapters = adapters::default_adapters(&config);
 
     let mut engine = Engine::new(&dir, fg_adapters)?;
-    engine.set_query(cli.initial_query());
+    // Auto-scope to the current repo unless the user opted out or set an explicit
+    // repo filter. Resolves the cwd's `origin` remote into an `owner/name` slug.
+    let auto_repo = cli
+        .wants_auto_repo()
+        .then(|| adapters::git_remote_url("."))
+        .flatten()
+        .and_then(|url| hop::enrich::repo_slug_from_url(&url));
+    engine.set_query(cli.initial_query(auto_repo.as_deref()));
     engine.search()?; // immediate results from whatever is already indexed
 
     // background sync streams new sessions in

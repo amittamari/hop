@@ -90,6 +90,18 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
     }
 }
 
+/// `git@github.com:owner/repo.git` or `https://host/owner/repo(.git)` -> `owner/repo`.
+/// Unlike `repo_name_from_url`, this keeps the owner so the slug stays unique across
+/// repos that share a basename. Used to auto-scope `hop` to the current repo.
+pub fn repo_slug_from_url(url: &str) -> Option<String> {
+    let trimmed = url.trim().trim_end_matches(".git");
+    let parts: Vec<&str> = trimmed.split(['/', ':']).filter(|s| !s.is_empty()).collect();
+    match parts.as_slice() {
+        [.., owner, name] => Some(format!("{owner}/{name}")),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -145,5 +157,22 @@ mod tests {
                 .text,
             "myproj"
         );
+    }
+
+    #[test]
+    fn slug_keeps_owner() {
+        assert_eq!(
+            repo_slug_from_url("git@github.com:me/web.git").as_deref(),
+            Some("me/web")
+        );
+        assert_eq!(
+            repo_slug_from_url("https://github.com/me/web.git").as_deref(),
+            Some("me/web")
+        );
+        assert_eq!(
+            repo_slug_from_url("https://github.com/me/web").as_deref(),
+            Some("me/web")
+        );
+        assert_eq!(repo_slug_from_url("").as_deref(), None);
     }
 }
