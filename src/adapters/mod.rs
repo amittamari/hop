@@ -71,7 +71,7 @@ fn git_field(dir: &str, args: &[&str]) -> Option<String> {
 
 /// The `origin` remote URL. Same across all worktrees of a repo, which is what
 /// makes it a stable repo key.
-pub(crate) fn git_remote_url(dir: &str) -> Option<String> {
+pub fn git_remote_url(dir: &str) -> Option<String> {
     git_field(dir, &["remote", "get-url", "origin"])
 }
 

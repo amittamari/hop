@@ -38,8 +38,9 @@ cargo install --locked --path .
 ### Usage Examples
 
 ```bash
-hop                      # Open the interactive TUI
-hop "auth refresh"       # Open the TUI with a pre-filled search query
+hop                      # Open the TUI, auto-scoped to the current repo (if any)
+hop "auth refresh"       # Pre-filled query, still scoped to the current repo
+hop --all                # Search across all repos (disable auto-scoping)
 hop -a claude -d api     # Filter by agent and directory on launch
 hop -r hop               # Filter to one repo across all its worktrees
 hop --rebuild            # Wipe and rebuild the search index
@@ -127,6 +128,11 @@ Advanced filtering keywords can be used alongside regular free-text search.
 | `date:today` / `date:yesterday` | **Relative Date** | Local calendar-day filters |
 | `date:week` / `date:month` | **Date Windows** | Broad recency windows |
 | `date:<2d` / `date:>1w` | **Duration** | Matches within (`<`) or older than (`>`) durations (`h`/`d`/`w`) |
+
+> **Auto-scope:** When launched from inside a git repo, `hop` prepends a `repo:owner/name`
+> filter for you so you see that repo's sessions first. Pass `--all` to search every repo,
+> or just edit/delete the `repo:` token in the query bar to broaden mid-session. Supplying
+> your own `-r`/`repo:` filter (or running outside a git repo) disables auto-scoping.
 
 ---
 
