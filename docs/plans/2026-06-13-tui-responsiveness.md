@@ -1,6 +1,6 @@
 # TUI Responsiveness & Layout Safety Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Make the `hop` TUI main screen safe and usable at any terminal size by guarding tiny terminals, collapsing the preview on narrow widths, and keeping the footer status readable when space is tight.
 

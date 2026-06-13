@@ -1,6 +1,6 @@
 # TUI Results Table Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Replace the hand-formatted results list (a `List<ListItem>` of pre-joined `Line`s plus a SEPARATELY rendered header `Paragraph` that is manually offset by the selection-marker width) with a single Ratatui `Table` widget. This fixes review findings **W1** (two fragile alignment code paths collapsed into one Table whose own layout solver owns per-column width/alignment/truncation) and **W5** (search-match highlighting is currently invisible in the list — thread the query's `free_terms()` into the TITLE cell and reuse `preview::highlight_terms`).
 

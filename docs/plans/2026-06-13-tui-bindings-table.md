@@ -1,6 +1,6 @@
 # TUI Keybindings Single Source of Truth Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Collapse the three independent, drift-prone copies of the `hop` TUI keybindings — the key→command decoding (`keymap.rs`), the hand-typed help overlay text (`help.rs`), and the footer hint string (`view.rs` `FOOTER_HINTS`) — into ONE declarative source of truth: a static `&[Binding]` table. Drive the help overlay and the footer from that table, align the help columns programmatically (no hand-counted spaces), teach the footer the preview vocabulary when the preview pane is visible and the terminal is wide, and add tests that fail loudly when a binding is added to the table but not actually handled in `handle_key`.
 

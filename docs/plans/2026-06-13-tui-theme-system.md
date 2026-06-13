@@ -1,6 +1,6 @@
 # TUI Theme System Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Replace the flat `const`-bag in `src/tui/theme.rs` with a `struct Theme` of semantic roles (internal only, hardcoded default — NO config wiring), thread it through the TUI rendering paths, and fix two real safety/visual defects (T1, T2) plus two smaller cleanups (T3, T6) that the current flat palette causes.
 

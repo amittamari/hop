@@ -1,6 +1,6 @@
 # TUI Scroll Affordances Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Add scroll-position affordances to the `hop` TUI so users can sense their location in long result sets and long transcripts: a vertical scrollbar on the results list, a vertical scrollbar on the preview transcript, a bottom clamp on preview scrolling (so you can't scroll past the end into blank space), and ellipsis truncation of the preview header's "title · directory" line so a long path no longer wraps or clips the 2-row header.
 

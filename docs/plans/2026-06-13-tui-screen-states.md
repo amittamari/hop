@@ -1,6 +1,6 @@
 # TUI Screen States Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (- [ ]) syntax for tracking.
+> **For implementers:** Work through this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for progress tracking; check each off as you complete it.
 
 **Goal:** Give the hop TUI three missing screen states: (1) an **empty state** that explains what to do when the result list is blank (branching on whether the query is empty), (2) a **loading/indexing state** with an animated braille throbber so a cold start or large corpus shows that work is happening, and (3) fix the **pending enricher glyph** that currently renders a static `⟳` that reads as a spinner but never moves.
 
