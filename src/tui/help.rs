@@ -1,10 +1,10 @@
 //! Centered help overlay listing the keymap.
 
 use crate::tui::theme::Theme;
-use ratatui::layout::{Alignment, Rect};
+use ratatui::layout::Alignment;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
+use ratatui::widgets::{Block, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
 pub fn lines(theme: &Theme) -> Vec<Line<'static>> {
@@ -57,19 +57,13 @@ pub fn render(f: &mut Frame, theme: &Theme) {
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
         .max(4);
-    let rect = Rect {
-        x: area.x + (area.width.saturating_sub(w)) / 2,
-        y: area.y + (area.height.saturating_sub(h)) / 2,
-        width: w,
-        height: h,
-    };
+    let rect = crate::tui::view::center(area, w, h);
     f.buffer_mut().set_style(
         area,
         Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
     );
     f.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
+    let block = Block::bordered()
         .border_style(Style::default().fg(theme.accent))
         .title(" help ")
         .title_style(

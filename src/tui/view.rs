@@ -3,7 +3,7 @@ use crate::core::SessionSummary;
 use crate::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use crate::tui::theme::Theme;
 use crate::tui::{help, results_list, App};
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap};
@@ -64,14 +64,21 @@ pub(crate) fn spinner_glyph(frame: u64) -> &'static str {
 }
 
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(f.area());
+    let area = f.area();
+    if area.width < 30 || area.height < 6 {
+        let msg = Paragraph::new("terminal too small")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(model.theme.muted));
+        f.render_widget(msg, area);
+        return;
+    }
+
+    let [header_area, body_area, footer_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(0),
+        Constraint::Length(1),
+    ])
+    .areas(area);
 
     // search input
     let total = app.results().len();
@@ -93,27 +100,34 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             Style::default().fg(model.theme.muted),
         ));
     }
-    f.render_widget(Paragraph::new(header), chunks[0]);
+    f.render_widget(Paragraph::new(header), header_area);
     if !app.help_open() && !app.modal_open() {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
-        let x = chunks[0]
+        let x = header_area
             .x
             .saturating_add(crate::columns::display_width(" ❯ ") as u16)
             .saturating_add(crate::columns::display_width(query_prefix) as u16);
-        let x = x.min(chunks[0].right().saturating_sub(1));
-        f.set_cursor_position(Position::new(x, chunks[0].y));
+        let x = x.min(header_area.right().saturating_sub(1));
+        f.set_cursor_position(Position::new(x, header_area.y));
     }
 
-    // body: list (| preview)
-    let (list_area, preview_area) = if app.preview_visible() {
+    // body: list (| preview). The preview only appears when both requested AND
+    // there is room for it without starving the list grid. Below the width
+    // threshold the list takes the whole body. When shown, the list side is
+    // floored at Min(48) so its columns never collapse.
+    const PREVIEW_MIN_WIDTH: u16 = 100;
+    const LIST_MIN_WIDTH: u16 = 48;
+    let (list_area, preview_area) = if app.preview_visible() && body_area.width >= PREVIEW_MIN_WIDTH
+    {
         let pw = app.preview_width_pct();
-        let body = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(100 - pw), Constraint::Percentage(pw)])
-            .split(chunks[1]);
-        (body[0], Some(body[1]))
+        let [list, preview] = Layout::horizontal([
+            Constraint::Min(LIST_MIN_WIDTH),
+            Constraint::Percentage(pw),
+        ])
+        .areas(body_area);
+        (list, Some(preview))
     } else {
-        (chunks[1], None)
+        (body_area, None)
     };
 
     // results table (Table owns its header; no separate header pane)
@@ -190,17 +204,15 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         f.render_widget(preview_block, area);
 
         let selected = app.results().get(app.selected());
-        let (header_area, transcript_area) =
+        let (preview_header_area, transcript_area) =
             if app.preview_header_visible() && selected.is_some() && inner.height >= 3 {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Length(2), Constraint::Min(1)])
-                    .split(inner);
-                (Some(chunks[0]), chunks[1])
+                let [head, body] =
+                    Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(inner);
+                (Some(head), body)
             } else {
                 (None, inner)
             };
-        if let (Some(header_area), Some(session)) = (header_area, selected) {
+        if let (Some(preview_header_area), Some(session)) = (preview_header_area, selected) {
             f.render_widget(
                 Paragraph::new(preview_header_lines(
                     session,
@@ -209,7 +221,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                     &model.theme,
                 ))
                 .style(Style::default().fg(model.theme.preview_text)),
-                header_area,
+                preview_header_area,
             );
         }
         f.render_widget(
@@ -221,10 +233,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         );
     }
 
-    // footer
+    // footer: static hints on the left, volatile status on the right. The two
+    // halves share the footer row via SpaceBetween so right-aligned status
+    // (sync/pr/filters/warning) survives clipping ahead of the static hints.
+    let [hints_area, status_area] = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(footer_status_width(model.status, &model.theme)),
+    ])
+    .flex(Flex::SpaceBetween)
+    .areas(footer_area);
+    f.render_widget(Paragraph::new(footer_hints_line(&model.theme)), hints_area);
     f.render_widget(
-        Paragraph::new(footer_line(model.status, &model.theme)),
-        chunks[2],
+        Paragraph::new(footer_status_line(model.status, &model.theme)).alignment(Alignment::Right),
+        status_area,
     );
 
     if let Some((index, yolo)) = app.yolo_modal() {
@@ -240,7 +261,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
-fn footer_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
+/// Static, low-priority hints shown on the left of the footer. Dropped first
+/// when the terminal is too narrow for both halves.
+fn footer_hints_line(theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
     spans.push(Span::styled(
@@ -255,31 +278,61 @@ fn footer_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
             Style::default().fg(theme.muted),
         ));
     }
+    Line::from(spans)
+}
+
+/// Volatile, high-priority status shown on the right of the footer. Rendered
+/// right-aligned so it survives clipping ahead of the static hints.
+fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
+    let mut spans = Vec::new();
+    let push_sep = |spans: &mut Vec<Span<'static>>| {
+        if !spans.is_empty() {
+            spans.push(Span::styled(
+                " · ".to_string(),
+                Style::default().fg(theme.muted),
+            ));
+        }
+    };
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
+        push_sep(&mut spans);
         spans.push(Span::styled(
-            format!(" · {sync}"),
+            sync.to_string(),
             Style::default().fg(theme.muted),
         ));
     }
     if status.pr_pending > 0 {
+        push_sep(&mut spans);
         spans.push(Span::styled(
-            format!(" · pr {} pending", status.pr_pending),
+            format!("pr {} pending", status.pr_pending),
             Style::default().fg(theme.muted),
         ));
     }
     if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
+        push_sep(&mut spans);
         spans.push(Span::styled(
-            format!(" · filters {filters}"),
+            format!("filters {filters}"),
             Style::default().fg(theme.muted),
         ));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
+        push_sep(&mut spans);
         spans.push(Span::styled(
-            format!(" · {warning}"),
+            warning.to_string(),
             Style::default().fg(theme.warning),
         ));
     }
     Line::from(spans)
+}
+
+/// Display width of the rendered status line, used to size the right footer
+/// region so the status is never clipped.
+fn footer_status_width(status: &StatusLine, theme: &Theme) -> u16 {
+    let text: String = footer_status_line(status, theme)
+        .spans
+        .iter()
+        .map(|s| s.content.as_ref())
+        .collect();
+    crate::columns::display_width(&text).min(u16::MAX as usize) as u16
 }
 
 /// Message shown in the body area when there are no results.
@@ -289,6 +342,25 @@ fn empty_state_message(query_is_empty: bool) -> &'static str {
     } else {
         "No sessions match. Press Esc to clear the query."
     }
+}
+
+/// A `w` x `h` rect centered within `area` on both axes (clamped to `area`).
+pub fn center(area: Rect, w: u16, h: u16) -> Rect {
+    let [_, mid, _] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Length(w.min(area.width)),
+        Constraint::Fill(1),
+    ])
+    .flex(Flex::Center)
+    .areas(area);
+    let [_, rect, _] = Layout::vertical([
+        Constraint::Fill(1),
+        Constraint::Length(h.min(area.height)),
+        Constraint::Fill(1),
+    ])
+    .flex(Flex::Center)
+    .areas(mid);
+    rect
 }
 
 fn render_yolo_modal(
@@ -308,12 +380,7 @@ fn render_yolo_modal(
     let min_h = 6.min(max_h);
     let w = 72u16.min(max_w).max(min_w);
     let h = 10u16.min(max_h).max(min_h);
-    let rect = Rect {
-        x: area.x + (area.width.saturating_sub(w)) / 2,
-        y: area.y + (area.height.saturating_sub(h)) / 2,
-        width: w,
-        height: h,
-    };
+    let rect = center(area, w, h);
 
     let title = session
         .map(|s| fit_for_modal(&s.title, rect.width.saturating_sub(4) as usize))
@@ -367,9 +434,7 @@ fn render_yolo_modal(
     f.render_widget(
         Paragraph::new(body)
             .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(" confirm resume "),
+                Block::bordered().title(" confirm resume "),
             )
             .alignment(Alignment::Left),
         rect,
@@ -924,7 +989,7 @@ mod tests {
             "wrap-start one two three four five six seven eight nine ten wrap-end",
         )];
 
-        let backend = TestBackend::new(80, 8);
+        let backend = TestBackend::new(140, 8);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
             render(
@@ -1189,5 +1254,295 @@ mod tests {
             overlay_bg,
             "backdrop must set bg, not fg-only"
         );
+    }
+
+    #[test]
+    fn tiny_terminal_shows_too_small_message() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+
+        let backend = TestBackend::new(20, 4);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains("too small"),
+            "expected too-small notice, got: {text:?}"
+        );
+    }
+
+    #[test]
+    fn narrow_width_drops_preview() {
+        use crate::core::{Block, Message, Role};
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(true, 50); // preview requested ON
+        app.set_preview_header(false);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let transcript = vec![Message {
+            role: Role::User,
+            blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
+        }];
+        let lines = crate::tui::preview::render_transcript(
+            &transcript,
+            app.query(),
+            AgentId::Claude,
+            app.theme(),
+        );
+
+        let backend = TestBackend::new(40, 15);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &lines,
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // At 40 cols the preview is dropped entirely.
+        assert!(
+            !text.contains("PREVIEWBODYTOKEN"),
+            "preview should be hidden at narrow width, got: {text:?}"
+        );
+    }
+
+    #[test]
+    fn wide_width_keeps_preview_and_list_floor() {
+        use crate::core::{Block, Message, Role};
+        use crate::enrich::{BranchEnricher, Enricher, RepoEnricher};
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(true, 80); // even maxed preview pct must not starve the list
+        app.set_preview_header(false);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let transcript = vec![Message {
+            role: Role::User,
+            blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
+        }];
+        let lines = crate::tui::preview::render_transcript(
+            &transcript,
+            app.query(),
+            AgentId::Claude,
+            app.theme(),
+        );
+
+        let backend = TestBackend::new(140, 15);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &lines,
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // Preview is present at wide width...
+        assert!(
+            text.contains("PREVIEWBODYTOKEN"),
+            "preview should be shown at wide width, got: {text:?}"
+        );
+        // ...and the list still shows its columns (grid not starved). The branch
+        // column survives even though the floored 48-col list truncates its value.
+        assert!(text.contains("fix auth"), "list content missing: {text:?}");
+        assert!(text.contains("BRANCH"), "branch column missing: {text:?}");
+        assert!(text.contains("feat/a"), "list branch missing: {text:?}");
+    }
+
+    #[test]
+    fn footer_warning_survives_narrow_width() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let app = App::new();
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let status = StatusLine {
+            sync: None,
+            pr_pending: 0,
+            warning: Some("WARNTOKEN".to_string()),
+            filters: None,
+        };
+
+        // 50 cols is too narrow for the full static hint + warning on one line;
+        // the warning must still be present.
+        let backend = TestBackend::new(50, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &status,
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains("WARNTOKEN"),
+            "warning must survive narrow footer, got: {text:?}"
+        );
+    }
+
+    #[test]
+    fn min_height_keeps_header_body_footer() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(false, 50);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+
+        let backend = TestBackend::new(80, 6); // exactly the guard floor
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // Header query position marker, list row, and footer hint all present.
+        assert!(text.contains("/1"), "header count missing: {text:?}");
+        assert!(text.contains("fix auth"), "list row missing: {text:?}");
+        assert!(text.contains("type to search"), "footer missing: {text:?}");
+    }
+
+    #[test]
+    fn center_centers_on_both_axes() {
+        let area = Rect::new(0, 0, 100, 40);
+        let rect = center(area, 20, 10);
+        assert_eq!(rect.width, 20);
+        assert_eq!(rect.height, 10);
+        assert_eq!(rect.x, 40); // (100 - 20) / 2
+        assert_eq!(rect.y, 15); // (40 - 10) / 2
     }
 }
