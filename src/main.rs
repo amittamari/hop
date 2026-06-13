@@ -128,6 +128,7 @@ fn run_tui(
     let mut enrichment = EnrichmentState::default();
     let mut preview_state = preview::PreviewState::default();
     let mut sync_status = Some("syncing".to_string());
+    let mut sync_done = false;
 
     let outcome = (|| -> Result<Option<(SessionSummary, bool)>> {
         loop {
@@ -144,6 +145,7 @@ fn run_tui(
                 1
             };
             app.set_viewport_metrics(list_rows_height, preview_height);
+            app.tick();
 
             let terms = engine.parsed_query().free_terms();
             let selected_for_preview = app.results().get(app.selected()).cloned();
@@ -173,6 +175,11 @@ fn run_tui(
                     .get(index)
                     .and_then(|s| engine.resume_command_for(s, yolo))
                     .map(|command| command.argv)
+            });
+            app.set_indexing(if sync_done {
+                None
+            } else {
+                Some(app.results().len())
             });
             terminal.draw(|f| {
                 hop::tui::view::render(
@@ -211,6 +218,7 @@ fn run_tui(
                         }
                         Update::Done { report } => {
                             sync_status = Some(report.status_line());
+                            sync_done = true;
                         }
                     }
                 }
