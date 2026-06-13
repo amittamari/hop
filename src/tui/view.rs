@@ -1,7 +1,8 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::Enricher;
-use crate::tui::{help, results_list, theme, App};
+use crate::tui::theme::Theme;
+use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -43,6 +44,7 @@ pub struct RenderModel<'a> {
     pub preview_lines: &'a [Line<'static>],
     pub status: &'a StatusLine,
     pub modal_command: Option<&'a [String]>,
+    pub theme: Theme,
 }
 
 const SELECTION_MARKER: &str = "❯ ";
@@ -65,12 +67,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // The query input is always live, so the prompt and query stay bright and
     // the caret is shown whenever no overlay is covering the input.
     let header = Line::from(vec![
-        Span::styled(" ❯ ", Style::default().fg(theme::ACCENT)),
+        Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
         Span::styled(
             app.query().to_string(),
-            Style::default().fg(theme::SELECTED_FG),
+            Style::default().fg(model.theme.selection_fg),
         ),
-        Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
+        Span::raw(format!("   {}/{}", pos, total)).fg(model.theme.muted),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
     if !app.help_open() && !app.modal_open() {
@@ -113,7 +115,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    let mut header = results_list::header_line(&layout, cols);
+    let mut header = results_list::header_line(&layout, cols, &model.theme);
     header
         .spans
         .insert(0, Span::raw(" ".repeat(SELECTION_MARKER_WIDTH as usize)));
@@ -129,6 +131,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                 model.enrichers,
                 model.resolved,
                 model.now,
+                &model.theme,
             ))
         })
         .collect();
@@ -141,8 +144,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         .highlight_spacing(HighlightSpacing::Always)
         .highlight_style(
             Style::default()
-                .fg(theme::SELECTED_FG)
-                .bg(theme::SELECTED_BG)
+                .fg(model.theme.selection_fg)
+                .bg(model.theme.selection_bg)
                 .add_modifier(Modifier::BOLD),
         );
     f.render_stateful_widget(list, list_rows_area, &mut state);
@@ -151,7 +154,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     if let Some(area) = preview_area {
         let preview_block = Block::default()
             .borders(Borders::LEFT)
-            .border_style(Style::default().fg(theme::DIVIDER))
+            .border_style(Style::default().fg(model.theme.border))
             .padding(Padding::left(1));
         let preview_area = area;
         let area = preview_block.inner(area);
@@ -170,14 +173,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, model.now, model.resolved))
-                    .style(Style::default().fg(theme::PREVIEW_TEXT)),
+                Paragraph::new(preview_header_lines(
+                    session,
+                    model.now,
+                    model.resolved,
+                    &model.theme,
+                ))
+                .style(Style::default().fg(model.theme.preview_text)),
                 header_area,
             );
         }
         f.render_widget(
             Paragraph::new(model.preview_lines.to_vec())
-                .style(Style::default().fg(theme::PREVIEW_TEXT))
+                .style(Style::default().fg(model.theme.preview_text))
                 .wrap(Wrap { trim: false })
                 .scroll((app.preview_scroll(), 0)),
             transcript_area,
@@ -185,16 +193,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 
     // footer
-    f.render_widget(Paragraph::new(footer_line(model.status)), chunks[2]);
+    f.render_widget(
+        Paragraph::new(footer_line(model.status, &model.theme)),
+        chunks[2],
+    );
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        render_yolo_modal(f, session, yolo, model.modal_command);
+        render_yolo_modal(f, session, yolo, model.modal_command, &model.theme);
     }
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f);
+        help::render(f, &model.theme);
     }
 }
 
@@ -211,43 +222,43 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
-fn footer_line(status: &StatusLine) -> Line<'static> {
+fn footer_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
     spans.push(Span::styled(
         label.to_string(),
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
     ));
     if !rest.is_empty() {
         spans.push(Span::styled(
             format!(" · {rest}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {sync}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if status.pr_pending > 0 {
         spans.push(Span::styled(
             format!(" · pr {} pending", status.pr_pending),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · filters {filters}"),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         spans.push(Span::styled(
             format!(" · {warning}"),
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme.warning),
         ));
     }
     Line::from(spans)
@@ -258,6 +269,7 @@ fn render_yolo_modal(
     session: Option<&SessionSummary>,
     yolo: bool,
     modal_command: Option<&[String]>,
+    theme: &Theme,
 ) {
     let area = f.area();
     if area.width < 4 || area.height < 4 {
@@ -294,15 +306,15 @@ fn render_yolo_modal(
 
     let body = vec![
         Line::from(vec![
-            Span::styled("Session  ", Style::default().fg(theme::DIM)),
+            Span::styled("Session  ", Style::default().fg(theme.muted)),
             Span::raw(title),
         ]),
         Line::from(vec![
-            Span::styled("Directory ", Style::default().fg(theme::DIM)),
+            Span::styled("Directory ", Style::default().fg(theme.muted)),
             Span::raw(directory),
         ]),
         Line::from(vec![
-            Span::styled("Command   ", Style::default().fg(theme::DIM)),
+            Span::styled("Command   ", Style::default().fg(theme.muted)),
             Span::raw(command),
         ]),
         Line::from(""),
@@ -310,18 +322,20 @@ fn render_yolo_modal(
             danger,
             if yolo {
                 Style::default()
-                    .fg(theme::ACCENT)
+                    .fg(theme.warning)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme::DIM)
+                Style::default().fg(theme.muted)
             },
         )),
         Line::from(""),
         Line::from("Tab toggles yolo · Enter resumes · Esc cancels"),
     ];
 
-    f.buffer_mut()
-        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
+    f.buffer_mut().set_style(
+        area,
+        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
+    );
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
@@ -365,6 +379,7 @@ fn preview_header_lines(
     s: &SessionSummary,
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
+    theme: &Theme,
 ) -> Vec<Line<'static>> {
     let repo = repo_label(s);
     let branch = s.branch.as_deref().unwrap_or("—");
@@ -381,26 +396,26 @@ fn preview_header_lines(
         Span::styled(
             s.agent.badge(),
             Style::default()
-                .fg(theme::agent_color(s.agent))
+                .fg(theme.agent_color(s.agent))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(repo, Style::default().fg(theme::DIM)),
+        Span::styled(repo, Style::default().fg(theme.muted)),
         Span::raw("  "),
-        Span::styled(branch.to_string(), Style::default().fg(theme::DIM)),
+        Span::styled(branch.to_string(), Style::default().fg(theme.muted)),
         Span::raw("  "),
     ];
     if let Some(pr) = pr {
         first.push(Span::styled(
             pr.to_string(),
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme.accent),
         ));
         first.push(Span::raw("  "));
     }
     first.extend([
-        Span::styled(msgs, Style::default().fg(theme::DIM)),
+        Span::styled(msgs, Style::default().fg(theme.muted)),
         Span::raw("  "),
-        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme::DIM)),
+        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
     ]);
 
     vec![
@@ -409,7 +424,7 @@ fn preview_header_lines(
             Span::raw(s.title.clone()),
             Span::styled(
                 format!(" · {}", s.directory),
-                Style::default().fg(theme::DIM),
+                Style::default().fg(theme.muted),
             ),
         ]),
     ]
@@ -485,8 +500,12 @@ mod tests {
             blocks: vec![Block::Prose("fix auth".into())],
         }];
 
-        let lines =
-            crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude);
+        let lines = crate::tui::preview::render_transcript(
+            &transcript,
+            app.query(),
+            AgentId::Claude,
+            app.theme(),
+        );
 
         let cols = crate::columns::default_columns();
         let backend = TestBackend::new(100, 12);
@@ -503,6 +522,7 @@ mod tests {
                     preview_lines: &lines,
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -567,6 +587,7 @@ mod tests {
                     preview_lines: &[],
                     status: &status,
                     modal_command: Some(&command),
+                    theme: Theme::default(),
                 },
             )
         })
@@ -623,6 +644,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -630,9 +652,18 @@ mod tests {
 
         let buf = term.backend().buffer();
         assert_eq!(buf[(0, 2)].symbol(), SELECTION_MARKER.trim());
-        assert_eq!(buf[(0, 2)].bg, theme::SELECTED_BG);
-        assert_eq!(buf[(2, 2)].fg, theme::SELECTED_FG);
-        assert_eq!(buf[(2, 2)].bg, theme::SELECTED_BG);
+        assert_eq!(
+            buf[(0, 2)].bg,
+            crate::tui::theme::Theme::default().selection_bg
+        );
+        assert_eq!(
+            buf[(2, 2)].fg,
+            crate::tui::theme::Theme::default().selection_fg
+        );
+        assert_eq!(
+            buf[(2, 2)].bg,
+            crate::tui::theme::Theme::default().selection_bg
+        );
     }
 
     #[test]
@@ -659,6 +690,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -718,6 +750,7 @@ mod tests {
                     preview_lines: &preview_lines,
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -735,5 +768,119 @@ mod tests {
         assert_eq!(visible_result_range(100, 9, 10), 0..10);
         assert_eq!(visible_result_range(100, 10, 10), 1..11);
         assert_eq!(visible_result_range(100, 99, 10), 90..100);
+    }
+
+    #[test]
+    fn yolo_banner_uses_warning_color_not_accent() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+        app.open_yolo_modal_with(true);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(120, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+
+        let buf = term.backend().buffer().clone();
+        let warning = crate::tui::theme::Theme::default().warning;
+        let accent = crate::tui::theme::Theme::default().accent;
+        let (w, h) = (buf.area.width, buf.area.height);
+        let mut found = false;
+        for y in 0..h {
+            for x in 0..w {
+                let cell = &buf[(x, y)];
+                if cell.symbol() == "Y" {
+                    if cell.fg == warning {
+                        found = true;
+                    }
+                    assert_ne!(cell.fg, accent, "YOLO banner must not use accent");
+                }
+            }
+        }
+        assert!(found, "expected a 'Y' cell painted with the warning color");
+    }
+
+    #[test]
+    fn yolo_backdrop_dims_background() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+        app.open_yolo_modal_with(true);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(120, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+
+        let buf = term.backend().buffer().clone();
+        let overlay_bg = crate::tui::theme::Theme::default().overlay_bg;
+        assert_eq!(
+            buf[(0, 0)].bg,
+            overlay_bg,
+            "backdrop must set bg, not fg-only"
+        );
     }
 }

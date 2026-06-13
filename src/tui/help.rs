@@ -1,25 +1,25 @@
 //! Centered help overlay listing the keymap.
 
-use crate::tui::theme;
+use crate::tui::theme::Theme;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
-pub fn lines() -> Vec<Line<'static>> {
+pub fn lines(theme: &Theme) -> Vec<Line<'static>> {
     vec![
-        section("Navigation"),
+        section("Navigation", theme),
         Line::from("  ↑/↓        move selection"),
         Line::from("  PgUp/PgDn  page list"),
         Line::from("  Ctrl+U/D   scroll preview"),
         Line::from("  Ctrl+N/B   preview matches"),
         Line::from(""),
-        section("Preview"),
+        section("Preview", theme),
         Line::from("  Ctrl+P     toggle preview"),
         Line::from("  Ctrl+←/→   resize preview"),
         Line::from(""),
-        section("Search Editing"),
+        section("Search Editing", theme),
         Line::from("  ←/→        move cursor"),
         Line::from("  Home/End   jump cursor"),
         Line::from("  Backspace  delete left"),
@@ -27,7 +27,7 @@ pub fn lines() -> Vec<Line<'static>> {
         Line::from("  Ctrl+A/E   start / end"),
         Line::from("  Ctrl+W     delete word"),
         Line::from(""),
-        section("Actions"),
+        section("Actions", theme),
         Line::from("  Enter      resume"),
         Line::from("  Tab        autocomplete keyword"),
         Line::from("  ?          toggle help"),
@@ -36,23 +36,23 @@ pub fn lines() -> Vec<Line<'static>> {
     ]
 }
 
-fn section(label: &'static str) -> Line<'static> {
+fn section(label: &'static str, theme: &Theme) -> Line<'static> {
     Line::from(Span::styled(
         label,
         Style::default()
-            .fg(theme::ACCENT)
+            .fg(theme.accent)
             .add_modifier(Modifier::BOLD),
     ))
 }
 
 /// Render the overlay centered over the frame.
-pub fn render(f: &mut Frame) {
+pub fn render(f: &mut Frame, theme: &Theme) {
     let area = f.area();
     if area.width < 8 || area.height < 6 {
         return;
     }
 
-    let body = lines();
+    let body = lines(theme);
     let w = 58u16.min(area.width.saturating_sub(4)).max(8);
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
@@ -63,16 +63,18 @@ pub fn render(f: &mut Frame) {
         width: w,
         height: h,
     };
-    f.buffer_mut()
-        .set_style(area, Style::default().fg(theme::OVERLAY_DIM));
+    f.buffer_mut().set_style(
+        area,
+        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
+    );
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(theme::ACCENT))
+        .border_style(Style::default().fg(theme.accent))
         .title(" help ")
         .title_style(
             Style::default()
-                .fg(theme::ACCENT)
+                .fg(theme.accent)
                 .add_modifier(Modifier::BOLD),
         )
         .padding(Padding::symmetric(2, 1));
@@ -91,7 +93,7 @@ mod tests {
 
     #[test]
     fn help_lists_core_bindings() {
-        let text: String = lines()
+        let text: String = lines(&Theme::default())
             .iter()
             .map(|x| {
                 x.spans
