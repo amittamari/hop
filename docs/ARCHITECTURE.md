@@ -139,9 +139,10 @@ the terminal UI easier to test and keeps a path open for non-terminal frontends.
 
 These are current architectural seams worth tracking before expanding the app:
 
-- **P-001 Reserved Config Fields:** `theme` and arbitrary `[keybindings]` config
-  tables are parsed as reserved forward-compatible fields but are not applied
-  yet.
+- **P-001 Reserved Config Fields:** The `theme` config table is parsed as a
+  reserved forward-compatible field but is not applied yet. (`[keybindings]` is
+  now applied — `tui::keymap::Keymap::from_config` resolves Ctrl-chord overrides
+  at launch.)
 - **P-002 Directory Filter Post-Filtering:** Directory filters are substring
   filters and therefore still run after Tantivy retrieval, but search now
   paginates until enough filtered-in rows are found or the matching hit set is

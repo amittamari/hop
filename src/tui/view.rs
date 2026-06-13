@@ -240,7 +240,10 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     ])
     .flex(Flex::SpaceBetween)
     .areas(footer_area);
-    f.render_widget(Paragraph::new(footer_hints_line(&model.theme)), hints_area);
+    f.render_widget(
+        Paragraph::new(footer_hints_line(app.keymap(), &model.theme)),
+        hints_area,
+    );
     f.render_widget(
         Paragraph::new(footer_status_line(model.status, &model.theme)).alignment(Alignment::Right),
         status_area,
@@ -253,15 +256,15 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f, &model.theme);
+        help::render(f, app.keymap(), &model.theme);
     }
 }
 
 /// Static, low-priority hints shown on the left of the footer, built from the
 /// `primary` subset of the canonical bindings table. Dropped first (clipped by
 /// the SpaceBetween layout) when the terminal is too narrow for both halves.
-fn footer_hints_line(theme: &Theme) -> Line<'static> {
-    let primary: Vec<String> = crate::tui::keymap::bindings()
+fn footer_hints_line(keymap: &crate::tui::keymap::Keymap, theme: &Theme) -> Line<'static> {
+    let primary: Vec<String> = crate::tui::keymap::bindings(keymap)
         .iter()
         .filter(|b| b.primary)
         .map(|b| {

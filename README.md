@@ -92,6 +92,8 @@ its on-disk session format to `hop`'s `core` types.
 
 The query is always live — just start typing to filter. Navigation lives on the
 arrows and secondary actions on `Ctrl` chords, so no key ever does double duty.
+The `Ctrl` chords below are rebindable via `[keybindings]` in `config.toml` (see
+[Configuration](#️-configuration)).
 
 | Key | Action |
 | --- | --- |
@@ -170,9 +172,31 @@ metadata_header = true
 disabled = []   # e.g., ["pr"] to disable background GitHub PR resolution
 order = []      # e.g., ["agent", "title", "time"]. Unspecified columns follow naturally.
 
+[keybindings]
+# Rebind any Ctrl-chord action. Values must include `ctrl` (the chord-only
+# invariant keeps chords from colliding with query editing). Unset commands keep
+# their default. Invalid values, unknown command names, and conflicts are logged
+# to stderr at launch and fall back to the default rather than failing.
+toggle_preview        = "ctrl+p"   # default
+scroll_preview_up     = "ctrl+u"
+scroll_preview_down   = "ctrl+d"
+jump_match_prev       = "ctrl+b"
+jump_match_next       = "ctrl+n"
+resize_preview_smaller = "ctrl+left"
+resize_preview_larger  = "ctrl+right"
+quit                  = "ctrl+c"
+
 ```
 
-> ⚙️ **Note:** `theme` and `[keybindings]` tables are accepted for forward-compatibility but are currently reserved and not applied. Preview width and visibility choices persist automatically across restarts.
+Binding values accept letters (`ctrl+t`), digits, and named keys
+(`ctrl+left`, `ctrl+right`, `ctrl+up`, `ctrl+down`, `ctrl+home`, `ctrl+end`,
+`ctrl+pageup`, `ctrl+pagedown`, `ctrl+space`). `Ctrl + C` always quits regardless
+of the `quit` binding, as an emergency exit. The help overlay (`?`) reflects your
+active bindings.
+
+> ⚙️ **Note:** The `theme` table is accepted for forward-compatibility but is
+> currently reserved and not applied. Preview width and visibility choices persist
+> automatically across restarts.
 
 ---
 

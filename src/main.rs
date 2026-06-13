@@ -112,8 +112,16 @@ fn run_tui(
     init_preview: (bool, u16),
     ui_path: std::path::PathBuf,
 ) -> Result<Option<(SessionSummary, bool)>> {
+    // Resolve keybindings before entering the alternate screen so any config
+    // warnings land on the normal terminal rather than being clobbered.
+    let (keymap, keymap_warnings) = hop::tui::keymap::Keymap::from_config(&config.keybindings);
+    for warning in &keymap_warnings {
+        eprintln!("hop: {warning}");
+    }
+
     let mut terminal = ratatui::init();
     let mut app = App::new();
+    app.set_keymap(keymap);
     app.set_query(engine.query().to_string());
     app.set_preview(init_preview.0, init_preview.1);
     app.set_preview_header(config.preview.metadata_header);

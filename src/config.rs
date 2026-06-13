@@ -44,9 +44,11 @@ pub struct ColumnsConfig {
 pub struct Config {
     #[serde(default)]
     pub data_dirs: HashMap<String, PathBuf>,
-    // theme/keybindings reserved for later tasks; parsed leniently.
+    // theme reserved for later tasks; parsed leniently.
     #[serde(default)]
     pub theme: HashMap<String, String>,
+    /// Ctrl-chord overrides, keyed by command name (e.g. `toggle_preview`).
+    /// Resolved by `tui::keymap::Keymap::from_config`.
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
@@ -176,6 +178,24 @@ mod tests {
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
         assert!(cfg.columns.disabled.contains(&"pr".to_string()));
+    }
+
+    #[test]
+    fn keybindings_from_toml() {
+        let toml = r#"
+            [keybindings]
+            toggle_preview = "ctrl+t"
+            quit = "ctrl+q"
+        "#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        assert_eq!(
+            cfg.keybindings.get("toggle_preview").map(String::as_str),
+            Some("ctrl+t")
+        );
+        assert_eq!(
+            cfg.keybindings.get("quit").map(String::as_str),
+            Some("ctrl+q")
+        );
     }
 
     #[test]
