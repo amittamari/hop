@@ -47,6 +47,22 @@ pub struct RenderModel<'a> {
 
 const SELECTION_MARKER: &str = "❯ ";
 
+/// Braille throbber frames, indexed by the per-redraw frame counter. Hand-rolled
+/// to avoid a spinner crate; advances one frame per redraw (the run loop polls
+/// every 50ms, so it animates smoothly).
+pub(crate) const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+/// The current throbber glyph for a given frame counter.
+fn spinner_frame(frame: u64) -> &'static str {
+    SPINNER_FRAMES[(frame as usize) % SPINNER_FRAMES.len()]
+}
+
+/// Public throbber glyph for callers outside this module (e.g. the pending
+/// enricher cell), reusing the same frame table.
+pub(crate) fn spinner_glyph(frame: u64) -> &'static str {
+    spinner_frame(frame)
+}
+
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -63,7 +79,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // The query input is always live, so the prompt and query stay bright and
     // the caret is shown whenever no overlay is covering the input.
-    let header = Line::from(vec![
+    let mut header = Line::from(vec![
         Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
         Span::styled(
             app.query().to_string(),
@@ -71,6 +87,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         ),
         Span::raw(format!("   {}/{}", pos, total)).fg(model.theme.muted),
     ]);
+    if let Some(count) = app.indexing() {
+        header.spans.push(Span::styled(
+            format!("   {} indexing {count}…", spinner_frame(app.frame())),
+            Style::default().fg(model.theme.muted),
+        ));
+    }
     f.render_widget(Paragraph::new(header), chunks[0]);
     if !app.help_open() && !app.modal_open() {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
@@ -105,41 +127,58 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     );
     let visible_start = visible.start;
     let visible_results = app.results().get(visible).unwrap_or(&[]);
-    let layout = results_list::layout_for_rows(
-        cols,
-        list_inner_w,
-        visible_results,
-        model.enrichers,
-        model.resolved,
-        model.now,
-    );
-    let ctx = results_list::RowCtx {
-        enrichers: model.enrichers,
-        resolved: model.resolved,
-        now: model.now,
-        terms: model.query_terms,
-        theme: &model.theme,
-    };
-    let rows: Vec<Row> = visible_results
-        .iter()
-        .map(|s| results_list::session_row(s, &layout, cols, &ctx))
-        .collect();
-    let mut state = TableState::default();
-    if !visible_results.is_empty() {
+    if visible_results.is_empty() {
+        let msg = empty_state_message(app.query().is_empty());
+        let para = Paragraph::new(msg)
+            .style(Style::default().fg(model.theme.muted))
+            .alignment(Alignment::Center);
+        // Vertically center the single line within the list area.
+        let y = list_area.y.saturating_add(list_area.height / 2);
+        let centered = Rect {
+            x: list_area.x,
+            y,
+            width: list_area.width,
+            height: 1.min(list_area.height),
+        };
+        f.render_widget(para, centered);
+    } else {
+        let layout = results_list::layout_for_rows(
+            cols,
+            list_inner_w,
+            visible_results,
+            model.enrichers,
+            model.resolved,
+            model.now,
+            app.frame(),
+        );
+        let ctx = results_list::RowCtx {
+            enrichers: model.enrichers,
+            resolved: model.resolved,
+            now: model.now,
+            frame: app.frame(),
+            terms: model.query_terms,
+            theme: &model.theme,
+        };
+        let rows: Vec<Row> = visible_results
+            .iter()
+            .map(|s| results_list::session_row(s, &layout, cols, &ctx))
+            .collect();
+        let mut state = TableState::default();
         state.select(Some(app.selected().saturating_sub(visible_start)));
+        let col_widths: Vec<Constraint> =
+            layout.iter().map(|&(_, w)| Constraint::Length(w)).collect();
+        let table = Table::new(rows, col_widths)
+            .header(results_list::header_row(&layout, cols, &model.theme))
+            .column_spacing(1)
+            .row_highlight_style(
+                Style::default()
+                    .fg(model.theme.selection_fg)
+                    .bg(model.theme.selection_bg)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol(SELECTION_MARKER);
+        f.render_stateful_widget(table, list_area, &mut state);
     }
-    let col_widths: Vec<Constraint> = layout.iter().map(|&(_, w)| Constraint::Length(w)).collect();
-    let table = Table::new(rows, col_widths)
-        .header(results_list::header_row(&layout, cols, &model.theme))
-        .column_spacing(1)
-        .row_highlight_style(
-            Style::default()
-                .fg(model.theme.selection_fg)
-                .bg(model.theme.selection_bg)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(SELECTION_MARKER);
-    f.render_stateful_widget(table, list_area, &mut state);
 
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
@@ -241,6 +280,15 @@ fn footer_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
         ));
     }
     Line::from(spans)
+}
+
+/// Message shown in the body area when there are no results.
+fn empty_state_message(query_is_empty: bool) -> &'static str {
+    if query_is_empty {
+        "Type to search your Claude Code / Codex sessions."
+    } else {
+        "No sessions match. Press Esc to clear the query."
+    }
 }
 
 fn render_yolo_modal(
@@ -435,6 +483,166 @@ mod tests {
     use crate::tui::App;
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+
+    #[test]
+    fn empty_results_empty_query_shows_prompt() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let app = App::new(); // empty results, empty query
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("Type to search"));
+    }
+
+    #[test]
+    fn empty_results_with_query_shows_no_match() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_query("nope".to_string()); // results stay empty
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("No sessions match"));
+        assert!(!text.contains("Type to search"));
+    }
+
+    #[test]
+    fn non_empty_results_render_rows_not_empty_message() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("fix auth"));
+        assert!(!text.contains("Type to search"));
+        assert!(!text.contains("No sessions match"));
+    }
+
+    #[test]
+    fn indexing_state_shows_spinner_and_label() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_indexing(Some(7));
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // The braille frame at frame=0 is the first table entry.
+        assert!(text.contains(SPINNER_FRAMES[0]));
+        assert!(text.contains("indexing 7"));
+    }
 
     #[test]
     fn rel_time_units() {

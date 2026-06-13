@@ -11,12 +11,14 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Row};
 use std::collections::HashMap;
 
+#[allow(clippy::too_many_arguments)]
 fn cell(
     s: &SessionSummary,
     col: &Column,
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
+    frame: u64,
     theme: &Theme,
 ) -> (String, Style) {
     match col.id {
@@ -34,7 +36,7 @@ fn cell(
             Style::default().fg(theme.muted),
         ),
         "time" => (rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
-        other => enrichment_cell(other, s, enrichers, resolved, theme),
+        other => enrichment_cell(other, s, enrichers, resolved, frame, theme),
     }
 }
 
@@ -43,6 +45,7 @@ fn enrichment_cell(
     s: &SessionSummary,
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
+    frame: u64,
     theme: &Theme,
 ) -> (String, Style) {
     let Some(enr) = enrichers.iter().find(|e| e.id() == id) else {
@@ -56,7 +59,10 @@ fn enrichment_cell(
         EnrichKind::Slow => match resolved.get(&(s.document_key(), enr.id())) {
             Some(Some(text)) => (text.clone(), Style::default().fg(theme.accent)),
             Some(None) => ("—".into(), Style::default().fg(theme.muted)),
-            None => ("⟳".into(), Style::default().fg(theme.muted)),
+            None => (
+                crate::tui::view::spinner_glyph(frame).to_string(),
+                Style::default().fg(theme.muted),
+            ),
         },
     }
 }
@@ -69,8 +75,9 @@ pub fn layout_for_rows(
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
+    frame: u64,
 ) -> Vec<(usize, u16)> {
-    let desired = desired_widths(columns, rows, enrichers, resolved, now);
+    let desired = desired_widths(columns, rows, enrichers, resolved, now, frame);
     solve_layout_with_desired(columns, width, &desired)
 }
 
@@ -80,6 +87,7 @@ fn desired_widths(
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
+    frame: u64,
 ) -> Vec<u16> {
     let mut widths: Vec<u16> = columns
         .iter()
@@ -94,7 +102,7 @@ fn desired_widths(
             if col.flex {
                 continue;
             }
-            let (text, _) = cell(row, col, enrichers, resolved, now, &theme);
+            let (text, _) = cell(row, col, enrichers, resolved, now, frame, &theme);
             widths[i] = widths[i].max(display_width(&text) as u16);
         }
     }
@@ -106,6 +114,7 @@ pub struct RowCtx<'a> {
     pub enrichers: &'a [Box<dyn Enricher>],
     pub resolved: &'a HashMap<(String, &'static str), Option<String>>,
     pub now: i64,
+    pub frame: u64,
     pub terms: &'a [String],
     pub theme: &'a Theme,
 }
@@ -130,6 +139,7 @@ pub fn session_row(
                     ctx.enrichers,
                     ctx.resolved,
                     ctx.now,
+                    ctx.frame,
                     ctx.theme,
                 );
                 Cell::from(Span::styled(fit(&text, width, col.align), style))
@@ -195,11 +205,13 @@ mod tests {
             &enr,
             &resolved,
             3600,
+            0,
         );
         let ctx = RowCtx {
             enrichers: &enr,
             resolved: &resolved,
             now: 3600,
+            frame: 0,
             terms: &[],
             theme: &Theme::default(),
         };
@@ -210,6 +222,7 @@ mod tests {
             &enr,
             &resolved,
             3600,
+            0,
             &Theme::default(),
         );
         assert_eq!(agent_text, "CLAUDE");
@@ -231,7 +244,7 @@ mod tests {
         row.branch = Some("workflow/ghostty-terminal".into());
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let resolved = HashMap::new();
-        let layout = layout_for_rows(&cols, 120, &[row], &enr, &resolved, 0);
+        let layout = layout_for_rows(&cols, 120, &[row], &enr, &resolved, 0, 0);
         let width = |id| {
             layout
                 .iter()
@@ -246,13 +259,16 @@ mod tests {
     }
 
     #[test]
-    fn pending_pr_cell_shows_glyph() {
+    fn pending_pr_cell_shows_animated_spinner_glyph() {
         let cols = default_columns();
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
         let resolved = HashMap::new();
         let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
-        let (text, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, &Theme::default());
-        assert_eq!(text, "⟳");
+        // frame=0 -> first braille frame; frame=3 -> fourth.
+        let (t0, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 0, &Theme::default());
+        assert_eq!(t0, crate::tui::view::SPINNER_FRAMES[0]);
+        let (t3, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 3, &Theme::default());
+        assert_eq!(t3, crate::tui::view::SPINNER_FRAMES[3]);
     }
 
     #[test]
@@ -266,7 +282,7 @@ mod tests {
         let mut resolved = HashMap::new();
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
         let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
-        let (text, style) = super::cell(&sess(), pr_col, &enr, &resolved, 0, &Theme::default());
+        let (text, style) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 0, &Theme::default());
         assert_eq!(text, "#42");
         assert_eq!(style.fg, Some(Theme::default().accent));
     }
