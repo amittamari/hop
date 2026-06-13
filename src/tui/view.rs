@@ -752,7 +752,10 @@ mod tests {
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(text.contains("arch fix auth"), "archived marker prefixes title");
+        assert!(
+            text.contains("arch fix auth"),
+            "archived marker prefixes title"
+        );
         // The title cell on the archived row must carry the DIM modifier.
         let dimmed = buf
             .content()

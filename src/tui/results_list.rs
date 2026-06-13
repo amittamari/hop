@@ -358,5 +358,4 @@ mod tests {
             Some(super::ARCHIVED_MARKER)
         );
     }
-
 }

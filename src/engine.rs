@@ -451,7 +451,10 @@ mod tests {
             Some(vec!["unarchive".to_string(), "gone".to_string()]),
             "archived sessions unarchive before resuming"
         );
-        assert_eq!(archived_cmd.argv, vec!["echo".to_string(), "gone".to_string()]);
+        assert_eq!(
+            archived_cmd.argv,
+            vec!["echo".to_string(), "gone".to_string()]
+        );
     }
 
     #[test]
