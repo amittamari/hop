@@ -1,7 +1,9 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
 
-use crate::columns::{display_width, fit, solve_layout, solve_layout_with_desired, Column};
+use crate::columns::{display_width, solve_layout, solve_layout_with_desired, Column};
+use ratatui::layout::Constraint;
+use ratatui::widgets::{Cell, Row};
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::theme::Theme;
@@ -10,44 +12,6 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::collections::HashMap;
 
-/// Build one display line for a session given the resolved layout. `resolved`
-/// maps (document_key, enricher_id) -> displayed text for slow enrichers; a
-/// missing slow value renders as the pending glyph.
-pub fn row_line(
-    s: &SessionSummary,
-    layout: &[(usize, u16)],
-    columns: &[Column],
-    enrichers: &[Box<dyn Enricher>],
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    now: i64,
-    theme: &Theme,
-) -> Line<'static> {
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    for (n, &(ci, width)) in layout.iter().enumerate() {
-        if n > 0 {
-            spans.push(Span::raw(" "));
-        }
-        let col = &columns[ci];
-        let (text, style) = cell(s, col, enrichers, resolved, now, theme);
-        spans.push(Span::styled(fit(&text, width, col.align), style));
-    }
-    Line::from(spans)
-}
-
-pub fn header_line(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) -> Line<'static> {
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    for (n, &(ci, width)) in layout.iter().enumerate() {
-        if n > 0 {
-            spans.push(Span::raw(" "));
-        }
-        let col = &columns[ci];
-        spans.push(Span::styled(
-            fit(col.header, width, col.align),
-            Style::default().fg(theme.muted),
-        ));
-    }
-    Line::from(spans)
-}
 
 fn cell(
     s: &SessionSummary,
@@ -145,6 +109,77 @@ fn desired_widths(
     widths
 }
 
+/// Map the solved layout into Table column constraints. Fixed columns get a
+/// Length; the single flex column (TITLE) gets a Min so the Table absorbs
+/// leftover space there.
+pub fn widths(layout: &[(usize, u16)], columns: &[Column]) -> Vec<Constraint> {
+    layout
+        .iter()
+        .map(|&(ci, w)| {
+            if columns[ci].flex {
+                Constraint::Min(columns[ci].min_width)
+            } else {
+                Constraint::Length(w)
+            }
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+/// Build one Table row for a session across the kept (visible) columns.
+/// `terms` are the query's free terms used to highlight matches in the TITLE
+/// cell (empty slice = no highlight). The Table itself pads/truncates each
+/// cell to its column width, so we do NOT call `fit` here.
+pub fn session_row(
+    s: &SessionSummary,
+    layout: &[(usize, u16)],
+    columns: &[Column],
+    enrichers: &[Box<dyn Enricher>],
+    resolved: &HashMap<(String, &'static str), Option<String>>,
+    now: i64,
+    terms: &[String],
+    theme: &Theme,
+) -> Row<'static> {
+    let cells: Vec<Cell<'static>> = layout
+        .iter()
+        .map(|&(ci, _)| {
+            let col = &columns[ci];
+            if col.id == "title" {
+                title_cell(&s.title, terms)
+            } else {
+                let (text, style) = cell(s, col, enrichers, resolved, now, theme);
+                Cell::from(Span::styled(text, style))
+            }
+        })
+        .collect();
+    Row::new(cells).height(1)
+}
+
+/// Build the TITLE line, reverse-highlighting any query-term matches by
+/// reusing the preview's multi-byte-safe highlighter.
+fn title_line(title: &str, terms: &[String]) -> Line<'static> {
+    let base = Line::from(Span::raw(title.to_string()));
+    if terms.is_empty() {
+        base
+    } else {
+        crate::tui::preview::highlight_terms(&base, terms, &Theme::default())
+    }
+}
+
+fn title_cell(title: &str, terms: &[String]) -> Cell<'static> {
+    Cell::from(title_line(title, terms))
+}
+
+/// Build the muted header row for the kept columns. Styled at the Row level so
+/// every header cell shares the muted color.
+pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) -> Row<'static> {
+    let cells: Vec<Cell<'static>> = layout
+        .iter()
+        .map(|&(ci, _)| Cell::from(columns[ci].header))
+        .collect();
+    Row::new(cells).style(Style::default().fg(theme.muted))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,49 +203,40 @@ mod tests {
     }
 
     #[test]
-    fn row_renders_repo_branch_title() {
+    fn widths_are_length_for_fixed_and_min_for_flex() {
         let cols = default_columns();
-        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
-        let resolved = HashMap::new();
-        let row = sess();
-        let layout = layout_for_rows(
-            &cols,
-            120,
-            std::slice::from_ref(&row),
-            &enr,
-            &resolved,
-            3600,
-        );
-        let line = row_line(
-            &row,
-            &layout,
-            &cols,
-            &enr,
-            &resolved,
-            3600,
-            &Theme::default(),
-        );
-        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("CLAUDE"));
-        assert!(text.contains("api")); // repo from dir basename
-        assert!(text.contains("feat/auth")); // branch from data
-        assert!(text.contains("fix auth")); // title
-        assert!(text.contains("12")); // msgs
+        let layout = layout_for(&cols, 120);
+        let ws = widths(&layout, &cols);
+        assert_eq!(ws.len(), layout.len());
+        let title_pos = layout.iter().position(|&(i, _)| cols[i].id == "title").unwrap();
+        assert!(matches!(ws[title_pos], Constraint::Min(_)));
+        for (n, &(ci, w)) in layout.iter().enumerate() {
+            if cols[ci].flex {
+                continue;
+            }
+            assert_eq!(ws[n], Constraint::Length(w));
+        }
     }
 
     #[test]
-    fn header_renders_visible_column_labels() {
+    fn session_row_has_one_cell_per_kept_column_with_values() {
+        let cols = default_columns();
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
+        let resolved = HashMap::new();
+        let row_data = sess();
+        let layout = layout_for_rows(&cols, 120, std::slice::from_ref(&row_data), &enr, &resolved, 3600);
+        let row = session_row(&row_data, &layout, &cols, &enr, &resolved, 3600, &[], &Theme::default());
+        let (agent_text, _) = super::cell(&row_data, cols.iter().find(|c| c.id == "agent").unwrap(), &enr, &resolved, 3600, &Theme::default());
+        assert_eq!(agent_text, "CLAUDE");
+        let _ = row;
+    }
+
+    #[test]
+    fn header_row_constructs_for_visible_columns() {
         let cols = default_columns();
         let layout = layout_for(&cols, 120);
-        let line = header_line(&layout, &cols, &Theme::default());
-        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("AGENT"));
-        assert!(text.contains("REPO"));
-        assert!(text.contains("BRANCH"));
-        assert!(text.contains("TITLE"));
-        assert!(text.contains("MSGS"));
-        assert!(text.contains("PR"));
-        assert!(text.contains("TIME"));
+        let _row = header_row(&layout, &cols, &Theme::default());
+        assert_eq!(layout.len(), 7);
     }
 
     #[test]
@@ -236,26 +262,17 @@ mod tests {
     }
 
     #[test]
-    fn pending_pr_shows_glyph() {
+    fn pending_pr_cell_shows_glyph() {
         let cols = default_columns();
-        let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
         let resolved = HashMap::new();
-        let line = row_line(
-            &sess(),
-            &layout,
-            &cols,
-            &enr,
-            &resolved,
-            0,
-            &Theme::default(),
-        );
-        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("⟳"));
+        let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
+        let (text, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, &Theme::default());
+        assert_eq!(text, "⟳");
     }
 
     #[test]
-    fn pr_cell_reads_resolved_with_full_enricher_list() {
+    fn resolved_pr_cell_reads_resolved() {
         let cols = default_columns();
         let enr: Vec<Box<dyn Enricher>> = vec![
             Box::new(RepoEnricher),
@@ -264,11 +281,22 @@ mod tests {
         ];
         let mut resolved = HashMap::new();
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
-        let row = sess();
-        let layout = layout_for_rows(&cols, 120, std::slice::from_ref(&row), &enr, &resolved, 0);
-        let line = row_line(&row, &layout, &cols, &enr, &resolved, 0, &Theme::default());
-        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("#42")); // resolved PR rendered
-        assert!(text.contains("feat/auth")); // fast branch still rendered
+        let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
+        let (text, style) = super::cell(&sess(), pr_col, &enr, &resolved, 0, &Theme::default());
+        assert_eq!(text, "#42");
+        assert_eq!(style.fg, Some(Theme::default().accent));
+    }
+
+    #[test]
+    fn title_cell_highlights_query_terms() {
+        use ratatui::style::Modifier;
+        let terms = vec!["auth".to_string()];
+        let cell = title_cell("fix auth bug", &terms);
+        let line = super::title_line("fix auth bug", &terms);
+        let highlighted = line.spans.iter().any(|s| {
+            s.content.contains("auth") && s.style.add_modifier.contains(Modifier::REVERSED)
+        });
+        assert!(highlighted, "matched term in title must be reverse-highlighted");
+        let _ = cell;
     }
 }

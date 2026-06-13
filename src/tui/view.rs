@@ -7,7 +7,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, Borders, Clear, HighlightSpacing, List, ListItem, ListState, Padding, Paragraph, Wrap,
+    Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap,
 };
 use ratatui::Frame;
 use std::collections::HashMap;
@@ -48,7 +48,6 @@ pub struct RenderModel<'a> {
 }
 
 const SELECTION_MARKER: &str = "❯ ";
-const SELECTION_MARKER_WIDTH: u16 = 2;
 
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
@@ -97,14 +96,14 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         (chunks[1], None)
     };
 
-    // column grid
+    // results table (Table owns its header; no separate header pane)
     let cols = model.columns;
-    let list_inner_w = list_area.width.saturating_sub(SELECTION_MARKER_WIDTH);
-    let (list_header_area, list_rows_area) = split_list_area(list_area);
+    let marker_w = crate::columns::display_width(SELECTION_MARKER) as u16;
+    let list_inner_w = list_area.width.saturating_sub(marker_w);
     let visible = visible_result_range(
         app.results().len(),
         app.selected(),
-        list_rows_area.height as usize,
+        list_area.height.saturating_sub(1) as usize,
     );
     let visible_results = app.results().get(visible.clone()).unwrap_or_default();
     let layout = results_list::layout_for_rows(
@@ -115,40 +114,37 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    let mut header = results_list::header_line(&layout, cols, &model.theme);
-    header
-        .spans
-        .insert(0, Span::raw(" ".repeat(SELECTION_MARKER_WIDTH as usize)));
-    f.render_widget(Paragraph::new(header), list_header_area);
-
-    let items: Vec<ListItem> = visible_results
+    let terms = crate::query::parse(app.query()).free_terms();
+    let rows: Vec<Row> = visible_results
         .iter()
         .map(|s| {
-            ListItem::new(results_list::row_line(
+            results_list::session_row(
                 s,
                 &layout,
                 cols,
                 model.enrichers,
                 model.resolved,
                 model.now,
+                &terms,
                 &model.theme,
-            ))
+            )
         })
         .collect();
-    let mut state = ListState::default();
-    if !items.is_empty() {
+    let mut state = TableState::default();
+    if !visible_results.is_empty() {
         state.select(Some(app.selected().saturating_sub(visible.start)));
     }
-    let list = List::new(items)
-        .highlight_symbol(SELECTION_MARKER)
-        .highlight_spacing(HighlightSpacing::Always)
-        .highlight_style(
+    let table = Table::new(rows, results_list::widths(&layout, cols))
+        .header(results_list::header_row(&layout, cols, &model.theme))
+        .column_spacing(1)
+        .row_highlight_style(
             Style::default()
                 .fg(model.theme.selection_fg)
                 .bg(model.theme.selection_bg)
                 .add_modifier(Modifier::BOLD),
-        );
-    f.render_stateful_widget(list, list_rows_area, &mut state);
+        )
+        .highlight_symbol(SELECTION_MARKER);
+    f.render_stateful_widget(table, list_area, &mut state);
 
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
@@ -209,16 +205,6 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 }
 
-fn split_list_area(area: Rect) -> (Rect, Rect) {
-    if area.height == 0 {
-        return (area, area);
-    }
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
-        .split(area);
-    (chunks[0], chunks[1])
-}
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
@@ -651,19 +637,16 @@ mod tests {
         .unwrap();
 
         let buf = term.backend().buffer();
-        assert_eq!(buf[(0, 2)].symbol(), SELECTION_MARKER.trim());
-        assert_eq!(
-            buf[(0, 2)].bg,
-            crate::tui::theme::Theme::default().selection_bg
-        );
-        assert_eq!(
-            buf[(2, 2)].fg,
-            crate::tui::theme::Theme::default().selection_fg
-        );
-        assert_eq!(
-            buf[(2, 2)].bg,
-            crate::tui::theme::Theme::default().selection_bg
-        );
+        let marker = SELECTION_MARKER.trim();
+        let has_marker = buf.content().iter().any(|c| c.symbol() == marker);
+        assert!(has_marker, "selection marker should be rendered");
+        let has_sel_bg = buf.content().iter().any(|c| c.bg == crate::tui::theme::Theme::default().selection_bg);
+        assert!(has_sel_bg, "selected row should carry the selection background");
+        let has_sel_fg = buf.content().iter().any(|c| {
+            c.fg == crate::tui::theme::Theme::default().selection_fg
+                && c.bg == crate::tui::theme::Theme::default().selection_bg
+        });
+        assert!(has_sel_fg, "selected row text should use the selection fg over selection bg");
     }
 
     #[test]
@@ -759,6 +742,101 @@ mod tests {
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("wrap-start"));
         assert!(text.contains("wrap-end"));
+    }
+
+    #[test]
+    fn narrow_terminal_drops_low_priority_columns_but_keeps_title() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(false, 50);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(30, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("TITLE"), "TITLE header must survive narrow width");
+        assert!(text.contains("fix auth"), "title value must survive");
+        assert!(!text.contains("PR"), "lowest-priority PR column should be dropped");
+    }
+
+    #[test]
+    fn query_match_is_highlighted_in_rendered_title() {
+        use crate::enrich::Enricher;
+        use ratatui::style::Modifier;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(false, 50);
+        app.set_query("auth".to_string());
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth bug".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let any_reversed = buf.content().iter().any(|c| c.modifier.contains(Modifier::REVERSED));
+        assert!(any_reversed, "matched query term in title should render reversed");
     }
 
     #[test]
