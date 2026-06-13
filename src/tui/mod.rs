@@ -50,6 +50,7 @@ pub struct App {
     preview_scroll_step: u16,
     preview_matches: Vec<u16>,
     preview_match_index: usize,
+    theme: crate::tui::theme::Theme,
 }
 
 impl App {
@@ -70,6 +71,7 @@ impl App {
             preview_scroll_step: 8,
             preview_matches: Vec::new(),
             preview_match_index: 0,
+            theme: crate::tui::theme::Theme::default(),
         }
     }
 
@@ -153,6 +155,9 @@ impl App {
     }
     pub fn help_open(&self) -> bool {
         self.help_open
+    }
+    pub fn theme(&self) -> &crate::tui::theme::Theme {
+        &self.theme
     }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
@@ -695,5 +700,15 @@ mod tests {
         let mut app = app_with(0);
         assert_eq!(app.handle_key(key(KeyCode::Char('`'))), Action::Search);
         assert_eq!(app.query(), "`");
+    }
+}
+
+#[cfg(test)]
+mod theme_accessor_tests {
+    use super::*;
+    #[test]
+    fn app_exposes_default_theme() {
+        let app = App::new();
+        assert_eq!(*app.theme(), crate::tui::theme::Theme::default());
     }
 }
