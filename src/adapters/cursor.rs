@@ -128,6 +128,18 @@ fn clean_user_text(text: &str) -> &str {
     text.trim()
 }
 
+/// Cursor transcripts redact extended thinking as `[REDACTED]` in text blocks.
+fn strip_redacted(text: &str) -> String {
+    let trimmed = text.trim();
+    if trimmed == "[REDACTED]" {
+        return String::new();
+    }
+    if let Some(prefix) = trimmed.strip_suffix("[REDACTED]") {
+        return prefix.trim_end().to_string();
+    }
+    trimmed.to_string()
+}
+
 impl CursorAdapter {
     fn extract(&self, path: &Path) -> Result<Extracted> {
         let raw =
@@ -166,7 +178,7 @@ impl CursorAdapter {
             let cleaned = if role == Role::User {
                 clean_user_text(&joined).to_string()
             } else {
-                joined.trim().to_string()
+                strip_redacted(&joined)
             };
 
             if cleaned.is_empty() {

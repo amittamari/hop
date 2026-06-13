@@ -189,7 +189,28 @@ fn resume_command_non_yolo_and_yolo() {
     assert_eq!(yolo_cmd, vec!["cursor-agent", "--force", "--resume", UUID]);
 }
 
-// ── Test 6: AgentId round-trip ────────────────────────────────────────────────
+// ── Test 6: strip [REDACTED] thinking placeholders ───────────────────────────
+
+#[test]
+fn strips_redacted_thinking_placeholders() {
+    let tmp = tempfile::tempdir().unwrap();
+    let slug = "myproject";
+    let conv_dir = tmp.path().join(slug).join("agent-transcripts").join(UUID);
+    std::fs::create_dir_all(&conv_dir).unwrap();
+    let canonical = conv_dir.join(format!("{UUID}.jsonl"));
+    std::fs::copy(fixture("redacted.jsonl"), &canonical).unwrap();
+
+    let adapter = CursorAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&canonical).unwrap();
+
+    assert_eq!(s.message_count, 3);
+    assert!(s.content.contains("hello"));
+    assert!(s.content.contains("I'll help."));
+    assert!(s.content.contains("Done."));
+    assert!(!s.content.contains("REDACTED"));
+}
+
+// ── Test 7: AgentId round-trip ────────────────────────────────────────────────
 
 #[test]
 fn agent_id_cursor_round_trip() {
