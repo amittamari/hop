@@ -1,6 +1,12 @@
 name: release-plz
 
+# Runs on every push to master. release-plz keeps a single, accumulating
+# "Release PR" up to date as commits land (it amends one PR, not one-per-merge),
+# and the `release` job tags only once that PR is merged and master's version
+# moves ahead of the latest tag. workflow_dispatch is kept for manual runs.
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
