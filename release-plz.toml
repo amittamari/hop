@@ -8,6 +8,13 @@
 [workspace]
 # Do not `cargo publish` to crates.io.
 publish = false
+# Determine the last release from git tags, not the crates.io registry. The name
+# "hop" is taken on crates.io by an unrelated crate (the Hop.io SDK, 0.1.12).
+# Without git-only mode, release-plz used 0.1.12 as the baseline, saw our local
+# 0.2.0 as "already bumped beyond the registry," and only updated the changelog —
+# so it never evaluated new feat/fix commits and opened no Release PR. git-only
+# mode bases version detection on our `v{version}` tags instead.
+git_only = true
 # Disable cargo-semver-checks. It compares our public API against a baseline
 # downloaded from crates.io for the crate name "hop" — but that name is taken by
 # an unrelated crate (the Hop.io platform SDK), so it reports its entire API as
