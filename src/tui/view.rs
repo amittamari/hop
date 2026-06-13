@@ -120,11 +120,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let (list_area, preview_area) = if app.preview_visible() && body_area.width >= PREVIEW_MIN_WIDTH
     {
         let pw = app.preview_width_pct();
-        let [list, preview] = Layout::horizontal([
-            Constraint::Min(LIST_MIN_WIDTH),
-            Constraint::Percentage(pw),
-        ])
-        .areas(body_area);
+        let [list, preview] =
+            Layout::horizontal([Constraint::Min(LIST_MIN_WIDTH), Constraint::Percentage(pw)])
+                .areas(body_area);
         (list, Some(preview))
     } else {
         (body_area, None)
@@ -433,9 +431,7 @@ fn render_yolo_modal(
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
-            .block(
-                Block::bordered().title(" confirm resume "),
-            )
+            .block(Block::bordered().title(" confirm resume "))
             .alignment(Alignment::Left),
         rect,
     );

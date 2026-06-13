@@ -101,12 +101,20 @@ pub fn flatten_messages(msgs: &[Message]) -> String {
     out
 }
 
-const COMMAND_TAG_PREFIXES: [&str; 5] = [
+const COMMAND_TAG_PREFIXES: [&str; 10] = [
+    // Legacy slash-command tags.
     "<command-name>",
     "<command-message>",
     "<command-args>",
     "<local-command-stdout>",
     "<local-command-caveat>",
+    // Newer Claude Code formats record inline `!bash` runs and harness-injected
+    // turns as standalone user messages. These are tooling noise, not prose.
+    "<bash-input>",
+    "<bash-stdout>",
+    "<bash-stderr>",
+    "<task-notification>",
+    "<persisted-output>",
 ];
 
 pub fn is_command_tag_line(text: &str) -> bool {
@@ -434,6 +442,17 @@ mod tests {
     fn command_tag_line_detects_shared_internal_tags() {
         assert!(is_command_tag_line("  <command-name>/clear</command-name>"));
         assert!(is_command_tag_line("<local-command-stdout>done"));
+        assert!(is_command_tag_line(
+            "<bash-input>gh auth status</bash-input><bash-stdout>ok</bash-stdout>"
+        ));
+        assert!(is_command_tag_line("<bash-stdout>ok</bash-stdout>"));
+        assert!(is_command_tag_line("<bash-stderr></bash-stderr>"));
+        assert!(is_command_tag_line(
+            "<task-notification>done</task-notification>"
+        ));
+        assert!(is_command_tag_line(
+            "<persisted-output>...</persisted-output>"
+        ));
         assert!(!is_command_tag_line(
             "<context>keep this user context</context>"
         ));
