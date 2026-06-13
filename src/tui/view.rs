@@ -6,7 +6,10 @@ use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Clear, Padding, Paragraph, Row, Scrollbar, ScrollbarOrientation,
+    ScrollbarState, Table, TableState, Wrap,
+};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -116,7 +119,10 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         (chunks[1], None)
     };
 
-    // results table (Table owns its header; no separate header pane)
+    // results table (Table owns its header; no separate header pane).
+    // Reserve a 1-col gutter on the right for the list scrollbar so the bar
+    // never overlaps row content.
+    let (list_area, list_scrollbar_area) = split_scrollbar_gutter(list_area);
     let cols = model.columns;
     let marker_w = crate::columns::display_width(SELECTION_MARKER) as u16;
     let list_inner_w = list_area.width.saturating_sub(marker_w);
@@ -180,6 +186,22 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         f.render_stateful_widget(table, list_area, &mut state);
     }
 
+    // Vertical scrollbar reflecting selection position within all results.
+    if let Some(sb_area) = list_scrollbar_area {
+        let total = app.results().len();
+        if total > list_area.height as usize {
+            let mut sb_state = ScrollbarState::new(total).position(app.selected());
+            f.render_stateful_widget(
+                Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                    .begin_symbol(Some("↑"))
+                    .end_symbol(Some("↓"))
+                    .style(Style::default().fg(model.theme.border)),
+                sb_area,
+                &mut sb_state,
+            );
+        }
+    }
+
     // preview (lines are pre-rendered/memoized by the caller per selection+query)
     if let Some(area) = preview_area {
         let preview_block = Block::default()
@@ -207,11 +229,13 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                     model.now,
                     model.resolved,
                     &model.theme,
+                    header_area.width,
                 ))
                 .style(Style::default().fg(model.theme.preview_text)),
                 header_area,
             );
         }
+        let (transcript_area, preview_scrollbar_area) = split_scrollbar_gutter(transcript_area);
         f.render_widget(
             Paragraph::new(model.preview_lines.to_vec())
                 .style(Style::default().fg(model.theme.preview_text))
@@ -219,6 +243,22 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                 .scroll((app.preview_scroll(), 0)),
             transcript_area,
         );
+        // Vertical scrollbar reflecting scroll position within the transcript.
+        if let Some(sb_area) = preview_scrollbar_area {
+            let total = model.preview_lines.len();
+            if total > transcript_area.height as usize {
+                let mut sb_state =
+                    ScrollbarState::new(total).position(app.preview_scroll() as usize);
+                f.render_stateful_widget(
+                    Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                        .begin_symbol(Some("↑"))
+                        .end_symbol(Some("↓"))
+                        .style(Style::default().fg(model.theme.border)),
+                    sb_area,
+                    &mut sb_state,
+                );
+            }
+        }
     }
 
     // footer
@@ -407,6 +447,7 @@ fn preview_header_lines(
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     theme: &Theme,
+    width: u16,
 ) -> Vec<Line<'static>> {
     let repo = RepoEnricher
         .resolve(s)
@@ -451,16 +492,44 @@ fn preview_header_lines(
         Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
     ]);
 
-    vec![
-        Line::from(first),
+    // Fit "title · directory" to the available width so a long path can't wrap
+    // or clip the fixed 2-row header. Mirror fit_for_modal's use of columns::fit.
+    let title = s.title.clone();
+    let title_w = crate::columns::display_width(&title) as u16;
+    let sep = " · ";
+    let sep_w = crate::columns::display_width(sep) as u16;
+    let second = if title_w + sep_w >= width {
+        // No room for the directory; ellipsize the title alone.
+        Line::from(Span::raw(fit_for_modal(&title, width as usize)))
+    } else {
+        let dir_w = width - title_w - sep_w;
+        let dir = fit_for_modal(&s.directory, dir_w as usize);
         Line::from(vec![
-            Span::raw(s.title.clone()),
-            Span::styled(
-                format!(" · {}", s.directory),
-                Style::default().fg(theme.muted),
-            ),
-        ]),
-    ]
+            Span::raw(title),
+            Span::styled(format!("{sep}{dir}"), Style::default().fg(theme.muted)),
+        ])
+    };
+
+    vec![Line::from(first), second]
+}
+
+/// Carve a 1-column scrollbar gutter off the right of `area`. Returns the
+/// content area and the gutter (or `None` if the area is too narrow to spare a
+/// column). Vertical scrollbars render inside the right column of their area.
+fn split_scrollbar_gutter(area: Rect) -> (Rect, Option<Rect>) {
+    if area.width <= 1 {
+        return (area, None);
+    }
+    let content = Rect {
+        width: area.width - 1,
+        ..area
+    };
+    let gutter = Rect {
+        x: area.right() - 1,
+        width: 1,
+        ..area
+    };
+    (content, Some(gutter))
 }
 
 pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Range<usize> {
@@ -1063,6 +1132,191 @@ mod tests {
         assert!(
             any_reversed,
             "matched query term in title should render reversed"
+        );
+    }
+
+    #[test]
+    fn preview_header_ellipsizes_long_directory() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let long_dir =
+            "/Users/someone/workspaces/very/deeply/nested/project/path/that/keeps/going/api";
+        let mut app = App::new();
+        app.set_preview(true, 50);
+        app.set_preview_header(true);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: long_dir.into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: Some("feat/auth".into()),
+            repo_url: None,
+            source_path: None,
+        }]);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        // The header line is the title + directory; check it is fit to width.
+        let header_lines =
+            preview_header_lines(&app.results()[0], 100, &resolved, &Theme::default(), 30);
+        assert_eq!(header_lines.len(), 2, "header is always 2 lines");
+        let second: String = header_lines[1]
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(
+            second.contains('…'),
+            "long title·directory line should be ellipsized, got {second:?}"
+        );
+        assert!(
+            crate::columns::display_width(&second) <= 30,
+            "fit line must not exceed the given width"
+        );
+
+        // And the rendered 2-row header must not push the long path into the
+        // transcript rows: render and confirm the full untruncated path is gone.
+        let backend = TestBackend::new(100, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            !text.contains(long_dir),
+            "the full untruncated directory must not render"
+        );
+    }
+
+    #[test]
+    fn preview_shows_scrollbar_for_long_transcript() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(true, 50);
+        app.set_preview_header(false);
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+        }]);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let lines: Vec<Line<'static>> = (0..40).map(|i| Line::from(format!("line {i}"))).collect();
+
+        let backend = TestBackend::new(100, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &lines,
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains('█') || text.contains('▐'),
+            "expected a scrollbar thumb glyph in the rendered preview"
+        );
+    }
+
+    #[test]
+    fn results_list_shows_scrollbar_when_overflowing() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        // Hide the preview so the whole body width is the list (keeps the
+        // scrollbar on the far right of the frame, simplest to assert).
+        app.set_preview(false, 50);
+        app.set_results(
+            (0..50)
+                .map(|i| SessionSummary {
+                    id: format!("s{i}"),
+                    agent: AgentId::Claude,
+                    title: format!("session {i}"),
+                    directory: "/work/api".into(),
+                    timestamp: 0,
+                    message_count: 1,
+                    yolo: false,
+                    branch: None,
+                    repo_url: None,
+                    source_path: None,
+                })
+                .collect(),
+        );
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains('█') || text.contains('▐'),
+            "expected a scrollbar thumb glyph in the rendered list"
         );
     }
 
