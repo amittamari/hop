@@ -72,7 +72,9 @@ impl Cli {
             .split_whitespace()
             .any(|t| {
                 let body = t.strip_prefix(['-', '!']).unwrap_or(t);
-                body.split_once(':').map(|(k, _)| k == "repo").unwrap_or(false)
+                body.split_once(':')
+                    .map(|(k, _)| k == "repo")
+                    .unwrap_or(false)
             });
         !has_repo_token
     }
@@ -130,11 +132,7 @@ mod tests {
 
     #[test]
     fn wants_auto_repo_suppressed_by_explicit_filters() {
-        assert!(!Cli {
-            all: true,
-            ..cli()
-        }
-        .wants_auto_repo());
+        assert!(!Cli { all: true, ..cli() }.wants_auto_repo());
         assert!(!Cli {
             repo: Some("other".into()),
             ..cli()

@@ -95,7 +95,10 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
 /// repos that share a basename. Used to auto-scope `hop` to the current repo.
 pub fn repo_slug_from_url(url: &str) -> Option<String> {
     let trimmed = url.trim().trim_end_matches(".git");
-    let parts: Vec<&str> = trimmed.split(['/', ':']).filter(|s| !s.is_empty()).collect();
+    let parts: Vec<&str> = trimmed
+        .split(['/', ':'])
+        .filter(|s| !s.is_empty())
+        .collect();
     match parts.as_slice() {
         [.., owner, name] => Some(format!("{owner}/{name}")),
         _ => None,
