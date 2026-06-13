@@ -98,6 +98,10 @@ and safe around terminal state when handing off to an agent CLI.
 - `-agent:<agent>`, `!agent:<agent>`, and `agent:claude,!codex` exclude agents.
 - `dir:<text>` includes directory substrings.
 - `-dir:<text>` excludes directory substrings.
+- `repo:<text>` includes sessions whose git remote URL contains the substring;
+  `-repo:<text>` excludes them. The remote is stable across worktrees, so this
+  matches every worktree of a repo. Sessions outside a git repo have no remote
+  and never satisfy a `repo:` include.
 - `date:today` and `date:yesterday` use the user's local calendar day.
 - `date:week` means sessions in the last 7 days.
 - `date:month` means sessions in the last 30 days.
@@ -161,6 +165,7 @@ and safe around terminal state when handing off to an agent CLI.
 - `hop "<query>"` opens with a pre-filled free-text query.
 - `hop -a <agent>` composes an `agent:<agent>` query filter.
 - `hop -d <text>` composes a `dir:<text>` query filter.
+- `hop -r <text>` composes a `repo:<text>` query filter.
 - `hop --rebuild` removes the local index before starting and then rebuilds in
   the normal background sync path.
 - `hop --yolo` forces yolo resume when the selected adapter supports it.

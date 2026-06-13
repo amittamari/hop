@@ -1,4 +1,4 @@
-use crate::adapters::{file_mtime_ms, parse_ts_secs, Adapter};
+use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
 };
@@ -10,11 +10,16 @@ use std::path::{Path, PathBuf};
 pub struct CodexAdapter {
     /// ~/.codex (we read sessions/ and archived_sessions/ under it).
     root: PathBuf,
+    /// Fallback when a session_meta carries no git remote (e.g. older rollouts).
+    repo_cache: GitFieldCache,
 }
 
 impl CodexAdapter {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            repo_cache: GitFieldCache::new(git_remote_url),
+        }
     }
 
     fn session_roots(&self) -> Vec<PathBuf> {
@@ -236,6 +241,11 @@ impl Adapter for CodexAdapter {
         let ex = self.extract(path)?;
         let title = derive_session_title(None, &ex.messages);
         let content = flatten_messages(&ex.messages);
+        // Prefer the remote recorded in session_meta; fall back to resolving it
+        // from the cwd so older rollouts without git metadata still get a repo.
+        let repo_url = ex
+            .repo_url
+            .or_else(|| self.repo_cache.resolve(&ex.directory));
         Ok(Session {
             id,
             agent: AgentId::Codex,
@@ -247,7 +257,7 @@ impl Adapter for CodexAdapter {
             mtime: 0,
             yolo: ex.yolo,
             branch: ex.branch,
-            repo_url: ex.repo_url,
+            repo_url,
             source_path: Some(path.to_path_buf()),
         })
     }

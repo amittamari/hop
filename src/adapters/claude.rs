@@ -1,4 +1,4 @@
-use crate::adapters::{file_mtime_ms, parse_ts_secs, Adapter};
+use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
 };
@@ -10,11 +10,16 @@ use std::path::{Path, PathBuf};
 pub struct ClaudeAdapter {
     /// Root holding `<encoded-cwd>/<session-uuid>.jsonl` (default ~/.claude/projects).
     root: PathBuf,
+    /// Claude transcripts record `cwd` but no git remote; resolve it at parse time.
+    repo_cache: GitFieldCache,
 }
 
 impl ClaudeAdapter {
     pub fn new(root: PathBuf) -> Self {
-        Self { root }
+        Self {
+            root,
+            repo_cache: GitFieldCache::new(git_remote_url),
+        }
     }
 }
 
@@ -186,6 +191,7 @@ impl Adapter for ClaudeAdapter {
         let ex = self.extract(path)?;
         let title = derive_session_title(ex.title.as_deref(), &ex.messages);
         let content = flatten_messages(&ex.messages);
+        let repo_url = self.repo_cache.resolve(&ex.directory);
         Ok(Session {
             id,
             agent: AgentId::Claude,
@@ -197,7 +203,7 @@ impl Adapter for ClaudeAdapter {
             mtime: 0,
             yolo: false,
             branch: ex.branch,
-            repo_url: None,
+            repo_url,
             source_path: Some(path.to_path_buf()),
         })
     }

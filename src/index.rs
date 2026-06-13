@@ -14,7 +14,7 @@ use tantivy::schema::{
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
 const SCORE_BUCKET_SCALE: f32 = 1_000.0;
@@ -272,7 +272,7 @@ impl SearchIndex {
             for addr in addrs {
                 let doc: TantivyDocument = searcher.doc(addr)?;
                 let s = self.to_summary(&doc);
-                if !dir_ok(&s.directory, q) {
+                if !dir_ok(&s.directory, q) || !repo_ok(s.repo_url.as_deref(), q) {
                     continue;
                 }
                 out.push(s);
@@ -393,6 +393,22 @@ fn dir_ok(directory: &str, q: &ParsedQuery) -> bool {
         && !q.dirs.exclude.iter().any(|e| d.contains(&e.to_lowercase()))
 }
 
+/// Substring match on the git remote URL. A session with no `repo_url` matches
+/// the empty string, so it satisfies an exclude filter but never an include one
+/// (non-git directories correctly drop out of any `repo:` query).
+fn repo_ok(repo_url: Option<&str>, q: &ParsedQuery) -> bool {
+    let r = repo_url.unwrap_or_default().to_lowercase();
+    q.repos
+        .include
+        .iter()
+        .all(|i| r.contains(&i.to_lowercase()))
+        && !q
+            .repos
+            .exclude
+            .iter()
+            .any(|e| r.contains(&e.to_lowercase()))
+}
+
 fn score_bucket(score: tantivy::Score) -> i64 {
     if !score.is_finite() {
         return 0;
@@ -454,4 +470,28 @@ fn diff_with_delete_scope(
         .cloned()
         .collect();
     (changed, deleted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query;
+
+    #[test]
+    fn repo_filter_matches_remote_substring_case_insensitively() {
+        let q = query::parse("repo:HOP");
+        assert!(repo_ok(Some("git@github.com:ofirg/hop.git"), &q));
+        assert!(!repo_ok(Some("git@github.com:other/repo.git"), &q));
+        // non-git sessions never satisfy an include filter
+        assert!(!repo_ok(None, &q));
+    }
+
+    #[test]
+    fn repo_exclude_keeps_non_git_and_drops_matches() {
+        let q = query::parse("-repo:vendor");
+        assert!(repo_ok(Some("git@github.com:me/app.git"), &q));
+        assert!(!repo_ok(Some("https://example.com/vendor/lib.git"), &q));
+        // no repo_url -> nothing to exclude, stays in
+        assert!(repo_ok(None, &q));
+    }
 }

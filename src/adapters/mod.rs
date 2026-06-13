@@ -6,6 +6,7 @@ use crate::core::{AgentId, ScanEntry, Session, SessionId};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Mutex;
 
 pub trait Adapter: Send + Sync {
     fn id(&self) -> AgentId;
@@ -43,4 +44,63 @@ pub(crate) fn file_mtime_ms(entry: &std::fs::DirEntry) -> Result<i64> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default();
     Ok(i64::try_from(dur.as_millis()).unwrap_or(i64::MAX))
+}
+
+/// Run `git -C <dir> <args...>` and return trimmed stdout. `None` if `dir` is
+/// empty, the command fails (not a repo, no such ref), or git is unavailable.
+fn git_field(dir: &str, args: &[&str]) -> Option<String> {
+    if dir.is_empty() {
+        return None;
+    }
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+/// The `origin` remote URL. Same across all worktrees of a repo, which is what
+/// makes it a stable repo key.
+pub(crate) fn git_remote_url(dir: &str) -> Option<String> {
+    git_field(dir, &["remote", "get-url", "origin"])
+}
+
+/// Directory-keyed cache over a git resolver. Many sessions share a working
+/// directory, so a `--rebuild` would otherwise spawn one `git` per session;
+/// this collapses that to one per unique directory.
+pub(crate) struct GitFieldCache {
+    cache: Mutex<HashMap<String, Option<String>>>,
+    resolver: fn(&str) -> Option<String>,
+}
+
+impl GitFieldCache {
+    pub(crate) fn new(resolver: fn(&str) -> Option<String>) -> Self {
+        Self {
+            cache: Mutex::new(HashMap::new()),
+            resolver,
+        }
+    }
+
+    pub(crate) fn resolve(&self, dir: &str) -> Option<String> {
+        if dir.is_empty() {
+            return None;
+        }
+        let mut cache = self.cache.lock().unwrap();
+        if let Some(hit) = cache.get(dir) {
+            return hit.clone();
+        }
+        let result = (self.resolver)(dir);
+        cache.insert(dir.to_string(), result.clone());
+        result
+    }
 }

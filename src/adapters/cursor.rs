@@ -1,4 +1,4 @@
-use crate::adapters::{file_mtime_ms, Adapter};
+use crate::adapters::{file_mtime_ms, git_remote_url, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, split_blocks, AgentId, Message, Role, ScanEntry, Session, SessionId,
 };
@@ -12,6 +12,8 @@ pub struct CursorAdapter {
     root: PathBuf,
     // cache: project_dir -> Option<workspacePath>
     wp_cache: Mutex<HashMap<PathBuf, Option<String>>>,
+    /// Cursor records no git remote; resolve it from the workspace path at parse time.
+    repo_cache: GitFieldCache,
 }
 
 impl CursorAdapter {
@@ -19,6 +21,7 @@ impl CursorAdapter {
         Self {
             root,
             wp_cache: Mutex::new(HashMap::new()),
+            repo_cache: GitFieldCache::new(git_remote_url),
         }
     }
 
@@ -286,6 +289,7 @@ impl Adapter for CursorAdapter {
 
         let yolo = store.as_ref().map(|m| m.yolo).unwrap_or(false);
         let content = flatten_messages(&ex.messages);
+        let repo_url = self.repo_cache.resolve(&directory);
 
         Ok(Session {
             id,
@@ -298,7 +302,7 @@ impl Adapter for CursorAdapter {
             mtime: 0,
             yolo,
             branch: None,
-            repo_url: None,
+            repo_url,
             source_path: Some(path.to_path_buf()),
         })
     }
