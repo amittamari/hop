@@ -1,7 +1,7 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::Enricher;
-use crate::tui::{help, results_list, theme, App};
+use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
@@ -65,12 +65,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // The query input is always live, so the prompt and query stay bright and
     // the caret is shown whenever no overlay is covering the input.
     let header = Line::from(vec![
-        Span::styled(" ❯ ", Style::default().fg(theme::ACCENT)),
+        Span::styled(" ❯ ", Style::default().fg(app.theme().accent)),
         Span::styled(
             app.query().to_string(),
-            Style::default().fg(theme::SELECTED_FG),
+            Style::default().fg(app.theme().selection_fg),
         ),
-        Span::raw(format!("   {}/{}", pos, total)).fg(theme::DIM),
+        Span::raw(format!("   {}/{}", pos, total)).fg(app.theme().muted),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
     if !app.help_open() && !app.modal_open() {
@@ -113,7 +113,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    let mut header = results_list::header_line(&layout, cols);
+    let mut header = results_list::header_line(&layout, cols, app.theme());
     header
         .spans
         .insert(0, Span::raw(" ".repeat(SELECTION_MARKER_WIDTH as usize)));
@@ -129,6 +129,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                 model.enrichers,
                 model.resolved,
                 model.now,
+                app.theme(),
             ))
         })
         .collect();
@@ -141,8 +142,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         .highlight_spacing(HighlightSpacing::Always)
         .highlight_style(
             Style::default()
-                .fg(theme::SELECTED_FG)
-                .bg(theme::SELECTED_BG)
+                .fg(app.theme().selection_fg)
+                .bg(app.theme().selection_bg)
                 .add_modifier(Modifier::BOLD),
         );
     f.render_stateful_widget(list, list_rows_area, &mut state);
@@ -151,7 +152,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     if let Some(area) = preview_area {
         let preview_block = Block::default()
             .borders(Borders::LEFT)
-            .border_style(Style::default().fg(theme::DIVIDER))
+            .border_style(Style::default().fg(app.theme().border))
             .padding(Padding::left(1));
         let preview_area = area;
         let area = preview_block.inner(area);
@@ -170,14 +171,14 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, model.now, model.resolved))
-                    .style(Style::default().fg(theme::PREVIEW_TEXT)),
+                Paragraph::new(preview_header_lines(session, model.now, model.resolved, app.theme()))
+                    .style(Style::default().fg(app.theme().preview_text)),
                 header_area,
             );
         }
         f.render_widget(
             Paragraph::new(model.preview_lines.to_vec())
-                .style(Style::default().fg(theme::PREVIEW_TEXT))
+                .style(Style::default().fg(app.theme().preview_text))
                 .wrap(Wrap { trim: false })
                 .scroll((app.preview_scroll(), 0)),
             transcript_area,
@@ -366,6 +367,7 @@ fn preview_header_lines(
     s: &SessionSummary,
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
+    theme: &crate::tui::theme::Theme,
 ) -> Vec<Line<'static>> {
     let repo = repo_label(s);
     let branch = s.branch.as_deref().unwrap_or("—");
@@ -382,26 +384,26 @@ fn preview_header_lines(
         Span::styled(
             s.agent.badge(),
             Style::default()
-                .fg(theme::agent_color(s.agent))
+                .fg(theme.agent_color(s.agent))
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(repo, Style::default().fg(theme::DIM)),
+        Span::styled(repo, Style::default().fg(theme.muted)),
         Span::raw("  "),
-        Span::styled(branch.to_string(), Style::default().fg(theme::DIM)),
+        Span::styled(branch.to_string(), Style::default().fg(theme.muted)),
         Span::raw("  "),
     ];
     if let Some(pr) = pr {
         first.push(Span::styled(
             pr.to_string(),
-            Style::default().fg(theme::ACCENT),
+            Style::default().fg(theme.accent),
         ));
         first.push(Span::raw("  "));
     }
     first.extend([
-        Span::styled(msgs, Style::default().fg(theme::DIM)),
+        Span::styled(msgs, Style::default().fg(theme.muted)),
         Span::raw("  "),
-        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme::DIM)),
+        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
     ]);
 
     vec![
@@ -410,7 +412,7 @@ fn preview_header_lines(
             Span::raw(s.title.clone()),
             Span::styled(
                 format!(" · {}", s.directory),
-                Style::default().fg(theme::DIM),
+                Style::default().fg(theme.muted),
             ),
         ]),
     ]
@@ -631,9 +633,9 @@ mod tests {
 
         let buf = term.backend().buffer();
         assert_eq!(buf[(0, 2)].symbol(), SELECTION_MARKER.trim());
-        assert_eq!(buf[(0, 2)].bg, theme::SELECTED_BG);
-        assert_eq!(buf[(2, 2)].fg, theme::SELECTED_FG);
-        assert_eq!(buf[(2, 2)].bg, theme::SELECTED_BG);
+        assert_eq!(buf[(0, 2)].bg, crate::tui::theme::Theme::default().selection_bg);
+        assert_eq!(buf[(2, 2)].fg, crate::tui::theme::Theme::default().selection_fg);
+        assert_eq!(buf[(2, 2)].bg, crate::tui::theme::Theme::default().selection_bg);
     }
 
     #[test]

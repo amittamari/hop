@@ -4,7 +4,8 @@
 use crate::columns::{display_width, fit, solve_layout, solve_layout_with_desired, Column};
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
-use crate::tui::{theme, view::rel_time};
+use crate::tui::theme::Theme;
+use crate::tui::view::rel_time;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::collections::HashMap;
@@ -19,6 +20,7 @@ pub fn row_line(
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
+    theme: &Theme,
 ) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (n, &(ci, width)) in layout.iter().enumerate() {
@@ -26,13 +28,13 @@ pub fn row_line(
             spans.push(Span::raw(" "));
         }
         let col = &columns[ci];
-        let (text, style) = cell(s, col, enrichers, resolved, now);
+        let (text, style) = cell(s, col, enrichers, resolved, now, theme);
         spans.push(Span::styled(fit(&text, width, col.align), style));
     }
     Line::from(spans)
 }
 
-pub fn header_line(layout: &[(usize, u16)], columns: &[Column]) -> Line<'static> {
+pub fn header_line(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = Vec::new();
     for (n, &(ci, width)) in layout.iter().enumerate() {
         if n > 0 {
@@ -41,7 +43,7 @@ pub fn header_line(layout: &[(usize, u16)], columns: &[Column]) -> Line<'static>
         let col = &columns[ci];
         spans.push(Span::styled(
             fit(col.header, width, col.align),
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ));
     }
     Line::from(spans)
@@ -53,11 +55,12 @@ fn cell(
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
     now: i64,
+    theme: &Theme,
 ) -> (String, Style) {
     match col.id {
         "agent" => (
             s.agent.badge().to_string(),
-            Style::default().fg(theme::agent_color(s.agent)),
+            Style::default().fg(theme.agent_color(s.agent)),
         ),
         "title" => (s.title.clone(), Style::default()),
         "msgs" => (
@@ -66,10 +69,10 @@ fn cell(
             } else {
                 "-".into()
             },
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         ),
-        "time" => (rel_time(s.timestamp, now), Style::default().fg(theme::DIM)),
-        other => enrichment_cell(other, s, enrichers, resolved),
+        "time" => (rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
+        other => enrichment_cell(other, s, enrichers, resolved, theme),
     }
 }
 
@@ -78,6 +81,7 @@ fn enrichment_cell(
     s: &SessionSummary,
     enrichers: &[Box<dyn Enricher>],
     resolved: &HashMap<(String, &'static str), Option<String>>,
+    theme: &Theme,
 ) -> (String, Style) {
     let Some(enr) = enrichers.iter().find(|e| e.id() == id) else {
         return (String::new(), Style::default());
@@ -85,12 +89,12 @@ fn enrichment_cell(
     match enr.kind() {
         EnrichKind::Fast => {
             let text = enr.resolve(s).map(|v| v.text).unwrap_or_else(|| "—".into());
-            (text, Style::default().fg(theme::DIM))
+            (text, Style::default().fg(theme.muted))
         }
         EnrichKind::Slow => match resolved.get(&(s.document_key(), enr.id())) {
-            Some(Some(text)) => (text.clone(), Style::default().fg(theme::ACCENT)),
-            Some(None) => ("—".into(), Style::default().fg(theme::DIM)),
-            None => ("⟳".into(), Style::default().fg(theme::DIM)),
+            Some(Some(text)) => (text.clone(), Style::default().fg(theme.accent)),
+            Some(None) => ("—".into(), Style::default().fg(theme.muted)),
+            None => ("⟳".into(), Style::default().fg(theme.muted)),
         },
     }
 }
@@ -130,7 +134,7 @@ fn desired_widths(
             if col.flex {
                 continue;
             }
-            let (text, _) = cell(row, col, enrichers, resolved, now);
+            let (text, _) = cell(row, col, enrichers, resolved, now, &Theme::default());
             widths[i] = widths[i].max(display_width(&text) as u16);
         }
     }
@@ -174,7 +178,7 @@ mod tests {
             &resolved,
             3600,
         );
-        let line = row_line(&row, &layout, &cols, &enr, &resolved, 3600);
+        let line = row_line(&row, &layout, &cols, &enr, &resolved, 3600, &Theme::default());
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("api")); // repo from dir basename
@@ -187,7 +191,7 @@ mod tests {
     fn header_renders_visible_column_labels() {
         let cols = default_columns();
         let layout = layout_for(&cols, 120);
-        let line = header_line(&layout, &cols);
+        let line = header_line(&layout, &cols, &Theme::default());
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("AGENT"));
         assert!(text.contains("REPO"));
@@ -226,7 +230,7 @@ mod tests {
         let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
         let resolved = HashMap::new();
-        let line = row_line(&sess(), &layout, &cols, &enr, &resolved, 0);
+        let line = row_line(&sess(), &layout, &cols, &enr, &resolved, 0, &Theme::default());
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("⟳"));
     }
@@ -243,7 +247,7 @@ mod tests {
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
         let row = sess();
         let layout = layout_for_rows(&cols, 120, std::slice::from_ref(&row), &enr, &resolved, 0);
-        let line = row_line(&row, &layout, &cols, &enr, &resolved, 0);
+        let line = row_line(&row, &layout, &cols, &enr, &resolved, 0, &Theme::default());
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("#42")); // resolved PR rendered
         assert!(text.contains("feat/auth")); // fast branch still rendered
