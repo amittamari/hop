@@ -48,8 +48,6 @@ pub struct App {
     help_open: bool,
     list_page_size: usize,
     preview_scroll_step: u16,
-    preview_viewport_height: u16,
-    preview_line_count: usize,
     preview_matches: Vec<u16>,
     preview_match_index: usize,
     theme: crate::tui::theme::Theme,
@@ -73,8 +71,6 @@ impl App {
             help_open: false,
             list_page_size: 10,
             preview_scroll_step: 8,
-            preview_viewport_height: 1,
-            preview_line_count: 0,
             preview_matches: Vec::new(),
             preview_match_index: 0,
             theme: crate::tui::theme::Theme::default(),
@@ -195,13 +191,6 @@ impl App {
     pub fn set_viewport_metrics(&mut self, list_rows_height: u16, preview_height: u16) {
         self.list_page_size = usize::from(list_rows_height.saturating_sub(1).max(1));
         self.preview_scroll_step = preview_height.saturating_sub(1).max(1);
-        self.preview_viewport_height = preview_height.max(1);
-    }
-
-    /// Number of source lines in the current preview transcript; used to clamp
-    /// `preview_scroll` so it can't run past the end into blank space.
-    pub fn set_preview_line_count(&mut self, count: usize) {
-        self.preview_line_count = count;
     }
     pub fn set_preview_matches(&mut self, matches: Vec<usize>) {
         self.preview_matches = matches
@@ -351,11 +340,8 @@ impl App {
             }
             keymap::Command::ScrollPreview(d) => {
                 let delta = d as i32 * i32::from(self.preview_scroll_step);
-                let next = (self.preview_scroll as i32 + delta).max(0) as usize;
-                let max_scroll = self
-                    .preview_line_count
-                    .saturating_sub(self.preview_viewport_height as usize);
-                self.preview_scroll = next.min(max_scroll).min(u16::MAX as usize) as u16;
+                let next = self.preview_scroll as i32 + delta;
+                self.preview_scroll = next.max(0) as u16;
                 Action::None
             }
             keymap::Command::JumpPreviewMatch(d) => {
@@ -726,25 +712,10 @@ mod tests {
     fn viewport_metrics_drive_paging_and_preview_scroll() {
         let mut app = app_with(50);
         app.set_viewport_metrics(6, 4);
-        app.set_preview_line_count(100);
         app.handle_key(key(KeyCode::PageDown));
         assert_eq!(app.selected(), 5);
         app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
         assert_eq!(app.preview_scroll(), 3);
-    }
-
-    #[test]
-    fn preview_scroll_clamps_at_bottom() {
-        let mut app = app_with(1);
-        // viewport: list_rows_height irrelevant here; preview_height = 5 rows.
-        app.set_viewport_metrics(6, 5);
-        app.set_preview_line_count(30);
-        // Scroll down far more than the content allows.
-        for _ in 0..20 {
-            app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
-        }
-        // Max top line = 30 - 5 = 25; never past it into blank space.
-        assert_eq!(app.preview_scroll(), 25);
     }
 
     #[test]

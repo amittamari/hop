@@ -156,7 +156,6 @@ fn run_tui(
                 |s| engine.transcript_for(s),
                 |s| engine.indexed_content(s),
             );
-            app.set_preview_line_count(preview_state.lines.len());
             let now = jiff::Timestamp::now().as_second();
             let status = StatusLine {
                 sync: sync_status.clone(),
