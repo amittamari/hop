@@ -51,6 +51,11 @@ rg -n "footer_hints_line|footer_status_line|Flex::SpaceBetween" src/tui/view.rs
 
 If those symbols exist → preferred path. If only `footer_line` / `FOOTER_HINTS` exist → fallback path.
 
+**Related GitHub issues:**
+
+- **#6 "Make keybindings configurable via config.toml" — this plan is its foundation; build #6 on top, do not implement in parallel.** #6 wants to wire the reserved `config.keybindings` table into the keymap so `control_chord_action` consults config instead of a hardcoded `match`. This plan introduces exactly that single source of truth (`bindings()` / `Binding`). Implementing #6 independently while this plan restructures the same dispatch would collide hard. **Sequence:** land this plan first, then #6 becomes "make `bindings()` config-overridable at startup (defaults overlaid with `config.keybindings`)." #6 is the `[keybindings]` half of pressure point **P-001** (the theme-system plan punted the `[theme]` half).
+- **#1 "resize preview keybind not working" — complementary.** The reachability test added in Task 4 (every `Binding` is handled in `handle_key`, no entry falls into the no-op arm) is a natural regression guard for the resize binding (`Ctrl+←/→`). It may surface or confirm #1. The actual fix likely belongs in the responsiveness plan (it owns the preview-width layout math) — see that plan's issue notes — but keep the Task 4 test as the guard once #1 is fixed.
+
 ---
 
 ## Task 1 — Introduce the canonical `Binding` table in `keymap.rs`

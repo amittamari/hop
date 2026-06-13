@@ -14,6 +14,11 @@
 - The FOOTER work here (L3, Task 3) overlaps with the bindings-table plan (`docs/plans/2026-06-13-tui-bindings-table.md`, finding H2 adds preview hints to the footer). **This plan OWNS footer truncation/layout** (the `Flex::SpaceBetween` split and warning-survival ordering). The bindings plan should land AFTER this one and plug new hint CONTENT into the truncation-aware `footer_line` built here — it must not re-architect the footer layout.
 - Tasks within this plan are sequenced 1 → 6 and each ends in a commit. They share `src/tui/view.rs`, so execute them in order; do not parallelize.
 
+**Related GitHub issues:**
+
+- **#1 "resize preview keybind not working" — overlap; fix it here.** The resize binding (`Ctrl+←/→`) adjusts `preview_width_pct` (clamp 20–80), and Task 2 (finding L2) rewrites the very preview-width layout math it drives — switching the body split to list `Min(48)` + preview `Percentage(pw)` and dropping the complementary `Percentage(100-pw)`. The rework may incidentally fix or change resize semantics, so **diagnose #1's root cause as part of Task 2 rather than letting the layout change mask it.** The bindings-table plan's reachability test is the regression guard once fixed.
+- **#15 "version upgrade notification" — complementary; this plan creates its home.** Task 3 (L3) splits `footer_line` into `footer_hints_line()` + `footer_status_line()` rendered with `Flex::SpaceBetween`. A version-upgrade banner is a status concern that belongs in the new `footer_status_line` (alongside sync/warning spans), not the old single un-truncated `Line`. **Sequence #15 after this plan** so it slots into the truncation-aware status region.
+
 ## Current-State Reference (verified against the code on 2026-06-13)
 
 `src/tui/view.rs` imports (lines 5-11):

@@ -41,6 +41,12 @@ If theme-system has NOT landed yet (you are building against current `master`), 
 
 **This plan is written against current `master` (the constants form).** Where a line uses `theme::DIM`/`theme::SELECTED_*`/`theme::ACCENT`/`theme::agent_color`, that is intentional and compiles today. If theme-system has already merged when you execute this, mechanically swap each to the `theme.<role>` equivalent above and pass `app.theme()` instead — the structure is identical.
 
+**Related GitHub issues:**
+
+- **#13 "improve column sizing behavior" — direct collision; reconcile before either lands.** This migration fundamentally changes *who owns column sizing*: per-column width/alignment/truncation moves from the custom `solve_layout_with_desired` width path to Ratatui's `Table` constraint solver (`Constraint::Length`/`Min`), while `columns.rs` keeps only the priority-based column-*dropping*. Whatever #13 intends to tune in the current solver may be obsoleted or invalidated by this change. **Recommendation:** clarify #13's intent first, then either fold it into this plan (this is the right moment to fix sizing) or resolve it *after* the migration against the new Table-based model — do not implement #13 against the soon-to-be-replaced width path.
+- **#3 "change default column order" — complementary, low-friction.** This plan reads `columns::default_columns()` but does not modify it; reordering the column list flows through to the Table widths automatically. Do the reorder on either side of this migration.
+- **#2 "open PR" — weak overlap.** If #2 adds an action to open a session's PR, it intersects only with how this plan renders the PR cell (`theme.accent` for a resolved PR), not with the action wiring. No real conflict; noted because both touch the PR column.
+
 ---
 
 ## Required Reading (do this before Task 1)

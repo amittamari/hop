@@ -17,6 +17,11 @@
 - **App state in `mod.rs`.** Adds three fields (`frame: u64`, `indexing: Option<usize>`) plus accessors. Low conflict — additive only.
 - **`src/main.rs` wiring** (Task 5) reads `App` accessors added in Tasks 2–3; do Tasks 2–3 before Task 5.
 
+**Related GitHub issues:**
+
+- **#15 "version upgrade notification" — complementary.** This plan adds status/indexing surfacing to the search line and footer. A version-upgrade notice is the same kind of transient status signal and would reuse the surface introduced here (and the `footer_status_line` from the responsiveness plan). Coordinate so #15 plugs into the status region rather than adding a third footer code path.
+- **#4 "repo: filter to search across all worktrees" — weak complement.** #4 is backend work (`query.rs`/`index.rs`/adapters) that no plan touches, so there is no conflict. The empty-state added in Task 1 ("No sessions match. Press Esc to clear the query.") improves the UX of a `repo:` query that returns nothing — a free win, no action needed here.
+
 ---
 
 ## Task 1: Empty-results state in the body area
