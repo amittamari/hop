@@ -120,10 +120,7 @@ pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
                 }
             }
             Event::Code(t) => {
-                spans.push(Span::styled(
-                    t.to_string(),
-                    Style::default().fg(theme.code),
-                ));
+                spans.push(Span::styled(t.to_string(), Style::default().fg(theme.code)));
             }
             Event::Text(t) => {
                 let mut text = t.to_string();
@@ -160,7 +157,12 @@ pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
 }
 
 /// Render a full transcript into lines, applying query-term highlighting.
-pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId, theme: &Theme) -> Vec<Line<'static>> {
+pub fn render_transcript(
+    msgs: &[Message],
+    query: &str,
+    agent: AgentId,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let parsed = crate::query::parse(query);
     render_transcript_with_terms(msgs, &parsed.free_terms(), agent, theme)
 }
@@ -230,7 +232,11 @@ pub fn render_indexed_fallback(content: &str, query: &str, theme: &Theme) -> Vec
     render_indexed_fallback_with_terms(content, &parsed.free_terms(), theme)
 }
 
-pub fn render_indexed_fallback_with_terms(content: &str, terms: &[String], theme: &Theme) -> Vec<Line<'static>> {
+pub fn render_indexed_fallback_with_terms(
+    content: &str,
+    terms: &[String],
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(Span::styled(
             "source unavailable - showing indexed text",
@@ -457,7 +463,12 @@ mod tests {
     #[test]
     fn filter_tokens_are_not_match_terms() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude, &theme);
+        let lines = render_transcript(
+            &msgs(),
+            "agent:claude",
+            crate::core::AgentId::Claude,
+            &theme,
+        );
         assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
@@ -504,9 +515,9 @@ mod tests {
         let theme = crate::tui::theme::Theme::default();
         let lines = render_prose("use the `cargo test` command", &theme);
         let found = lines.iter().any(|l| {
-            l.spans.iter().any(|s| {
-                s.content.contains("cargo test") && s.style.fg == Some(theme.code)
-            })
+            l.spans
+                .iter()
+                .any(|s| s.content.contains("cargo test") && s.style.fg == Some(theme.code))
         });
         assert!(found, "inline code span should use theme.code");
     }

@@ -181,7 +181,15 @@ mod tests {
             &resolved,
             3600,
         );
-        let line = row_line(&row, &layout, &cols, &enr, &resolved, 3600, &Theme::default());
+        let line = row_line(
+            &row,
+            &layout,
+            &cols,
+            &enr,
+            &resolved,
+            3600,
+            &Theme::default(),
+        );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("CLAUDE"));
         assert!(text.contains("api")); // repo from dir basename
@@ -233,7 +241,15 @@ mod tests {
         let layout = layout_for(&cols, 120);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
         let resolved = HashMap::new();
-        let line = row_line(&sess(), &layout, &cols, &enr, &resolved, 0, &Theme::default());
+        let line = row_line(
+            &sess(),
+            &layout,
+            &cols,
+            &enr,
+            &resolved,
+            0,
+            &Theme::default(),
+        );
         let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("⟳"));
     }

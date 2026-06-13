@@ -173,8 +173,13 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, model.now, model.resolved, &model.theme))
-                    .style(Style::default().fg(model.theme.preview_text)),
+                Paragraph::new(preview_header_lines(
+                    session,
+                    model.now,
+                    model.resolved,
+                    &model.theme,
+                ))
+                .style(Style::default().fg(model.theme.preview_text)),
                 header_area,
             );
         }
@@ -188,7 +193,10 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 
     // footer
-    f.render_widget(Paragraph::new(footer_line(model.status, &model.theme)), chunks[2]);
+    f.render_widget(
+        Paragraph::new(footer_line(model.status, &model.theme)),
+        chunks[2],
+    );
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
@@ -324,8 +332,10 @@ fn render_yolo_modal(
         Line::from("Tab toggles yolo · Enter resumes · Esc cancels"),
     ];
 
-    f.buffer_mut()
-        .set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
+    f.buffer_mut().set_style(
+        area,
+        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
+    );
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
@@ -490,8 +500,12 @@ mod tests {
             blocks: vec![Block::Prose("fix auth".into())],
         }];
 
-        let lines =
-            crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude, app.theme());
+        let lines = crate::tui::preview::render_transcript(
+            &transcript,
+            app.query(),
+            AgentId::Claude,
+            app.theme(),
+        );
 
         let cols = crate::columns::default_columns();
         let backend = TestBackend::new(100, 12);
@@ -638,9 +652,18 @@ mod tests {
 
         let buf = term.backend().buffer();
         assert_eq!(buf[(0, 2)].symbol(), SELECTION_MARKER.trim());
-        assert_eq!(buf[(0, 2)].bg, crate::tui::theme::Theme::default().selection_bg);
-        assert_eq!(buf[(2, 2)].fg, crate::tui::theme::Theme::default().selection_fg);
-        assert_eq!(buf[(2, 2)].bg, crate::tui::theme::Theme::default().selection_bg);
+        assert_eq!(
+            buf[(0, 2)].bg,
+            crate::tui::theme::Theme::default().selection_bg
+        );
+        assert_eq!(
+            buf[(2, 2)].fg,
+            crate::tui::theme::Theme::default().selection_fg
+        );
+        assert_eq!(
+            buf[(2, 2)].bg,
+            crate::tui::theme::Theme::default().selection_bg
+        );
     }
 
     #[test]
@@ -854,6 +877,10 @@ mod tests {
 
         let buf = term.backend().buffer().clone();
         let overlay_bg = crate::tui::theme::Theme::default().overlay_bg;
-        assert_eq!(buf[(0, 0)].bg, overlay_bg, "backdrop must set bg, not fg-only");
+        assert_eq!(
+            buf[(0, 0)].bg,
+            overlay_bg,
+            "backdrop must set bg, not fg-only"
+        );
     }
 }

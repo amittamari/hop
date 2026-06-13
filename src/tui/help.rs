@@ -63,8 +63,10 @@ pub fn render(f: &mut Frame, theme: &Theme) {
         width: w,
         height: h,
     };
-    f.buffer_mut()
-        .set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
+    f.buffer_mut().set_style(
+        area,
+        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
+    );
     f.render_widget(Clear, rect);
     let block = Block::default()
         .borders(Borders::ALL)
