@@ -205,6 +205,7 @@ impl Adapter for ClaudeAdapter {
             branch: ex.branch,
             repo_url,
             source_path: Some(path.to_path_buf()),
+            archived: false,
         })
     }
 

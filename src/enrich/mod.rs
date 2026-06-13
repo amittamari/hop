@@ -122,6 +122,7 @@ mod tests {
             branch: branch.map(|s| s.to_string()),
             repo_url: repo_url.map(|s| s.to_string()),
             source_path: None,
+            archived: false,
         }
     }
 

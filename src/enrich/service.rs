@@ -200,6 +200,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }
     }
 

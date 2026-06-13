@@ -259,6 +259,7 @@ impl Adapter for CodexAdapter {
             branch: ex.branch,
             repo_url,
             source_path: Some(path.to_path_buf()),
+            archived: is_archived_path(path),
         })
     }
 
@@ -282,6 +283,18 @@ impl Adapter for CodexAdapter {
     fn supports_yolo(&self) -> bool {
         true
     }
+
+    fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
+        Some(vec!["codex".into(), "unarchive".into(), s.id.clone()])
+    }
+}
+
+/// A session is archived when its file lives under `archived_sessions/`.
+/// Codex archives by moving the rollout file there; the JSONL itself carries no
+/// archive flag, so the directory is the only signal.
+fn is_archived_path(path: &Path) -> bool {
+    path.components()
+        .any(|c| c.as_os_str() == "archived_sessions")
 }
 
 /// Extract the session id from a `rollout-<timestamp>-<uuid>` filename stem.

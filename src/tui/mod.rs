@@ -399,13 +399,17 @@ impl App {
         self.preview_scroll = self.preview_matches[self.preview_match_index];
     }
 
-    /// Enter on a yolo-capable agent opens the confirmation modal; otherwise resume.
+    /// Enter opens the confirmation modal when the session needs confirmation
+    /// (a yolo-capable agent, or an archived session that must be unarchived
+    /// first); otherwise it resumes directly.
     fn activate(&mut self) -> Action {
         if self.results.is_empty() {
             return Action::None;
         }
         let idx = self.selected;
-        if self.yolo_supported.get(idx).copied().unwrap_or(false) {
+        let yolo_capable = self.yolo_supported.get(idx).copied().unwrap_or(false);
+        let archived = self.results.get(idx).is_some_and(|s| s.archived);
+        if yolo_capable || archived {
             self.mode = Mode::YoloModal {
                 index: idx,
                 yolo: false,
@@ -458,6 +462,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }
     }
 
@@ -564,6 +569,24 @@ mod tests {
                 assert!(!yolo);
             }
             other => panic!("expected resume for selected row, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn enter_on_archived_session_opens_confirm_modal_even_without_yolo() {
+        let mut app = App::new();
+        let mut s = sess("arch");
+        s.archived = true;
+        app.set_results(vec![s]);
+        app.set_yolo_supported(vec![false]); // agent does not support yolo
+        assert_eq!(app.handle_key(key(KeyCode::Enter)), Action::None);
+        assert!(
+            app.modal_open(),
+            "archived sessions must be confirmed before resume"
+        );
+        match app.handle_key(key(KeyCode::Enter)) {
+            Action::Resume { index, .. } => assert_eq!(index, 0),
+            other => panic!("expected resume after confirm, got {other:?}"),
         }
     }
 
