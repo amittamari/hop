@@ -8,32 +8,45 @@ use ratatui::widgets::{Block, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
 pub fn lines(theme: &Theme) -> Vec<Line<'static>> {
-    vec![
-        section("Navigation", theme),
-        Line::from("  ↑/↓        move selection"),
-        Line::from("  PgUp/PgDn  page list"),
-        Line::from("  Ctrl+U/D   scroll preview"),
-        Line::from("  Ctrl+N/B   preview matches"),
-        Line::from(""),
-        section("Preview", theme),
-        Line::from("  Ctrl+P     toggle preview"),
-        Line::from("  Ctrl+←/→   resize preview"),
-        Line::from(""),
-        section("Search Editing", theme),
-        Line::from("  ←/→        move cursor"),
-        Line::from("  Home/End   jump cursor"),
-        Line::from("  Backspace  delete left"),
-        Line::from("  Delete     delete at cursor"),
-        Line::from("  Ctrl+A/E   start / end"),
-        Line::from("  Ctrl+W     delete word"),
-        Line::from(""),
-        section("Actions", theme),
-        Line::from("  Enter      resume"),
-        Line::from("  Tab        autocomplete keyword"),
-        Line::from("  ?          toggle help"),
-        Line::from("  Esc        clear query / quit"),
-        Line::from("  Ctrl+C     quit"),
-    ]
+    let table = crate::tui::keymap::bindings();
+    // Pad the key column to the widest key label (skipping the "type"
+    // pseudo-key, which is shown as prose, not a key chord). This replaces the
+    // old hand-counted leading spaces.
+    let key_w = table
+        .iter()
+        .filter(|b| b.keys != "type")
+        .map(|b| b.keys.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    // Distinct groups, in first-seen order.
+    let mut groups: Vec<&'static str> = Vec::new();
+    for b in table {
+        if !groups.contains(&b.group) {
+            groups.push(b.group);
+        }
+    }
+
+    let mut out: Vec<Line<'static>> = Vec::new();
+    for (gi, group) in groups.iter().enumerate() {
+        if gi > 0 {
+            out.push(Line::from(""));
+        }
+        out.push(section(group, theme));
+        for b in table.iter().filter(|b| &b.group == group) {
+            if b.keys == "type" {
+                // Prose row: "type to <label>", no key chord column.
+                out.push(Line::from(format!("  type to {}", b.label)));
+                continue;
+            }
+            let key_col = format!("  {:<width$}  ", b.keys, width = key_w);
+            out.push(Line::from(vec![
+                Span::styled(key_col, Style::default().fg(theme.accent)),
+                Span::raw(b.label.to_string()),
+            ]));
+        }
+    }
+    out
 }
 
 fn section(label: &'static str, theme: &Theme) -> Line<'static> {
@@ -85,9 +98,8 @@ pub fn render(f: &mut Frame, theme: &Theme) {
 mod tests {
     use super::*;
 
-    #[test]
-    fn help_lists_core_bindings() {
-        let text: String = lines(&Theme::default())
+    fn rendered_text() -> String {
+        lines(&Theme::default())
             .iter()
             .map(|x| {
                 x.spans
@@ -96,14 +108,82 @@ mod tests {
                     .collect::<String>()
             })
             .collect::<Vec<_>>()
-            .join("\n");
-        assert!(text.contains("Ctrl+P"));
-        assert!(text.contains("Ctrl+N/B"));
-        assert!(text.contains("Ctrl+←/→"));
-        assert!(text.contains("Tab"));
-        assert!(text.contains("clear query / quit"));
-        // The removed modal keymap and its toggles are gone.
+            .join("\n")
+    }
+
+    #[test]
+    fn help_lists_every_binding_from_table() {
+        let text = rendered_text();
+        for b in crate::tui::keymap::bindings() {
+            assert!(
+                text.contains(b.label),
+                "help overlay missing binding label {:?}",
+                b.label
+            );
+            // The "type" pseudo-key has no literal key column in help.
+            if b.keys != "type" {
+                assert!(
+                    text.contains(b.keys),
+                    "help overlay missing binding keys {:?}",
+                    b.keys
+                );
+            }
+        }
+        // Group headings still render.
+        assert!(text.contains("Navigation"));
+        assert!(text.contains("Preview"));
+        assert!(text.contains("Search Editing"));
+        assert!(text.contains("Actions"));
+        // The removed modal keymap and its toggles stay gone.
         assert!(!text.to_lowercase().contains("modal"));
         assert!(!text.contains("Ctrl+Y"));
+    }
+
+    #[test]
+    fn help_key_column_is_aligned() {
+        // Every non-heading, non-blank row pads the key column to a constant
+        // width, so the label column starts at the same offset on every line.
+        let key_w = crate::tui::keymap::bindings()
+            .iter()
+            .filter(|b| b.keys != "type")
+            .map(|b| b.keys.chars().count())
+            .max()
+            .unwrap();
+        let body = lines(&Theme::default());
+        let mut checked = 0usize;
+        for line in &body {
+            // Rows rendered by the table have exactly two spans: key + label.
+            if line.spans.len() == 2 {
+                let key_span = line.spans[0].content.as_ref();
+                assert_eq!(
+                    key_span.chars().count(),
+                    // leading "  " indent + padded key column + trailing "  "
+                    2 + key_w + 2,
+                    "key column not padded to constant width: {key_span:?}"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "expected at least one table row");
+    }
+
+    #[test]
+    fn overlay_renders_labels_into_buffer() {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+
+        let backend = TestBackend::new(64, 40);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| render(f, &Theme::default())).unwrap();
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("toggle preview"));
+        assert!(text.contains("resume"));
+        assert!(text.contains("help"));
     }
 }

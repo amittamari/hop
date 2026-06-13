@@ -257,24 +257,37 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 }
 
-const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
-
-/// Static, low-priority hints shown on the left of the footer. Dropped first
-/// when the terminal is too narrow for both halves.
+/// Static, low-priority hints shown on the left of the footer, built from the
+/// `primary` subset of the canonical bindings table. Dropped first (clipped by
+/// the SpaceBetween layout) when the terminal is too narrow for both halves.
 fn footer_hints_line(theme: &Theme) -> Line<'static> {
+    let primary: Vec<String> = crate::tui::keymap::bindings()
+        .iter()
+        .filter(|b| b.primary)
+        .map(|b| {
+            if b.keys == "type" {
+                format!("type to {}", b.label)
+            } else {
+                format!("{} {}", b.keys, b.label)
+            }
+        })
+        .collect();
+
     let mut spans = Vec::new();
-    let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
-    spans.push(Span::styled(
-        label.to_string(),
-        Style::default()
-            .fg(theme.accent)
-            .add_modifier(Modifier::BOLD),
-    ));
-    if !rest.is_empty() {
-        spans.push(Span::styled(
-            format!(" · {rest}"),
-            Style::default().fg(theme.muted),
-        ));
+    for (i, hint) in primary.iter().enumerate() {
+        if i == 0 {
+            spans.push(Span::styled(
+                hint.clone(),
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(
+                format!(" · {hint}"),
+                Style::default().fg(theme.muted),
+            ));
+        }
     }
     Line::from(spans)
 }
@@ -952,9 +965,67 @@ mod tests {
             .map(|c| c.symbol())
             .collect();
         assert!(text.contains("type to search"));
-        assert!(text.contains("Esc clear/quit"));
+        // Esc hint derives from the bindings table label ("clear query / quit");
+        // assert on a stable substring rather than exact spacing.
+        assert!(text.contains("clear"));
         // No mode indicators remain.
         assert!(!text.contains("NAV"));
+    }
+
+    fn footer_text(width: u16, preview: bool) -> String {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_preview(preview, 50);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(width, 8);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        term.backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn footer_shows_only_primary_actions() {
+        // The footer is the compact primary subset of the bindings table; it must
+        // not spill preview vocabulary or navigation chords, even when the preview
+        // pane is visible on a wide terminal.
+        let wide = footer_text(160, true);
+        assert!(wide.contains("type to search"));
+        assert!(wide.contains("Enter resume"));
+        assert!(wide.contains("clear"));
+        assert!(
+            !wide.contains("Ctrl+P") && !wide.contains("toggle preview"),
+            "footer must not show preview vocabulary: {wide:?}"
+        );
+        assert!(
+            !wide.contains("move selection"),
+            "footer must not show non-primary navigation hints: {wide:?}"
+        );
     }
 
     #[test]

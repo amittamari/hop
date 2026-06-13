@@ -738,4 +738,92 @@ mod tests {
         assert_eq!(app.handle_key(key(KeyCode::Char('`'))), Action::Search);
         assert_eq!(app.query(), "`");
     }
+
+    /// Map a Binding's display key label to a representative KeyEvent.
+    /// Returns None for the "type" pseudo-binding (tested separately).
+    fn binding_event(keys: &str) -> Option<KeyEvent> {
+        use KeyCode::*;
+        let ctrl = KeyModifiers::CONTROL;
+        let none = KeyModifiers::NONE;
+        let ev = KeyEvent::new;
+        Some(match keys {
+            "↑/↓" => ev(Up, none),
+            "PgUp/PgDn" => ev(PageDown, none),
+            // Scroll-down rep: scroll-up at offset 0 is a no-op, so the pair is
+            // represented by Ctrl+D, which always moves the preview.
+            "Ctrl+U/D" => ev(Char('d'), ctrl),
+            "Ctrl+N/B" => ev(Char('n'), ctrl),
+            "Ctrl+P" => ev(Char('p'), ctrl),
+            "Ctrl+←/→" => ev(Left, ctrl),
+            "←/→" => ev(Left, none),
+            "Home/End" => ev(Home, none),
+            "Backspace" => ev(Backspace, none),
+            "Delete" => ev(Delete, none),
+            "Ctrl+A/E" => ev(Char('a'), ctrl),
+            "Ctrl+W" => ev(Char('w'), ctrl),
+            "Enter" => ev(Enter, none),
+            "Tab" => ev(Tab, none),
+            "?" => ev(Char('?'), none),
+            "Esc" => ev(Esc, none),
+            "Ctrl+C" => ev(Char('c'), ctrl),
+            "type" => return None,
+            other => panic!("binding key {other:?} has no representative event mapping"),
+        })
+    }
+
+    /// Snapshot of all observable App state a binding could plausibly change.
+    fn state_snapshot(app: &App) -> (usize, String, usize, bool, u16, u16, bool, bool) {
+        (
+            app.selected(),
+            app.query().to_string(),
+            app.query_cursor(),
+            app.preview_visible(),
+            app.preview_width_pct(),
+            app.preview_scroll(),
+            app.help_open(),
+            app.modal_open(),
+        )
+    }
+
+    #[test]
+    fn every_binding_is_handled() {
+        for b in crate::tui::keymap::bindings() {
+            let Some(ev) = binding_event(b.keys) else {
+                continue; // "type" tested in `typing_updates_query_and_requests_search`
+            };
+            // Fresh app per binding; populated + yolo-supported so Enter has work.
+            let mut app = app_with(3);
+            // Give some query + preview matches so editing/match-nav chords act.
+            for c in "agent:cl".chars() {
+                app.handle_key(key(KeyCode::Char(c)));
+            }
+            app.set_preview_matches(vec![1, 5]);
+            app.handle_key(key(KeyCode::Down)); // ensure Up/PageUp have room to move
+            app.handle_key(key(KeyCode::Left)); // cursor off the end so Delete/End act
+            let before = state_snapshot(&app);
+            let action = app.handle_key(ev);
+            let after = state_snapshot(&app);
+            let did_something = action != Action::None || before != after;
+            assert!(
+                did_something,
+                "binding {:?} ({:?}) fell into the no-op arm: no Action and no state change",
+                b.keys, b.label
+            );
+        }
+    }
+
+    /// H3 decision (documented): the yolo confirm modal owns its own inline
+    /// legend ("Tab toggles yolo · Enter resumes · Esc cancels"). `?` is NOT
+    /// routed to help from the modal — it intentionally does nothing. The
+    /// global footer's "? help" applies to the main view only.
+    #[test]
+    fn question_is_noop_inside_yolo_modal() {
+        let mut app = app_with(1);
+        app.open_yolo_modal();
+        assert!(app.modal_open());
+        let action = app.handle_key(key(KeyCode::Char('?')));
+        assert_eq!(action, Action::None);
+        assert!(app.modal_open(), "? must not close or change the modal");
+        assert!(!app.help_open(), "? must not open help from the modal");
+    }
 }
