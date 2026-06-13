@@ -179,6 +179,7 @@ fn run_tui(
                         columns: &columns,
                         enrichers: render_enrichers,
                         resolved: &enrichment.resolved,
+                        query_terms: &terms,
                         preview_lines: &preview_state.lines,
                         status: &status,
                         modal_command: modal_command.as_deref(),

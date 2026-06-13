@@ -6,9 +6,7 @@ use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap,
-};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -41,6 +39,7 @@ pub struct RenderModel<'a> {
     pub columns: &'a [Column],
     pub enrichers: &'a [Box<dyn Enricher>],
     pub resolved: &'a HashMap<(String, &'static str), Option<String>>,
+    pub query_terms: &'a [String],
     pub preview_lines: &'a [Line<'static>],
     pub status: &'a StatusLine,
     pub modal_command: Option<&'a [String]>,
@@ -114,21 +113,16 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    let terms = crate::query::parse(app.query()).free_terms();
+    let ctx = results_list::RowCtx {
+        enrichers: model.enrichers,
+        resolved: model.resolved,
+        now: model.now,
+        terms: model.query_terms,
+        theme: &model.theme,
+    };
     let rows: Vec<Row> = visible_results
         .iter()
-        .map(|s| {
-            results_list::session_row(
-                s,
-                &layout,
-                cols,
-                model.enrichers,
-                model.resolved,
-                model.now,
-                &terms,
-                &model.theme,
-            )
-        })
+        .map(|s| results_list::session_row(s, &layout, cols, &ctx))
         .collect();
     let mut state = TableState::default();
     if !visible_results.is_empty() {
@@ -204,7 +198,6 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         help::render(f, &model.theme);
     }
 }
-
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
@@ -505,6 +498,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &lines,
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -570,6 +564,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &status,
                     modal_command: Some(&command),
@@ -627,6 +622,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -640,13 +636,22 @@ mod tests {
         let marker = SELECTION_MARKER.trim();
         let has_marker = buf.content().iter().any(|c| c.symbol() == marker);
         assert!(has_marker, "selection marker should be rendered");
-        let has_sel_bg = buf.content().iter().any(|c| c.bg == crate::tui::theme::Theme::default().selection_bg);
-        assert!(has_sel_bg, "selected row should carry the selection background");
+        let has_sel_bg = buf
+            .content()
+            .iter()
+            .any(|c| c.bg == crate::tui::theme::Theme::default().selection_bg);
+        assert!(
+            has_sel_bg,
+            "selected row should carry the selection background"
+        );
         let has_sel_fg = buf.content().iter().any(|c| {
             c.fg == crate::tui::theme::Theme::default().selection_fg
                 && c.bg == crate::tui::theme::Theme::default().selection_bg
         });
-        assert!(has_sel_fg, "selected row text should use the selection fg over selection bg");
+        assert!(
+            has_sel_fg,
+            "selected row text should use the selection fg over selection bg"
+        );
     }
 
     #[test]
@@ -670,6 +675,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -730,6 +736,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &preview_lines,
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -777,6 +784,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -785,10 +793,22 @@ mod tests {
             )
         })
         .unwrap();
-        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
-        assert!(text.contains("TITLE"), "TITLE header must survive narrow width");
+        let text: String = term
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(
+            text.contains("TITLE"),
+            "TITLE header must survive narrow width"
+        );
         assert!(text.contains("fix auth"), "title value must survive");
-        assert!(!text.contains("PR"), "lowest-priority PR column should be dropped");
+        assert!(
+            !text.contains("PR"),
+            "lowest-priority PR column should be dropped"
+        );
     }
 
     #[test]
@@ -815,6 +835,7 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
+        let terms = vec!["auth".to_string()];
         let backend = TestBackend::new(100, 8);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -826,6 +847,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &terms,
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -835,8 +857,14 @@ mod tests {
         })
         .unwrap();
         let buf = term.backend().buffer();
-        let any_reversed = buf.content().iter().any(|c| c.modifier.contains(Modifier::REVERSED));
-        assert!(any_reversed, "matched query term in title should render reversed");
+        let any_reversed = buf
+            .content()
+            .iter()
+            .any(|c| c.modifier.contains(Modifier::REVERSED));
+        assert!(
+            any_reversed,
+            "matched query term in title should render reversed"
+        );
     }
 
     #[test]
@@ -882,6 +910,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
@@ -944,6 +973,7 @@ mod tests {
                     columns: &cols,
                     enrichers: &enr,
                     resolved: &resolved,
+                    query_terms: &[],
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
