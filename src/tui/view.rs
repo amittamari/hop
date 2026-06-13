@@ -47,6 +47,18 @@ pub struct RenderModel<'a> {
 
 const SELECTION_MARKER: &str = "❯ ";
 
+/// Braille throbber frames, indexed by the per-redraw frame counter. Hand-rolled
+/// to avoid a spinner crate; advances one frame per redraw (the run loop polls
+/// every 50ms, so it animates smoothly).
+pub(crate) const SPINNER_FRAMES: [&str; 10] = [
+    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
+];
+
+/// The current throbber glyph for a given frame counter.
+fn spinner_frame(frame: u64) -> &'static str {
+    SPINNER_FRAMES[(frame as usize) % SPINNER_FRAMES.len()]
+}
+
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -63,7 +75,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // The query input is always live, so the prompt and query stay bright and
     // the caret is shown whenever no overlay is covering the input.
-    let header = Line::from(vec![
+    let mut header = Line::from(vec![
         Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
         Span::styled(
             app.query().to_string(),
@@ -71,6 +83,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         ),
         Span::raw(format!("   {}/{}", pos, total)).fg(model.theme.muted),
     ]);
+    if let Some(count) = app.indexing() {
+        header.spans.push(Span::styled(
+            format!("   {} indexing {count}…", spinner_frame(app.frame())),
+            Style::default().fg(model.theme.muted),
+        ));
+    }
     f.render_widget(Paragraph::new(header), chunks[0]);
     if !app.help_open() && !app.modal_open() {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
@@ -581,6 +599,43 @@ mod tests {
         assert!(text.contains("fix auth"));
         assert!(!text.contains("Type to search"));
         assert!(!text.contains("No sessions match"));
+    }
+
+    #[test]
+    fn indexing_state_shows_spinner_and_label() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_indexing(Some(7));
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        // The braille frame at frame=0 is the first table entry.
+        assert!(text.contains(SPINNER_FRAMES[0]));
+        assert!(text.contains("indexing 7"));
     }
 
     #[test]
