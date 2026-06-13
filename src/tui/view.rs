@@ -59,6 +59,12 @@ fn spinner_frame(frame: u64) -> &'static str {
     SPINNER_FRAMES[(frame as usize) % SPINNER_FRAMES.len()]
 }
 
+/// Public throbber glyph for callers outside this module (e.g. the pending
+/// enricher cell), reusing the same frame table.
+pub(crate) fn spinner_glyph(frame: u64) -> &'static str {
+    spinner_frame(frame)
+}
+
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -145,11 +151,13 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             model.enrichers,
             model.resolved,
             model.now,
+            app.frame(),
         );
         let ctx = results_list::RowCtx {
             enrichers: model.enrichers,
             resolved: model.resolved,
             now: model.now,
+            frame: app.frame(),
             terms: model.query_terms,
             theme: &model.theme,
         };
