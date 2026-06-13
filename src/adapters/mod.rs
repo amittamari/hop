@@ -22,6 +22,12 @@ pub trait Adapter: Send + Sync {
     /// argv for resuming this session (program + args).
     fn resume_command(&self, s: &Session, yolo: bool) -> Vec<String>;
     fn supports_yolo(&self) -> bool;
+    /// argv for unarchiving an archived session before it can be resumed, or
+    /// `None` when the agent has no archive notion. Only consulted for sessions
+    /// flagged `archived`.
+    fn unarchive_command(&self, _s: &Session) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// Default v1 adapters, honoring config data-dir overrides.

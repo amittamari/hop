@@ -27,7 +27,7 @@ CLI/config
   -> SearchIndex stores searchable Session documents
   -> Engine exposes SessionSummary rows, Transcript data, and ResumeCommand data
   -> TUI renders results and selected transcript
-  -> Resume execs the selected agent command
+  -> Resume runs any prepare step, then execs the selected agent command
 ```
 
 On launch, the foreground engine opens the existing Tantivy index and searches it
@@ -59,7 +59,9 @@ rows and surface as sync status warnings.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
   synchronous; slow enrichers run through `EnrichmentService`.
 - `src/columns.rs`: column definitions and responsive width solving.
-- `src/resume.rs`: terminal-safe process handoff through `exec`.
+- `src/resume.rs`: terminal-safe process handoff through `exec`, plus an
+  optional run-and-wait prepare step (e.g. `codex unarchive <id>` for archived
+  sessions) executed after terminal restore and before the resume `exec`.
 - `src/config.rs`: optional TOML config and persisted UI state.
 
 ## Stable Boundaries

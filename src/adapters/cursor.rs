@@ -316,6 +316,7 @@ impl Adapter for CursorAdapter {
             branch: None,
             repo_url,
             source_path: Some(path.to_path_buf()),
+            archived: false,
         })
     }
 

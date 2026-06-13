@@ -36,6 +36,42 @@ fn parses_meta_clean_text_and_detects_yolo() {
 }
 
 #[test]
+fn flags_archived_sessions_by_directory() {
+    let tmp = tempfile::tempdir().unwrap();
+    let active = tmp.path().join("sessions/2026/06/04");
+    let archived = tmp.path().join("archived_sessions");
+    std::fs::create_dir_all(&active).unwrap();
+    std::fs::create_dir_all(&archived).unwrap();
+    let line = "{\"type\":\"session_meta\",\"timestamp\":\"2026-06-04T10:00:00.000Z\",\"payload\":{\"id\":\"s\",\"cwd\":\"/x\"}}\n";
+    let active_file = active.join("rollout-2026-06-04T10-00-00-active.jsonl");
+    let archived_file = archived.join("rollout-2026-06-04T10-00-00-archived.jsonl");
+    std::fs::write(&active_file, line).unwrap();
+    std::fs::write(&archived_file, line).unwrap();
+
+    let adapter = CodexAdapter::new(tmp.path().to_path_buf());
+    assert!(
+        !adapter.parse(&active_file).unwrap().archived,
+        "sessions under sessions/ are not archived"
+    );
+    assert!(
+        adapter.parse(&archived_file).unwrap().archived,
+        "sessions under archived_sessions/ are archived"
+    );
+}
+
+#[test]
+fn codex_unarchive_command_wraps_session_id() {
+    let adapter = CodexAdapter::new(PathBuf::from("/unused"));
+    let s = adapter
+        .parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl"))
+        .unwrap();
+    assert_eq!(
+        adapter.unarchive_command(&s),
+        Some(vec!["codex".into(), "unarchive".into(), s.id.clone()])
+    );
+}
+
+#[test]
 fn scan_keys_by_full_uuid() {
     let tmp = tempfile::tempdir().unwrap();
     let day = tmp.path().join("sessions/2026/06/04");

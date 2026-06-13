@@ -129,6 +129,7 @@ mod tests {
             branch: Some("main".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         };
         assert_eq!(GhPrEnricher.resolve(&s), None);
     }

@@ -199,6 +199,9 @@ pub struct Session {
     pub repo_url: Option<String>,
     /// Source JSONL path used for preview transcript loading.
     pub source_path: Option<PathBuf>,
+    /// Session was archived by the agent (Codex moves these to
+    /// `archived_sessions/`). Always false for agents without an archive notion.
+    pub archived: bool,
 }
 
 impl Session {
@@ -218,6 +221,7 @@ impl Session {
             branch: self.branch.clone(),
             repo_url: self.repo_url.clone(),
             source_path: self.source_path.clone(),
+            archived: self.archived,
         }
     }
 }
@@ -239,6 +243,9 @@ pub struct SessionSummary {
     pub repo_url: Option<String>,
     /// Source JSONL path used for preview transcript loading.
     pub source_path: Option<PathBuf>,
+    /// Session was archived by the agent (Codex). False for agents without an
+    /// archive notion.
+    pub archived: bool,
 }
 
 impl SessionSummary {
@@ -256,6 +263,9 @@ pub struct Transcript {
 pub struct ResumeCommand {
     pub directory: String,
     pub argv: Vec<String>,
+    /// Command to run-and-wait before `argv`, e.g. unarchiving an archived
+    /// Codex session so `resume` can find it. `None` when no prep is needed.
+    pub prepare: Option<Vec<String>>,
 }
 
 /// Collapse whitespace runs to single spaces, trimming ends.

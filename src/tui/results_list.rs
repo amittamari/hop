@@ -6,7 +6,7 @@ use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::theme::Theme;
 use crate::tui::view::rel_time;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Row};
 use std::collections::HashMap;
@@ -119,6 +119,10 @@ pub struct RowCtx<'a> {
     pub theme: &'a Theme,
 }
 
+/// Marker prefixed to the title of archived sessions so the state is explicit
+/// beyond the row dimming.
+const ARCHIVED_MARKER: &str = "arch ";
+
 /// Build one Table row for a session across the kept (visible) columns.
 pub fn session_row(
     session: &SessionSummary,
@@ -131,7 +135,13 @@ pub fn session_row(
         .map(|&(ci, width)| {
             let col = &columns[ci];
             if col.id == "title" {
-                Cell::from(title_line(&session.title, width, ctx.terms, ctx.theme))
+                Cell::from(title_line(
+                    &session.title,
+                    width,
+                    ctx.terms,
+                    ctx.theme,
+                    session.archived,
+                ))
             } else {
                 let (text, style) = cell(
                     session,
@@ -146,18 +156,51 @@ pub fn session_row(
             }
         })
         .collect();
-    Row::new(cells).height(1)
+    let row = Row::new(cells).height(1);
+    // Dim the whole row for archived sessions; the selection highlight still
+    // layers on top via the Table's row_highlight_style.
+    if session.archived {
+        row.style(Style::default().add_modifier(Modifier::DIM))
+    } else {
+        row
+    }
 }
 
 /// Build the TITLE line, reverse-highlighting any query-term matches by
-/// reusing the preview's multi-byte-safe highlighter.
-fn title_line(title: &str, width: u16, terms: &[String], theme: &Theme) -> Line<'static> {
-    let base = Line::from(Span::raw(fit(title, width, crate::columns::Align::Left)));
-    if terms.is_empty() {
+/// reusing the preview's multi-byte-safe highlighter. Archived sessions get a
+/// muted `arch` marker prefixed to the title within the same cell width.
+fn title_line(
+    title: &str,
+    width: u16,
+    terms: &[String],
+    theme: &Theme,
+    archived: bool,
+) -> Line<'static> {
+    let marker_width = if archived {
+        ARCHIVED_MARKER.len() as u16
+    } else {
+        0
+    };
+    let title_width = width.saturating_sub(marker_width);
+    let base = Line::from(Span::raw(fit(
+        title,
+        title_width,
+        crate::columns::Align::Left,
+    )));
+    let highlighted = if terms.is_empty() {
         base
     } else {
         crate::tui::preview::highlight_terms(&base, terms, theme)
+    };
+    if !archived {
+        return highlighted;
     }
+    let mut spans = vec![Span::styled(
+        ARCHIVED_MARKER,
+        Style::default().fg(theme.muted),
+    )];
+    spans.extend(highlighted.spans);
+    Line::from(spans)
 }
 
 /// Build the muted header row for the kept columns. Styled at the Row level so
@@ -189,6 +232,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }
     }
 
@@ -291,12 +335,27 @@ mod tests {
     fn title_line_highlights_query_terms() {
         use ratatui::style::Modifier;
         let terms = vec!["auth".to_string()];
-        let line = super::title_line("fix auth bug", 40, &terms, &Theme::default());
+        let line = super::title_line("fix auth bug", 40, &terms, &Theme::default(), false);
         assert!(
             line.spans.iter().any(|s| {
                 s.content.contains("auth") && s.style.add_modifier.contains(Modifier::REVERSED)
             }),
             "matched term in title must be reverse-highlighted"
+        );
+    }
+
+    #[test]
+    fn archived_title_gets_muted_marker_prefix() {
+        let theme = Theme::default();
+        let line = super::title_line("fix auth", 40, &[], &theme, true);
+        let first = line.spans.first().expect("title line has spans");
+        assert_eq!(first.content, super::ARCHIVED_MARKER);
+        assert_eq!(first.style.fg, Some(theme.muted));
+        // Non-archived titles carry no marker.
+        let plain = super::title_line("fix auth", 40, &[], &theme, false);
+        assert_ne!(
+            plain.spans.first().map(|s| s.content.as_ref()),
+            Some(super::ARCHIVED_MARKER)
         );
     }
 }

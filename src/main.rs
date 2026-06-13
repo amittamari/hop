@@ -102,8 +102,13 @@ fn main() -> Result<()> {
             .unwrap_or_else(|| ResumeCommand {
                 directory: session.directory.clone(),
                 argv: Vec::new(),
+                prepare: None,
             });
         // terminal already restored by run_tui's Drop/restore
+        // Run any prep step (e.g. `codex unarchive <id>`) before exec-resuming.
+        if let Some(prepare) = &command.prepare {
+            resume::run_prepare(prepare)?;
+        }
         resume::exec_resume(&command.directory, &command.argv)?;
     }
     Ok(())

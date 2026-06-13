@@ -144,10 +144,17 @@ impl Engine {
         yolo: bool,
     ) -> Option<ResumeCommand> {
         let full = self.indexed_session(session)?;
-        let argv = self.adapter_for(full.agent)?.resume_command(&full, yolo);
+        let adapter = self.adapter_for(full.agent)?;
+        let argv = adapter.resume_command(&full, yolo);
+        // Archived sessions need an unarchive step before `resume` can find them.
+        let prepare = full
+            .archived
+            .then(|| adapter.unarchive_command(&full))
+            .flatten();
         Some(ResumeCommand {
             directory: full.directory,
             argv,
+            prepare,
         })
     }
 
@@ -328,6 +335,9 @@ mod tests {
         fn supports_yolo(&self) -> bool {
             true
         }
+        fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
+            Some(vec!["unarchive".into(), s.id.clone()])
+        }
     }
 
     fn sess(id: &str, title: &str) -> Session {
@@ -348,6 +358,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }
     }
 
@@ -407,6 +418,43 @@ mod tests {
         engine.search().unwrap();
         assert_eq!(engine.results().len(), 1);
         assert_eq!(engine.results()[0].id, "a");
+    }
+
+    #[test]
+    fn resume_command_adds_unarchive_prepare_only_for_archived() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut active = sess("active", "live one");
+        active.archived = false;
+        let mut archived = sess("gone", "old one");
+        archived.archived = true;
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![adapter(AgentId::Claude, vec![active, archived])];
+        let mut engine = Engine::new(dir.path(), adapters).unwrap();
+        engine.sync_once().unwrap();
+        engine.set_query("");
+        engine.search().unwrap();
+
+        let row = |id: &str| {
+            engine
+                .results()
+                .iter()
+                .find(|s| s.id == id)
+                .cloned()
+                .unwrap()
+        };
+        let active_cmd = engine.resume_command_for(&row("active"), false).unwrap();
+        assert_eq!(active_cmd.prepare, None, "active sessions need no prep");
+
+        let archived_cmd = engine.resume_command_for(&row("gone"), false).unwrap();
+        assert_eq!(
+            archived_cmd.prepare,
+            Some(vec!["unarchive".to_string(), "gone".to_string()]),
+            "archived sessions unarchive before resuming"
+        );
+        assert_eq!(
+            archived_cmd.argv,
+            vec!["echo".to_string(), "gone".to_string()]
+        );
     }
 
     #[test]

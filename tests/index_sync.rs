@@ -18,6 +18,7 @@ fn sess(id: &str, title: &str, content: &str, agent: AgentId, ts: i64, mtime: i6
         branch: None,
         repo_url: None,
         source_path: None,
+        archived: false,
     }
 }
 
@@ -322,6 +323,7 @@ fn branch_roundtrips_through_index() {
         branch: Some("feat/x".into()),
         repo_url: Some("git@github.com:me/web.git".into()),
         source_path: Some(std::path::PathBuf::from("/sessions/a.jsonl")),
+        archived: false,
     };
     idx.upsert(&mut w, &s);
     w.commit().unwrap();

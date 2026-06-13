@@ -34,6 +34,7 @@ struct Fields {
     branch: Field,
     repo_url: Field,
     source_path: Field,
+    archived: Field,
 }
 
 pub struct SearchIndex {
@@ -58,6 +59,7 @@ fn build_schema() -> (Schema, Fields) {
         branch: b.add_text_field("branch", STRING | STORED),
         repo_url: b.add_text_field("repo_url", STRING | STORED),
         source_path: b.add_text_field("source_path", STRING | STORED),
+        archived: b.add_u64_field("archived", STORED),
     };
     (b.build(), f)
 }
@@ -115,6 +117,7 @@ impl SearchIndex {
         doc.add_u64(self.f.mtime, s.mtime.max(0) as u64);
         doc.add_u64(self.f.message_count, s.message_count as u64);
         doc.add_u64(self.f.yolo, s.yolo as u64);
+        doc.add_u64(self.f.archived, s.archived as u64);
         if let Some(b) = &s.branch {
             doc.add_text(self.f.branch, b);
         }
@@ -340,6 +343,7 @@ impl SearchIndex {
                     Some(p.into())
                 }
             },
+            archived: get_u64(self.f.archived) != 0,
         }
     }
 
@@ -383,6 +387,7 @@ impl SearchIndex {
                     Some(p.into())
                 }
             },
+            archived: get_u64(self.f.archived) != 0,
         }
     }
 }

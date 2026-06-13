@@ -388,12 +388,14 @@ fn render_yolo_modal(
     if area.width < 4 || area.height < 4 {
         return;
     }
+    let archived = session.is_some_and(|s| s.archived);
     let max_w = area.width.saturating_sub(2);
     let max_h = area.height.saturating_sub(2);
     let min_w = 20.min(max_w);
     let min_h = 6.min(max_h);
     let w = 72u16.min(max_w).max(min_w);
-    let h = 10u16.min(max_h).max(min_h);
+    // Archived sessions add an extra notice line, so the box is one row taller.
+    let h = if archived { 11u16 } else { 10u16 }.min(max_h).max(min_h);
     let rect = center(area, w, h);
 
     let title = session
@@ -412,7 +414,7 @@ fn render_yolo_modal(
         "YOLO off: normal resume"
     };
 
-    let body = vec![
+    let mut body = vec![
         Line::from(vec![
             Span::styled("Session  ", Style::default().fg(theme.muted)),
             Span::raw(title),
@@ -425,21 +427,41 @@ fn render_yolo_modal(
             Span::styled("Command   ", Style::default().fg(theme.muted)),
             Span::raw(command),
         ]),
-        Line::from(""),
-        Line::from(Span::styled(
-            danger,
-            if yolo {
+    ];
+    if archived {
+        body.push(Line::from(vec![
+            Span::styled("Archived  ", Style::default().fg(theme.muted)),
+            Span::styled(
+                "session is archived; it will be unarchived first",
                 Style::default()
                     .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme.muted)
-            },
-        )),
-        Line::from(""),
-        Line::from("Tab toggles yolo · Enter resumes · Esc cancels"),
-    ];
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+    body.push(Line::from(""));
+    body.push(Line::from(Span::styled(
+        danger,
+        if yolo {
+            Style::default()
+                .fg(theme.warning)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(theme.muted)
+        },
+    )));
+    body.push(Line::from(""));
+    body.push(Line::from(if archived {
+        "Tab toggles yolo · Enter unarchives & resumes · Esc cancels"
+    } else {
+        "Tab toggles yolo · Enter resumes · Esc cancels"
+    }));
 
+    let modal_title = if archived {
+        " unarchive & resume "
+    } else {
+        " confirm resume "
+    };
     f.buffer_mut().set_style(
         area,
         Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
@@ -447,7 +469,7 @@ fn render_yolo_modal(
     f.render_widget(Clear, rect);
     f.render_widget(
         Paragraph::new(body)
-            .block(Block::bordered().title(" confirm resume "))
+            .block(Block::bordered().title(modal_title))
             .alignment(Alignment::Left),
         rect,
     );
@@ -648,6 +670,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -682,6 +705,63 @@ mod tests {
         assert!(text.contains("fix auth"));
         assert!(!text.contains("Type to search"));
         assert!(!text.contains("No sessions match"));
+    }
+
+    #[test]
+    fn archived_row_renders_marker_and_dims_cells() {
+        use crate::enrich::Enricher;
+        use ratatui::style::Modifier;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Codex,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: true,
+        }]);
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains("arch fix auth"),
+            "archived marker prefixes title"
+        );
+        // The title cell on the archived row must carry the DIM modifier.
+        let dimmed = buf
+            .content()
+            .iter()
+            .any(|c| c.symbol().contains('f') && c.modifier.contains(Modifier::DIM));
+        assert!(dimmed, "archived row cells must be dimmed");
     }
 
     #[test]
@@ -747,6 +827,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -810,6 +891,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         app.open_yolo_modal_with(true);
 
@@ -882,6 +964,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
@@ -1050,6 +1133,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
@@ -1103,6 +1187,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1165,6 +1250,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1227,6 +1313,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         app.open_yolo_modal_with(true);
 
@@ -1290,6 +1377,7 @@ mod tests {
             branch: None,
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         app.open_yolo_modal_with(true);
 
@@ -1327,6 +1415,66 @@ mod tests {
     }
 
     #[test]
+    fn confirm_modal_for_archived_session_explains_unarchive() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Codex,
+            title: "fix auth".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: true,
+        }]);
+        app.open_yolo_modal_with(false);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let backend = TestBackend::new(120, 18);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains("unarchive & resume"),
+            "archived modal title should mention unarchive"
+        );
+        assert!(
+            text.contains("it will be unarchived first"),
+            "archived modal should explain the unarchive step"
+        );
+        assert!(
+            text.contains("unarchives & resumes"),
+            "archived modal legend should reflect the unarchive step"
+        );
+    }
+
+    #[test]
     fn tiny_terminal_shows_too_small_message() {
         use crate::enrich::Enricher;
         use std::collections::HashMap;
@@ -1343,6 +1491,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1396,6 +1545,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1460,6 +1610,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1573,6 +1724,7 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
+            archived: false,
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
