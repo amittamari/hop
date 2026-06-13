@@ -18,6 +18,10 @@ pub struct Cli {
     #[arg(short, long)]
     pub dir: Option<String>,
 
+    /// Filter by git remote URL substring (matches across all worktrees).
+    #[arg(short, long)]
+    pub repo: Option<String>,
+
     /// Force yolo resume when supported.
     #[arg(long)]
     pub yolo: bool,
@@ -37,6 +41,9 @@ impl Cli {
         if let Some(d) = &self.dir {
             parts.push(format!("dir:{d}"));
         }
+        if let Some(r) = &self.repo {
+            parts.push(format!("repo:{r}"));
+        }
         if let Some(q) = &self.query {
             parts.push(q.clone());
         }
@@ -54,9 +61,10 @@ mod tests {
             query: Some("auth".into()),
             agent: Some("claude".into()),
             dir: Some("api".into()),
+            repo: Some("hop".into()),
             yolo: false,
             rebuild: false,
         };
-        assert_eq!(cli.initial_query(), "agent:claude dir:api auth");
+        assert_eq!(cli.initial_query(), "agent:claude dir:api repo:hop auth");
     }
 }

@@ -13,6 +13,14 @@ pub struct DirFilter {
     pub exclude: Vec<String>,
 }
 
+/// Substring include/exclude on the git remote URL. Unlike `dir`, this is stable
+/// across every worktree of a repo, so `repo:` finds all sessions for one repo.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RepoFilter {
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DateFilter {
     Today,
@@ -91,6 +99,7 @@ pub struct ParsedQuery {
     pub free_text: String,
     pub agents: AgentFilter,
     pub dirs: DirFilter,
+    pub repos: RepoFilter,
     pub date: Option<DateFilter>,
 }
 
@@ -136,6 +145,12 @@ impl ParsedQuery {
         for dir in &self.dirs.exclude {
             filters.push(format!("-dir:{dir}"));
         }
+        for repo in &self.repos.include {
+            filters.push(format!("repo:{repo}"));
+        }
+        for repo in &self.repos.exclude {
+            filters.push(format!("-repo:{repo}"));
+        }
         if let Some(date) = self.date {
             filters.push(date.summary());
         }
@@ -166,6 +181,13 @@ pub fn parse(input: &str) -> ParsedQuery {
                         q.dirs.exclude.push(val.to_string());
                     } else {
                         q.dirs.include.push(val.to_string());
+                    }
+                }
+                "repo" => {
+                    if negated {
+                        q.repos.exclude.push(val.to_string());
+                    } else {
+                        q.repos.include.push(val.to_string());
                     }
                 }
                 "date" => {
@@ -317,6 +339,14 @@ mod tests {
     }
 
     #[test]
+    fn repo_filters_include_and_exclude() {
+        let q = parse("repo:hop -repo:vendor bug");
+        assert_eq!(q.repos.include, vec!["hop".to_string()]);
+        assert_eq!(q.repos.exclude, vec!["vendor".to_string()]);
+        assert_eq!(q.free_text, "bug");
+    }
+
+    #[test]
     fn date_keywords_and_comparisons() {
         assert_eq!(parse("date:today").date, Some(DateFilter::Today));
         assert_eq!(parse("date:yesterday").date, Some(DateFilter::Yesterday));
@@ -435,10 +465,10 @@ mod tests {
 
     #[test]
     fn filter_summary_is_parsed_not_raw_text() {
-        let q = parse("auth -agent:codex dir:api -dir:vendor date:<2d");
+        let q = parse("auth -agent:codex dir:api -dir:vendor repo:hop date:<2d");
         assert_eq!(
             q.filter_summary().as_deref(),
-            Some("-agent:codex,dir:api,-dir:vendor,date:<2d")
+            Some("-agent:codex,dir:api,-dir:vendor,repo:hop,date:<2d")
         );
     }
 }

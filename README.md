@@ -1,19 +1,19 @@
 # 🐇 hop
 
-Fast full-text search and resume for coding-agent sessions (**Claude Code** + **Codex**).
+Fast full-text search and resume for coding-agent sessions (**Claude Code**, **Codex**, and **Cursor**).
 
-`hop` aggregates your past Claude Code and Codex sessions into a single full-text index, allowing you to jump straight back into any of them. Type a few words you remember, pick the result, hit Enter, and you are immediately resumed in the original agent and the original working directory.
+`hop` aggregates your past Claude Code, Codex, and Cursor sessions into a single full-text index, allowing you to jump straight back into any of them. Type a few words you remember, pick the result, hit Enter, and you are immediately resumed in the original agent and the original working directory.
 
 ---
 
 ## ✨ Features
 
-* **🔎 Full-text search across every session** — A Tantivy index over your entire Claude Code and Codex history. Fuzzy and exact matching across full conversation transcripts, not just titles.
-* **🤖 Multi-agent, one index** — Claude Code and Codex sessions live side by side, normalized into a single searchable view.
+* **🔎 Full-text search across every session** — A Tantivy index over your entire Claude Code, Codex, and Cursor history. Fuzzy and exact matching across full conversation transcripts, not just titles.
+* **🤖 Multi-agent, one index** — Claude Code, Codex, and Cursor sessions live side by side, normalized into a single searchable view.
 * **⚡ Instant resume** — Pick a session and `hop` restores the terminal, `chdir`s to the original working directory, and `exec`-replaces itself with the right agent CLI. No copy-pasting paths.
 * **🧮 Rich, responsive results grid** — Agent, repo, branch, title, message count, PR status, and time — with columns that gracefully drop on narrow terminals.
 * **🧹 Clean transcript previews** — On-demand previews strip tool calls, command tags, and system noise, with syntax-highlighted code and highlighted query matches.
-* **🏷️ Powerful query keywords** — Filter by `agent:`, `dir:`, and relative/duration `date:` expressions inline with free-text search.
+* **🏷️ Powerful query keywords** — Filter by `agent:`, `dir:`, `repo:`, and relative/duration `date:` expressions inline with free-text search.
 * **🔗 GitHub PR awareness** — Associated PRs are resolved in the background via the `gh` CLI and cached on disk.
 * **🚀 Background streaming index** — Existing data renders instantly on launch; new sessions sync in the background without blocking the UI.
 
@@ -41,24 +41,50 @@ cargo install --locked --path .
 hop                      # Open the interactive TUI
 hop "auth refresh"       # Open the TUI with a pre-filled search query
 hop -a claude -d api     # Filter by agent and directory on launch
+hop -r hop               # Filter to one repo across all its worktrees
 hop --rebuild            # Wipe and rebuild the search index
 
 ```
 
 ---
 
-## 🚧 Not Yet Supported
+## 🤖 Supported Agents
 
-`hop` currently indexes **Claude Code** and **Codex** sessions. The following
-providers are not yet supported — contributions are welcome:
+`hop` indexes **Claude Code**, **Codex**, and **Cursor** sessions side by side.
+What `hop` can show depends on what each agent records on disk, so coverage
+varies by column:
+
+| Capability | Claude Code | Codex | Cursor |
+| --- | :---: | :---: | :---: |
+| Full-text search & clean preview | ✅ | ✅ | ✅ |
+| Resume in the original directory | ✅ | ✅ | ✅ |
+| Yolo / skip-permissions resume | ✅ | ✅ | ✅ |
+| Session title | ✅ | ✅ | ✅ |
+| Working directory + `dir:` filter | ✅ | ✅ | ✅ <sup>†</sup> |
+| Repo column + `repo:` filter | ✅ | ✅ | ✅ |
+| Branch column | ✅ | ✅ | ❌ |
+| PR column | ✅ | ✅ | ❌ <sup>‡</sup> |
+
+<sup>†</sup> Cursor doesn't store the working directory in its transcript; `hop`
+recovers it from the session's `worker.log`, so it's unavailable when that log is
+missing.
+<sup>‡</sup> The PR column is keyed off the branch, so it's empty wherever the
+branch is unknown.
+
+**Repo** is resolved from the git remote (`git remote get-url origin`) once per
+directory at index time, so it's identical across every worktree of a repo.
+**Branch** comes straight from agent metadata (Claude's `gitBranch`, Codex's
+`git.branch`); Cursor records none, so it's left blank rather than guessed.
+
+### Not yet supported
+
+The following providers aren't wired up yet — contributions are welcome. Each
+provider is added through a session adapter, so it's mostly a matter of mapping
+its on-disk session format to `hop`'s `core` types.
 
 * **Gemini CLI**
-* **Cursor**
 * **Aider**
 * **opencode**
-
-Each provider is wired in through a session adapter, so adding one is mostly a
-matter of mapping its on-disk session format to `hop`'s `core` types.
 
 ---
 
@@ -95,6 +121,7 @@ Advanced filtering keywords can be used alongside regular free-text search.
 | `agent:claude,codex` | **Include Agent** | Restrict results to specific agents |
 | `-agent:codex` or `agent:claude,!codex` | **Exclude Agent** | Exclude specific agents from results |
 | `dir:api` / `-dir:vendor` | **Directory** | Substring include or exclude on directory paths |
+| `repo:hop` / `-repo:vendor` | **Repository** | Substring include or exclude on the git remote URL — matches every worktree of a repo |
 | `date:today` / `date:yesterday` | **Relative Date** | Local calendar-day filters |
 | `date:week` / `date:month` | **Date Windows** | Broad recency windows |
 | `date:<2d` / `date:>1w` | **Duration** | Matches within (`<`) or older than (`>`) durations (`h`/`d`/`w`) |
@@ -108,7 +135,7 @@ Each row in the TUI is organized into a dynamic, aligned grid:
 
 $$\text{AGENT} \quad\cdot\quad \text{REPO} \quad\cdot\quad \text{BRANCH} \quad\cdot\quad \text{TITLE} \quad\cdot\quad \text{MSGS} \quad\cdot\quad \text{PR} \quad\cdot\quad \text{TIME}$$
 
-* **Branch & Repo:** Extracted from conversation metadata (Claude’s `gitBranch` / Codex’s `git.branch`). The Repo column prefers Codex's `repository_url`, falling back to the directory's basename. Full paths are displayed in the preview header.
+* **Branch & Repo:** The **Repo** column shows the repository name parsed from the git remote URL, resolved once per directory at index time (`git remote get-url origin`) — so worktrees of the same repo collapse to one consistent name instead of showing distinct folder names. Sessions outside a git repo fall back to the directory's basename. The **Branch** column comes from agent metadata where recorded; full paths are shown in the preview header, and the Branch column distinguishes worktrees at a glance. Per-agent coverage is summarized in the **Supported Agents** table above.
 * **Titles:** Uses the recorded AI title/summary if available, otherwise falls back to the first user prompt. Titles are whitespace-normalized.
 * **PR Column:** Resolved asynchronously in the background using the `gh` CLI and cached on disk. Shows `⟳` while loading, and `—` if no PR is associated.
 * **Responsive Layout:** Narrow terminals automatically drop columns based on priority:
