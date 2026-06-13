@@ -102,11 +102,9 @@ impl App {
     }
 
     pub fn set_results(&mut self, results: Vec<SessionSummary>) {
-        self.yolo_supported = results.iter().map(|_| false).collect();
         self.results = results;
-        if self.selected >= self.results.len() {
-            self.selected = self.results.len().saturating_sub(1);
-        }
+        self.yolo_supported = vec![false; self.results.len()];
+        self.clamp_selection();
     }
 
     pub fn set_results_with_yolo(
@@ -114,9 +112,13 @@ impl App {
         results: Vec<SessionSummary>,
         yolo_supported: Vec<bool>,
     ) {
-        self.yolo_supported = yolo_supported;
         self.results = results;
+        self.yolo_supported = yolo_supported;
         self.yolo_supported.resize(self.results.len(), false);
+        self.clamp_selection();
+    }
+
+    fn clamp_selection(&mut self) {
         if self.selected >= self.results.len() {
             self.selected = self.results.len().saturating_sub(1);
         }
@@ -253,7 +255,7 @@ impl App {
                 self.preview_scroll = 0;
                 Action::None
             }
-            KeyCode::Enter => self.activate(false),
+            KeyCode::Enter => self.activate(),
             KeyCode::Tab => {
                 if let Some(completed) = crate::query::autocomplete(&self.query) {
                     self.query = completed;
@@ -307,7 +309,6 @@ impl App {
 
     fn apply_command(&mut self, command: keymap::Command) -> Action {
         match command {
-            keymap::Command::Quit => Action::Quit,
             keymap::Command::TogglePreview => {
                 self.preview_visible = !self.preview_visible;
                 Action::None
@@ -404,21 +405,13 @@ impl App {
         self.preview_scroll = self.preview_matches[self.preview_match_index];
     }
 
-    /// Enter (yolo=false) or Tab (yolo=true). If the agent supports yolo and the
-    /// caller didn't force it, open the confirmation modal; else resume directly.
-    fn activate(&mut self, force_yolo: bool) -> Action {
+    /// Enter on a yolo-capable agent opens the confirmation modal; otherwise resume.
+    fn activate(&mut self) -> Action {
         if self.results.is_empty() {
             return Action::None;
         }
         let idx = self.selected;
-        let supports = self.yolo_supported.get(idx).copied().unwrap_or(false);
-        if force_yolo {
-            return Action::Resume {
-                index: idx,
-                yolo: true,
-            };
-        }
-        if supports {
+        if self.yolo_supported.get(idx).copied().unwrap_or(false) {
             self.mode = Mode::YoloModal {
                 index: idx,
                 yolo: false,
@@ -479,6 +472,11 @@ mod tests {
         app.set_results((0..n).map(|i| sess(&format!("s{i}"))).collect());
         app.set_yolo_supported((0..n).map(|_| true).collect());
         app
+    }
+
+    #[test]
+    fn app_exposes_default_theme() {
+        assert_eq!(*App::new().theme(), crate::tui::theme::Theme::default());
     }
 
     #[test]
@@ -700,15 +698,5 @@ mod tests {
         let mut app = app_with(0);
         assert_eq!(app.handle_key(key(KeyCode::Char('`'))), Action::Search);
         assert_eq!(app.query(), "`");
-    }
-}
-
-#[cfg(test)]
-mod theme_accessor_tests {
-    use super::*;
-    #[test]
-    fn app_exposes_default_theme() {
-        let app = App::new();
-        assert_eq!(*app.theme(), crate::tui::theme::Theme::default());
     }
 }

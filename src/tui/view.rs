@@ -1,6 +1,6 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
-use crate::enrich::Enricher;
+use crate::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use crate::tui::theme::Theme;
 use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
@@ -10,7 +10,6 @@ use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Row, Table, Ta
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
-use std::path::Path;
 
 /// Relative-time label from a unix-seconds timestamp.
 pub fn rel_time(ts: i64, now: i64) -> String {
@@ -104,7 +103,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         app.selected(),
         list_area.height.saturating_sub(1) as usize,
     );
-    let visible_results = app.results().get(visible.clone()).unwrap_or_default();
+    let visible_start = visible.start;
+    let visible_results = app.results().get(visible).unwrap_or(&[]);
     let layout = results_list::layout_for_rows(
         cols,
         list_inner_w,
@@ -126,9 +126,10 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         .collect();
     let mut state = TableState::default();
     if !visible_results.is_empty() {
-        state.select(Some(app.selected().saturating_sub(visible.start)));
+        state.select(Some(app.selected().saturating_sub(visible_start)));
     }
-    let table = Table::new(rows, results_list::widths(&layout, cols))
+    let col_widths: Vec<Constraint> = layout.iter().map(|&(_, w)| Constraint::Length(w)).collect();
+    let table = Table::new(rows, col_widths)
         .header(results_list::header_row(&layout, cols, &model.theme))
         .column_spacing(1)
         .row_highlight_style(
@@ -146,20 +147,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             .borders(Borders::LEFT)
             .border_style(Style::default().fg(model.theme.border))
             .padding(Padding::left(1));
-        let preview_area = area;
-        let area = preview_block.inner(area);
-        f.render_widget(preview_block, preview_area);
+        let inner = preview_block.inner(area);
+        f.render_widget(preview_block, area);
 
         let selected = app.results().get(app.selected());
         let (header_area, transcript_area) =
-            if app.preview_header_visible() && selected.is_some() && area.height >= 3 {
+            if app.preview_header_visible() && selected.is_some() && inner.height >= 3 {
                 let chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Length(2), Constraint::Min(1)])
-                    .split(area);
+                    .split(inner);
                 (Some(chunks[0]), chunks[1])
             } else {
-                (None, area)
+                (None, inner)
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
@@ -360,8 +360,14 @@ fn preview_header_lines(
     resolved: &HashMap<(String, &'static str), Option<String>>,
     theme: &Theme,
 ) -> Vec<Line<'static>> {
-    let repo = repo_label(s);
-    let branch = s.branch.as_deref().unwrap_or("—");
+    let repo = RepoEnricher
+        .resolve(s)
+        .map(|v| v.text)
+        .unwrap_or_else(|| "—".to_string());
+    let branch = BranchEnricher
+        .resolve(s)
+        .map(|v| v.text)
+        .unwrap_or_else(|| "—".to_string());
     let pr = resolved
         .get(&(s.document_key(), "pr"))
         .and_then(|v| v.as_deref());
@@ -381,7 +387,7 @@ fn preview_header_lines(
         Span::raw("  "),
         Span::styled(repo, Style::default().fg(theme.muted)),
         Span::raw("  "),
-        Span::styled(branch.to_string(), Style::default().fg(theme.muted)),
+        Span::styled(branch, Style::default().fg(theme.muted)),
         Span::raw("  "),
     ];
     if let Some(pr) = pr {
@@ -407,21 +413,6 @@ fn preview_header_lines(
             ),
         ]),
     ]
-}
-
-fn repo_label(s: &SessionSummary) -> String {
-    if let Some(name) = s
-        .repo_url
-        .as_deref()
-        .and_then(crate::enrich::repo_name_from_url)
-    {
-        return name;
-    }
-    Path::new(&s.directory)
-        .file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "—".to_string())
 }
 
 pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Range<usize> {

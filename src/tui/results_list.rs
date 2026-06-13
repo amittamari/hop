@@ -1,12 +1,11 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
 
-use crate::columns::{display_width, fit, solve_layout, solve_layout_with_desired, Column};
+use crate::columns::{display_width, fit, solve_layout_with_desired, Column};
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::theme::Theme;
 use crate::tui::view::rel_time;
-use ratatui::layout::Constraint;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Row};
@@ -62,11 +61,6 @@ fn enrichment_cell(
     }
 }
 
-/// Convenience: solve the layout for a given width.
-pub fn layout_for(columns: &[Column], width: u16) -> Vec<(usize, u16)> {
-    solve_layout(columns, width)
-}
-
 /// Solve the layout using only the rows currently visible in the viewport.
 pub fn layout_for_rows(
     columns: &[Column],
@@ -108,12 +102,6 @@ fn desired_widths(
     widths
 }
 
-/// Map the solved layout into fixed Table column constraints. The column solver
-/// has already handled content-aware widths, column dropping, and title flex.
-pub fn widths(layout: &[(usize, u16)], _columns: &[Column]) -> Vec<Constraint> {
-    layout.iter().map(|&(_, w)| Constraint::Length(w)).collect()
-}
-
 pub struct RowCtx<'a> {
     pub enrichers: &'a [Box<dyn Enricher>],
     pub resolved: &'a HashMap<(String, &'static str), Option<String>>,
@@ -134,7 +122,7 @@ pub fn session_row(
         .map(|&(ci, width)| {
             let col = &columns[ci];
             if col.id == "title" {
-                title_cell(&session.title, width, ctx.terms, ctx.theme)
+                Cell::from(title_line(&session.title, width, ctx.terms, ctx.theme))
             } else {
                 let (text, style) = cell(
                     session,
@@ -162,10 +150,6 @@ fn title_line(title: &str, width: u16, terms: &[String], theme: &Theme) -> Line<
     }
 }
 
-fn title_cell(title: &str, width: u16, terms: &[String], theme: &Theme) -> Cell<'static> {
-    Cell::from(title_line(title, width, terms, theme))
-}
-
 /// Build the muted header row for the kept columns. Styled at the Row level so
 /// every header cell shares the muted color.
 pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) -> Row<'static> {
@@ -179,7 +163,7 @@ pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::columns::default_columns;
+    use crate::columns::{default_columns, solve_layout};
     use crate::core::{AgentId, SessionSummary};
     use crate::enrich::{BranchEnricher, RepoEnricher};
 
@@ -195,17 +179,6 @@ mod tests {
             branch: Some("feat/auth".into()),
             repo_url: None,
             source_path: None,
-        }
-    }
-
-    #[test]
-    fn widths_follow_solved_layout_lengths() {
-        let cols = default_columns();
-        let layout = layout_for(&cols, 120);
-        let ws = widths(&layout, &cols);
-        assert_eq!(ws.len(), layout.len());
-        for (n, &(_, w)) in layout.iter().enumerate() {
-            assert_eq!(ws[n], Constraint::Length(w));
         }
     }
 
@@ -230,7 +203,7 @@ mod tests {
             terms: &[],
             theme: &Theme::default(),
         };
-        let row = session_row(&row_data, &layout, &cols, &ctx);
+        session_row(&row_data, &layout, &cols, &ctx);
         let (agent_text, _) = super::cell(
             &row_data,
             cols.iter().find(|c| c.id == "agent").unwrap(),
@@ -240,13 +213,12 @@ mod tests {
             &Theme::default(),
         );
         assert_eq!(agent_text, "CLAUDE");
-        let _ = row;
     }
 
     #[test]
     fn header_row_constructs_for_visible_columns() {
         let cols = default_columns();
-        let layout = layout_for(&cols, 120);
+        let layout = solve_layout(&cols, 120);
         let _row = header_row(&layout, &cols, &Theme::default());
         assert_eq!(layout.len(), 7);
     }
@@ -300,19 +272,15 @@ mod tests {
     }
 
     #[test]
-    fn title_cell_highlights_query_terms() {
+    fn title_line_highlights_query_terms() {
         use ratatui::style::Modifier;
         let terms = vec!["auth".to_string()];
-        let theme = Theme::default();
-        let cell = title_cell("fix auth bug", 40, &terms, &theme);
-        let line = super::title_line("fix auth bug", 40, &terms, &theme);
-        let highlighted = line.spans.iter().any(|s| {
-            s.content.contains("auth") && s.style.add_modifier.contains(Modifier::REVERSED)
-        });
+        let line = super::title_line("fix auth bug", 40, &terms, &Theme::default());
         assert!(
-            highlighted,
+            line.spans.iter().any(|s| {
+                s.content.contains("auth") && s.style.add_modifier.contains(Modifier::REVERSED)
+            }),
             "matched term in title must be reverse-highlighted"
         );
-        let _ = cell;
     }
 }

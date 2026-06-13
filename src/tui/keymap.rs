@@ -6,7 +6,6 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Command {
-    Quit,
     TogglePreview,
     ScrollPreview(i16),
     JumpPreviewMatch(i16),
@@ -21,7 +20,6 @@ pub(super) fn control_chord_action(key: &KeyEvent) -> Option<Command> {
         return None;
     }
     match key.code {
-        KeyCode::Char('c') => Some(Command::Quit),
         KeyCode::Char('p') => Some(Command::TogglePreview),
         KeyCode::Char('u') => Some(Command::ScrollPreview(-1)),
         KeyCode::Char('d') => Some(Command::ScrollPreview(1)),
@@ -58,10 +56,6 @@ mod tests {
             control_chord_action(&ctrl(KeyCode::Char('n'))),
             Some(Command::JumpPreviewMatch(n)) if n > 0
         ));
-        assert_eq!(
-            control_chord_action(&ctrl(KeyCode::Char('c'))),
-            Some(Command::Quit)
-        );
     }
 
     #[test]

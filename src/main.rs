@@ -13,20 +13,24 @@ use hop::tui::{preview, view::RenderModel, view::StatusLine, Action, App};
 use ratatui::crossterm::event::{self, Event};
 use std::time::Duration;
 
-fn index_dir() -> std::path::PathBuf {
+fn hop_dirs() -> Option<directories::ProjectDirs> {
     directories::ProjectDirs::from("dev", "hop", "hop")
+}
+
+fn index_dir() -> std::path::PathBuf {
+    hop_dirs()
         .map(|d| d.cache_dir().join("index"))
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-index"))
 }
 
 fn enrich_cache_path() -> std::path::PathBuf {
-    directories::ProjectDirs::from("dev", "hop", "hop")
+    hop_dirs()
         .map(|d| d.cache_dir().join("enrich").join("gh_pr.json"))
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-enrich.json"))
 }
 
 fn ui_state_path() -> std::path::PathBuf {
-    directories::ProjectDirs::from("dev", "hop", "hop")
+    hop_dirs()
         .map(|d| d.cache_dir().join("ui_state.toml"))
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-ui-state.toml"))
 }
