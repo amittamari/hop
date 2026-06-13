@@ -193,18 +193,24 @@ pub fn solve_layout_with_desired(
 /// Pad/truncate `s` to exactly `width` columns per `align`.
 pub fn fit(s: &str, width: u16, align: Align) -> String {
     let w = width as usize;
-    let len = display_width(s);
+    if w == 0 {
+        return String::new();
+    }
+
+    let mut len = 0usize;
+    for c in s.chars() {
+        let cw = char_width(c);
+        if len + cw > w {
+            let keep = w.saturating_sub(1);
+            let mut out = take_display_width(s, keep);
+            out.push('…');
+            return out;
+        }
+        len += cw;
+    }
+
     if len == w {
         return s.to_string();
-    }
-    if len > w {
-        if w == 0 {
-            return String::new();
-        }
-        let keep = w.saturating_sub(1);
-        let mut out = take_display_width(s, keep);
-        out.push('…');
-        return out;
     }
     let pad = " ".repeat(w - len);
     match align {

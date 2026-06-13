@@ -276,7 +276,7 @@ fn indent(lines: &mut [Line<'static>], pad: &'static str) {
 /// hits should pop without repainting the whole row's background.
 /// `theme.match_fg` is reserved to unify these two affordances later; for now
 /// we keep REVERSED and accept the theme only to wire the call chain.
-fn highlight_terms(line: &Line<'static>, terms: &[String], _theme: &Theme) -> Line<'static> {
+pub fn highlight_terms(line: &Line<'static>, terms: &[String], _theme: &Theme) -> Line<'static> {
     let mut out: Vec<Span<'static>> = Vec::new();
     for span in &line.spans {
         let text = span.content.to_string();
