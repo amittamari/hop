@@ -51,6 +51,8 @@ pub struct App {
     preview_matches: Vec<u16>,
     preview_match_index: usize,
     theme: crate::tui::theme::Theme,
+    frame: u64,
+    indexing: Option<usize>,
 }
 
 impl App {
@@ -72,6 +74,8 @@ impl App {
             preview_matches: Vec::new(),
             preview_match_index: 0,
             theme: crate::tui::theme::Theme::default(),
+            frame: 0,
+            indexing: None,
         }
     }
 
@@ -90,6 +94,22 @@ impl App {
     }
     pub fn selected(&self) -> usize {
         self.selected
+    }
+    pub fn frame(&self) -> u64 {
+        self.frame
+    }
+    /// Advance the spinner clock by one redraw. The run loop calls this once
+    /// per iteration; the loop polls every 50ms, so the throbber animates
+    /// without a dedicated timer.
+    pub fn tick(&mut self) {
+        self.frame = self.frame.wrapping_add(1);
+    }
+    /// Number of sessions still being indexed, or `None` when idle.
+    pub fn indexing(&self) -> Option<usize> {
+        self.indexing
+    }
+    pub fn set_indexing(&mut self, count: Option<usize>) {
+        self.indexing = count;
     }
     pub fn modal_open(&self) -> bool {
         matches!(self.mode, Mode::YoloModal { .. })
@@ -472,6 +492,25 @@ mod tests {
         app.set_results((0..n).map(|i| sess(&format!("s{i}"))).collect());
         app.set_yolo_supported((0..n).map(|_| true).collect());
         app
+    }
+
+    #[test]
+    fn frame_starts_at_zero_and_advances() {
+        let mut app = App::new();
+        assert_eq!(app.frame(), 0);
+        app.tick();
+        app.tick();
+        assert_eq!(app.frame(), 2);
+    }
+
+    #[test]
+    fn indexing_state_round_trips() {
+        let mut app = App::new();
+        assert_eq!(app.indexing(), None);
+        app.set_indexing(Some(42));
+        assert_eq!(app.indexing(), Some(42));
+        app.set_indexing(None);
+        assert_eq!(app.indexing(), None);
     }
 
     #[test]
