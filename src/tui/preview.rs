@@ -3,7 +3,7 @@
 //! lines.
 
 use crate::core::{AgentId, Block, Message, Role, SessionSummary, Transcript};
-use crate::tui::theme;
+use crate::tui::theme::Theme;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -34,6 +34,8 @@ fn map_lang(l: &str) -> &str {
 pub fn highlight_code(code: &str, lang: Option<&str>) -> Vec<Line<'static>> {
     let ps = SYNTAXES.get_or_init(SyntaxSet::load_defaults_newlines);
     let ts = THEMES.get_or_init(ThemeSet::load_defaults);
+    // Intentional RGB island: syntect owns these foreground colors; they are
+    // deliberately NOT mapped to the semantic Theme roles.
     let theme = &ts.themes["base16-ocean.dark"];
     let syntax = lang
         .map(map_lang)
@@ -61,7 +63,7 @@ pub fn highlight_code(code: &str, lang: Option<&str>) -> Vec<Line<'static>> {
 
 /// Render a prose (non-code) markdown string into styled lines. Handles
 /// headings (bold), strong/emphasis, inline code, and list items.
-pub fn render_prose(text: &str) -> Vec<Line<'static>> {
+pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut spans: Vec<Span<'static>> = Vec::new();
     let mut bold = false;
@@ -120,7 +122,7 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
             Event::Code(t) => {
                 spans.push(Span::styled(
                     t.to_string(),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme.code),
                 ));
             }
             Event::Text(t) => {
@@ -158,15 +160,16 @@ pub fn render_prose(text: &str) -> Vec<Line<'static>> {
 }
 
 /// Render a full transcript into lines, applying query-term highlighting.
-pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId) -> Vec<Line<'static>> {
+pub fn render_transcript(msgs: &[Message], query: &str, agent: AgentId, theme: &Theme) -> Vec<Line<'static>> {
     let parsed = crate::query::parse(query);
-    render_transcript_with_terms(msgs, &parsed.free_terms(), agent)
+    render_transcript_with_terms(msgs, &parsed.free_terms(), agent, theme)
 }
 
 pub fn render_transcript_with_terms(
     msgs: &[Message],
     terms: &[String],
     agent: AgentId,
+    theme: &Theme,
 ) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
 
@@ -179,8 +182,8 @@ pub fn render_transcript_with_terms(
                 for b in &m.blocks {
                     match b {
                         Block::Prose(s) => {
-                            let mut prose = render_prose(s);
-                            prefix_first(&mut prose, "› ", theme::ACCENT);
+                            let mut prose = render_prose(s, theme);
+                            prefix_first(&mut prose, "› ", theme.accent);
                             out.extend(prose);
                         }
                         Block::Code { lang, text } => {
@@ -191,18 +194,18 @@ pub fn render_transcript_with_terms(
             }
             Role::Agent => {
                 out.push(Line::from(vec![
-                    Span::styled("● ", Style::default().fg(theme::agent_color(agent))),
+                    Span::styled("● ", Style::default().fg(theme.agent_color(agent))),
                     Span::styled(
                         agent.badge(),
                         Style::default()
-                            .fg(theme::agent_color(agent))
+                            .fg(theme.agent_color(agent))
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]));
                 for b in &m.blocks {
                     match b {
                         Block::Prose(s) => {
-                            let mut prose = render_prose(s);
+                            let mut prose = render_prose(s, theme);
                             indent(&mut prose, "  ");
                             out.extend(prose);
                         }
@@ -216,29 +219,29 @@ pub fn render_transcript_with_terms(
     }
     if !terms.is_empty() {
         for line in &mut out {
-            *line = highlight_terms(line, terms);
+            *line = highlight_terms(line, terms, theme);
         }
     }
     out
 }
 
-pub fn render_indexed_fallback(content: &str, query: &str) -> Vec<Line<'static>> {
+pub fn render_indexed_fallback(content: &str, query: &str, theme: &Theme) -> Vec<Line<'static>> {
     let parsed = crate::query::parse(query);
-    render_indexed_fallback_with_terms(content, &parsed.free_terms())
+    render_indexed_fallback_with_terms(content, &parsed.free_terms(), theme)
 }
 
-pub fn render_indexed_fallback_with_terms(content: &str, terms: &[String]) -> Vec<Line<'static>> {
+pub fn render_indexed_fallback_with_terms(content: &str, terms: &[String], theme: &Theme) -> Vec<Line<'static>> {
     let mut out = vec![
         Line::from(Span::styled(
             "source unavailable - showing indexed text",
-            Style::default().fg(theme::DIM),
+            Style::default().fg(theme.muted),
         )),
         Line::from(""),
     ];
-    let mut body = render_prose(content);
+    let mut body = render_prose(content, theme);
     if !terms.is_empty() {
         for line in &mut body {
-            *line = highlight_terms(line, terms);
+            *line = highlight_terms(line, terms, theme);
         }
     }
     out.extend(body);
@@ -261,8 +264,13 @@ fn indent(lines: &mut [Line<'static>], pad: &'static str) {
     }
 }
 
-/// Re-split a line's spans so any occurrence of a term is reverse-highlighted.
-fn highlight_terms(line: &Line<'static>, terms: &[String]) -> Line<'static> {
+/// Highlight query terms inside a line. Term matches use `Modifier::REVERSED`
+/// (a glyph-level invert), which is intentionally DIFFERENT from the list
+/// selection's full-row background swap (`theme.selection_bg`): inline term
+/// hits should pop without repainting the whole row's background.
+/// `theme.match_fg` is reserved to unify these two affordances later; for now
+/// we keep REVERSED and accept the theme only to wire the call chain.
+fn highlight_terms(line: &Line<'static>, terms: &[String], _theme: &Theme) -> Line<'static> {
     let mut out: Vec<Span<'static>> = Vec::new();
     for span in &line.spans {
         let text = span.content.to_string();
@@ -377,16 +385,17 @@ impl PreviewState {
             self.transcript_for = sel_key.clone();
         }
 
+        let theme = *app.theme();
         let preview_key = (sel_key.unwrap_or_default(), app.query().to_string());
         if app.preview_visible() && self.key.as_ref() != Some(&preview_key) {
             self.lines = if self.source_unavailable {
                 selected
                     .and_then(load_indexed_content)
-                    .map(|content| render_indexed_fallback_with_terms(&content, terms))
+                    .map(|content| render_indexed_fallback_with_terms(&content, terms, &theme))
                     .unwrap_or_default()
             } else {
                 let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
-                render_transcript_with_terms(&self.transcript, terms, agent)
+                render_transcript_with_terms(&self.transcript, terms, agent, &theme)
             };
             app.set_preview_matches(match_lines(&self.lines, terms));
             self.key = Some(preview_key);
@@ -420,7 +429,8 @@ mod tests {
 
     #[test]
     fn transcript_has_role_prefixes() {
-        let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude);
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude, &theme);
         let joined: String = lines
             .iter()
             .map(|l| {
@@ -438,20 +448,23 @@ mod tests {
 
     #[test]
     fn first_match_line_is_found() {
-        let lines = render_transcript(&msgs(), "refresh", crate::core::AgentId::Claude);
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript(&msgs(), "refresh", crate::core::AgentId::Claude, &theme);
         let idx = first_match_line(&lines, "refresh");
         assert!(idx.is_some());
     }
 
     #[test]
     fn filter_tokens_are_not_match_terms() {
-        let lines = render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude);
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude, &theme);
         assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
     #[test]
     fn match_terms_highlighted() {
-        let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude);
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude, &theme);
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("auth")
                 && s.style
@@ -463,7 +476,8 @@ mod tests {
 
     #[test]
     fn indexed_fallback_explains_missing_source_and_highlights() {
-        let lines = render_indexed_fallback("refresh token failed", "token");
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_indexed_fallback("refresh token failed", "token", &theme);
         let joined: String = lines
             .iter()
             .map(|l| {
@@ -486,15 +500,29 @@ mod tests {
     }
 
     #[test]
+    fn inline_code_uses_theme_code_role() {
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_prose("use the `cargo test` command", &theme);
+        let found = lines.iter().any(|l| {
+            l.spans.iter().any(|s| {
+                s.content.contains("cargo test") && s.style.fg == Some(theme.code)
+            })
+        });
+        assert!(found, "inline code span should use theme.code");
+    }
+
+    #[test]
     fn prose_plain_text_one_line() {
-        let lines = render_prose("hello world");
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_prose("hello world", &theme);
         let text: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(text.trim(), "hello world");
     }
 
     #[test]
     fn prose_bullets_get_marker() {
-        let lines = render_prose("- one\n- two");
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_prose("- one\n- two", &theme);
         let joined: String = lines
             .iter()
             .map(|l| {
@@ -511,7 +539,8 @@ mod tests {
 
     #[test]
     fn nested_prose_bullets_are_indented() {
-        let lines = render_prose("- one\n  - two");
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_prose("- one\n  - two", &theme);
         let rendered: Vec<String> = lines
             .iter()
             .map(|l| {
@@ -527,7 +556,8 @@ mod tests {
 
     #[test]
     fn prose_bold_is_styled_bold() {
-        let lines = render_prose("**strong**");
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_prose("**strong**", &theme);
         let bold = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("strong")
                 && s.style
@@ -555,11 +585,12 @@ mod tests {
 
     #[test]
     fn match_highlight_handles_multibyte_without_panic() {
+        let theme = crate::tui::theme::Theme::default();
         let msgs = vec![Message {
             role: Role::User,
             blocks: vec![Block::Prose("café au lait latte".into())],
         }];
-        let lines = render_transcript(&msgs, "latte", crate::core::AgentId::Claude);
+        let lines = render_transcript(&msgs, "latte", crate::core::AgentId::Claude, &theme);
         // did not panic; and the ASCII term is still reverse-highlighted
         let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("latte")

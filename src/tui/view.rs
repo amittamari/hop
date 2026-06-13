@@ -487,7 +487,7 @@ mod tests {
         }];
 
         let lines =
-            crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude);
+            crate::tui::preview::render_transcript(&transcript, app.query(), AgentId::Claude, app.theme());
 
         let cols = crate::columns::default_columns();
         let backend = TestBackend::new(100, 12);
