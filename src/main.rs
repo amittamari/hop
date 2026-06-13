@@ -182,6 +182,7 @@ fn run_tui(
                         preview_lines: &preview_state.lines,
                         status: &status,
                         modal_command: modal_command.as_deref(),
+                        theme: *app.theme(),
                     },
                 )
             })?;

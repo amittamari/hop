@@ -1,6 +1,7 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::Enricher;
+use crate::tui::theme::Theme;
 use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
@@ -43,6 +44,7 @@ pub struct RenderModel<'a> {
     pub preview_lines: &'a [Line<'static>],
     pub status: &'a StatusLine,
     pub modal_command: Option<&'a [String]>,
+    pub theme: Theme,
 }
 
 const SELECTION_MARKER: &str = "❯ ";
@@ -65,12 +67,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // The query input is always live, so the prompt and query stay bright and
     // the caret is shown whenever no overlay is covering the input.
     let header = Line::from(vec![
-        Span::styled(" ❯ ", Style::default().fg(app.theme().accent)),
+        Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
         Span::styled(
             app.query().to_string(),
-            Style::default().fg(app.theme().selection_fg),
+            Style::default().fg(model.theme.selection_fg),
         ),
-        Span::raw(format!("   {}/{}", pos, total)).fg(app.theme().muted),
+        Span::raw(format!("   {}/{}", pos, total)).fg(model.theme.muted),
     ]);
     f.render_widget(Paragraph::new(header), chunks[0]);
     if !app.help_open() && !app.modal_open() {
@@ -113,7 +115,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         model.resolved,
         model.now,
     );
-    let mut header = results_list::header_line(&layout, cols, app.theme());
+    let mut header = results_list::header_line(&layout, cols, &model.theme);
     header
         .spans
         .insert(0, Span::raw(" ".repeat(SELECTION_MARKER_WIDTH as usize)));
@@ -129,7 +131,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                 model.enrichers,
                 model.resolved,
                 model.now,
-                app.theme(),
+                &model.theme,
             ))
         })
         .collect();
@@ -142,8 +144,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         .highlight_spacing(HighlightSpacing::Always)
         .highlight_style(
             Style::default()
-                .fg(app.theme().selection_fg)
-                .bg(app.theme().selection_bg)
+                .fg(model.theme.selection_fg)
+                .bg(model.theme.selection_bg)
                 .add_modifier(Modifier::BOLD),
         );
     f.render_stateful_widget(list, list_rows_area, &mut state);
@@ -152,7 +154,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     if let Some(area) = preview_area {
         let preview_block = Block::default()
             .borders(Borders::LEFT)
-            .border_style(Style::default().fg(app.theme().border))
+            .border_style(Style::default().fg(model.theme.border))
             .padding(Padding::left(1));
         let preview_area = area;
         let area = preview_block.inner(area);
@@ -171,14 +173,14 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             };
         if let (Some(header_area), Some(session)) = (header_area, selected) {
             f.render_widget(
-                Paragraph::new(preview_header_lines(session, model.now, model.resolved, app.theme()))
-                    .style(Style::default().fg(app.theme().preview_text)),
+                Paragraph::new(preview_header_lines(session, model.now, model.resolved, &model.theme))
+                    .style(Style::default().fg(model.theme.preview_text)),
                 header_area,
             );
         }
         f.render_widget(
             Paragraph::new(model.preview_lines.to_vec())
-                .style(Style::default().fg(app.theme().preview_text))
+                .style(Style::default().fg(model.theme.preview_text))
                 .wrap(Wrap { trim: false })
                 .scroll((app.preview_scroll(), 0)),
             transcript_area,
@@ -186,16 +188,16 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     }
 
     // footer
-    f.render_widget(Paragraph::new(footer_line(model.status, app.theme())), chunks[2]);
+    f.render_widget(Paragraph::new(footer_line(model.status, &model.theme)), chunks[2]);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        render_yolo_modal(f, session, yolo, model.modal_command, app.theme());
+        render_yolo_modal(f, session, yolo, model.modal_command, &model.theme);
     }
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f, app.theme());
+        help::render(f, &model.theme);
     }
 }
 
@@ -212,7 +214,7 @@ fn split_list_area(area: Rect) -> (Rect, Rect) {
 
 const FOOTER_HINTS: &str = "type to search · ↑↓ move · Enter resume · ? help · Esc clear/quit";
 
-fn footer_line(status: &StatusLine, theme: &crate::tui::theme::Theme) -> Line<'static> {
+fn footer_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let (label, rest) = FOOTER_HINTS.split_once(" · ").unwrap_or((FOOTER_HINTS, ""));
     spans.push(Span::styled(
@@ -259,7 +261,7 @@ fn render_yolo_modal(
     session: Option<&SessionSummary>,
     yolo: bool,
     modal_command: Option<&[String]>,
-    theme: &crate::tui::theme::Theme,
+    theme: &Theme,
 ) {
     let area = f.area();
     if area.width < 4 || area.height < 4 {
@@ -367,7 +369,7 @@ fn preview_header_lines(
     s: &SessionSummary,
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
-    theme: &crate::tui::theme::Theme,
+    theme: &Theme,
 ) -> Vec<Line<'static>> {
     let repo = repo_label(s);
     let branch = s.branch.as_deref().unwrap_or("—");
@@ -506,6 +508,7 @@ mod tests {
                     preview_lines: &lines,
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -570,6 +573,7 @@ mod tests {
                     preview_lines: &[],
                     status: &status,
                     modal_command: Some(&command),
+                    theme: Theme::default(),
                 },
             )
         })
@@ -626,6 +630,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -662,6 +667,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -721,6 +727,7 @@ mod tests {
                     preview_lines: &preview_lines,
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -777,6 +784,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })
@@ -838,6 +846,7 @@ mod tests {
                     preview_lines: &[],
                     status: &StatusLine::default(),
                     modal_command: None,
+                    theme: Theme::default(),
                 },
             )
         })

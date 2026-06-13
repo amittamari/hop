@@ -129,12 +129,15 @@ fn desired_widths(
         .map(|col| display_width(col.header) as u16)
         .collect();
 
+    // Widths depend only on cell text, not style, so the theme is irrelevant
+    // here; build one default instead of one per cell.
+    let theme = Theme::default();
     for row in rows {
         for (i, col) in columns.iter().enumerate() {
             if col.flex {
                 continue;
             }
-            let (text, _) = cell(row, col, enrichers, resolved, now, &Theme::default());
+            let (text, _) = cell(row, col, enrichers, resolved, now, &theme);
             widths[i] = widths[i].max(display_width(&text) as u16);
         }
     }
