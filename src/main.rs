@@ -254,6 +254,21 @@ fn run_tui(
                                 return Ok(Some((s, yolo)));
                             }
                         }
+                        Action::OpenPr { index } => {
+                            // The resolved PR label lives in the run loop's
+                            // enrichment state; open it only when one was found.
+                            if let Some(s) = app.results().get(index) {
+                                if let Some(Some(pr)) =
+                                    enrichment.resolved.get(&(s.document_key(), "pr"))
+                                {
+                                    hop::enrich::gh_pr::open_pr_in_browser(
+                                        pr,
+                                        s.repo_url.as_deref(),
+                                        &s.directory,
+                                    );
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }

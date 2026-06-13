@@ -57,6 +57,38 @@ fn gh_pr_number(branch: &str, repo_url: Option<&str>, dir: &str) -> Option<u64> 
     parse_pr_number(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// Open the PR whose resolved label is `pr_text` (e.g. `"#4821"`) in the
+/// default browser via `gh pr view <n> --web`. Targets the repo the same way
+/// `gh_pr_number` does — `--repo owner/repo` when derivable from the URL, else
+/// the session directory. `gh` launches the browser through the OS opener and
+/// returns promptly, so this is safe to call while the TUI owns the terminal;
+/// stdout/stderr are silenced to keep the alternate screen clean. Returns
+/// whether a PR number was parsed and the command launched successfully.
+pub fn open_pr_in_browser(pr_text: &str, repo_url: Option<&str>, dir: &str) -> bool {
+    use std::process::{Command, Stdio};
+    let Some(number) = pr_number_from_label(pr_text) else {
+        return false;
+    };
+    let mut cmd = Command::new("gh");
+    cmd.args(["pr", "view", &number.to_string(), "--web"]);
+    if let Some(slug) = repo_url.and_then(owner_repo_from_url) {
+        cmd.args(["--repo", &slug]);
+    } else if !dir.is_empty() {
+        cmd.current_dir(dir);
+    }
+    cmd.stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Parse a resolved PR label such as `"#4821"` back into its number. Returns
+/// None for the empty/absent (`"—"`) or otherwise unparseable labels.
+pub fn pr_number_from_label(label: &str) -> Option<u64> {
+    label.trim().trim_start_matches('#').parse::<u64>().ok()
+}
+
 /// Parse `[{"number":4821}]` -> 4821.
 pub fn parse_pr_number(json: &str) -> Option<u64> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
@@ -86,6 +118,27 @@ pub fn owner_repo_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pr_number_from_label_round_trips_and_rejects_junk() {
+        assert_eq!(pr_number_from_label("#4821"), Some(4821));
+        assert_eq!(pr_number_from_label(" 12 "), Some(12));
+        assert_eq!(pr_number_from_label("—"), None);
+        assert_eq!(pr_number_from_label(""), None);
+        assert_eq!(pr_number_from_label("⟳"), None);
+    }
+
+    #[test]
+    fn open_pr_rejects_unparseable_labels_without_launching() {
+        // A non-numeric label can never resolve to a PR, so the helper returns
+        // false before it would ever shell out to `gh`.
+        assert!(!open_pr_in_browser("—", None, ""));
+        assert!(!open_pr_in_browser(
+            "",
+            Some("git@github.com:me/web.git"),
+            "/w"
+        ));
+    }
 
     #[test]
     fn parses_pr_number() {

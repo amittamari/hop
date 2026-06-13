@@ -18,6 +18,8 @@ pub(super) enum Command {
     ScrollPreview(i16),
     JumpPreviewMatch(i16),
     ResizePreview(i8),
+    /// Open the selected session's associated GitHub PR in the browser.
+    OpenPr,
 }
 
 /// A resolved key chord: the modifier set plus the key code. Char codes are
@@ -76,6 +78,11 @@ fn chord_specs() -> Vec<ChordSpec> {
             name: "resize_preview_larger",
             default: (ctrl, KeyCode::Right),
             command: Command::ResizePreview(1),
+        },
+        ChordSpec {
+            name: "open_pr",
+            default: (ctrl, KeyCode::Char('o')),
+            command: Command::OpenPr,
         },
     ]
 }
@@ -336,6 +343,12 @@ pub fn bindings(keymap: &Keymap) -> Vec<Binding> {
         // Actions
         row("type".into(), "Actions", "search", true),
         row("Enter".into(), "Actions", "resume", true),
+        row(
+            chord(Command::OpenPr),
+            "Actions",
+            "open PR in browser",
+            false,
+        ),
         row("Tab".into(), "Actions", "autocomplete keyword", false),
         row("?".into(), "Actions", "toggle help", true),
         row("Esc".into(), "Actions", "clear query / quit", true),

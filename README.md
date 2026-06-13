@@ -104,6 +104,7 @@ The `Ctrl` chords below are rebindable via `[keybindings]` in `config.toml` (see
 | `←` / `→` / `Home` / `End` | Move the query cursor |
 | `Tab` | Autocomplete keywords (e.g., `agent:cl` → `agent:claude`) |
 | `Enter` | **Resume selected session** (prompts for yolo when supported) |
+| `Ctrl + O` | Open the selected session's PR in the browser (when one is resolved) |
 | `Ctrl + P` | Toggle the preview pane |
 | `Ctrl + U` / `D` | Scroll preview pane up / down by viewport |
 | `Ctrl + N` / `B` | Go to next / previous preview match |
@@ -190,6 +191,7 @@ jump_match_prev       = "ctrl+b"
 jump_match_next       = "ctrl+n"
 resize_preview_smaller = "ctrl+left"
 resize_preview_larger  = "ctrl+right"
+open_pr                = "ctrl+o"
 quit                  = "ctrl+c"
 
 ```

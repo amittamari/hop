@@ -21,6 +21,12 @@ pub enum Action {
         index: usize,
         yolo: bool,
     },
+    /// Open the selected session's associated GitHub PR in the browser. The run
+    /// loop resolves the PR from its enrichment state, so this is a no-op when no
+    /// PR has been resolved for the row.
+    OpenPr {
+        index: usize,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -346,6 +352,15 @@ impl App {
             keymap::Command::JumpPreviewMatch(d) => {
                 self.jump_preview_match(d);
                 Action::None
+            }
+            keymap::Command::OpenPr => {
+                if self.results.is_empty() {
+                    Action::None
+                } else {
+                    Action::OpenPr {
+                        index: self.selected,
+                    }
+                }
             }
         }
     }
@@ -746,6 +761,7 @@ mod tests {
             "Ctrl+N/Ctrl+B" => ev(Char('n'), ctrl),
             "Ctrl+P" => ev(Char('p'), ctrl),
             "Ctrl+←/Ctrl+→" => ev(Left, ctrl),
+            "Ctrl+O" => ev(Char('o'), ctrl),
             "←/→" => ev(Left, none),
             "Home/End" => ev(Home, none),
             "Backspace" => ev(Backspace, none),
