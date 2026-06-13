@@ -1,5 +1,6 @@
 //! Centered help overlay listing the keymap.
 
+use crate::tui::keymap::Keymap;
 use crate::tui::theme::Theme;
 use ratatui::layout::Alignment;
 use ratatui::style::{Modifier, Style};
@@ -7,8 +8,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
-pub fn lines(theme: &Theme) -> Vec<Line<'static>> {
-    let table = crate::tui::keymap::bindings();
+pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
+    let table = crate::tui::keymap::bindings(keymap);
     // Pad the key column to the widest key label (skipping the "type"
     // pseudo-key, which is shown as prose, not a key chord). This replaces the
     // old hand-counted leading spaces.
@@ -21,7 +22,7 @@ pub fn lines(theme: &Theme) -> Vec<Line<'static>> {
 
     // Distinct groups, in first-seen order.
     let mut groups: Vec<&'static str> = Vec::new();
-    for b in table {
+    for b in &table {
         if !groups.contains(&b.group) {
             groups.push(b.group);
         }
@@ -59,13 +60,13 @@ fn section(label: &'static str, theme: &Theme) -> Line<'static> {
 }
 
 /// Render the overlay centered over the frame.
-pub fn render(f: &mut Frame, theme: &Theme) {
+pub fn render(f: &mut Frame, keymap: &Keymap, theme: &Theme) {
     let area = f.area();
     if area.width < 8 || area.height < 6 {
         return;
     }
 
-    let body = lines(theme);
+    let body = lines(keymap, theme);
     let w = 58u16.min(area.width.saturating_sub(4)).max(8);
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
@@ -99,7 +100,7 @@ mod tests {
     use super::*;
 
     fn rendered_text() -> String {
-        lines(&Theme::default())
+        lines(&Keymap::defaults(), &Theme::default())
             .iter()
             .map(|x| {
                 x.spans
@@ -114,7 +115,7 @@ mod tests {
     #[test]
     fn help_lists_every_binding_from_table() {
         let text = rendered_text();
-        for b in crate::tui::keymap::bindings() {
+        for b in crate::tui::keymap::bindings(&Keymap::defaults()) {
             assert!(
                 text.contains(b.label),
                 "help overlay missing binding label {:?}",
@@ -123,7 +124,7 @@ mod tests {
             // The "type" pseudo-key has no literal key column in help.
             if b.keys != "type" {
                 assert!(
-                    text.contains(b.keys),
+                    text.contains(&b.keys),
                     "help overlay missing binding keys {:?}",
                     b.keys
                 );
@@ -143,13 +144,13 @@ mod tests {
     fn help_key_column_is_aligned() {
         // Every non-heading, non-blank row pads the key column to a constant
         // width, so the label column starts at the same offset on every line.
-        let key_w = crate::tui::keymap::bindings()
+        let key_w = crate::tui::keymap::bindings(&Keymap::defaults())
             .iter()
             .filter(|b| b.keys != "type")
             .map(|b| b.keys.chars().count())
             .max()
             .unwrap();
-        let body = lines(&Theme::default());
+        let body = lines(&Keymap::defaults(), &Theme::default());
         let mut checked = 0usize;
         for line in &body {
             // Rows rendered by the table have exactly two spans: key + label.
@@ -174,7 +175,8 @@ mod tests {
 
         let backend = TestBackend::new(64, 40);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render(f, &Theme::default())).unwrap();
+        term.draw(|f| render(f, &Keymap::defaults(), &Theme::default()))
+            .unwrap();
         let text: String = term
             .backend()
             .buffer()

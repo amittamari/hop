@@ -51,6 +51,7 @@ pub struct App {
     preview_matches: Vec<u16>,
     preview_match_index: usize,
     theme: crate::tui::theme::Theme,
+    keymap: keymap::Keymap,
     frame: u64,
     indexing: Option<usize>,
 }
@@ -74,6 +75,7 @@ impl App {
             preview_matches: Vec::new(),
             preview_match_index: 0,
             theme: crate::tui::theme::Theme::default(),
+            keymap: keymap::Keymap::defaults(),
             frame: 0,
             indexing: None,
         }
@@ -181,6 +183,13 @@ impl App {
     pub fn theme(&self) -> &crate::tui::theme::Theme {
         &self.theme
     }
+    pub fn keymap(&self) -> &keymap::Keymap {
+        &self.keymap
+    }
+    /// Replace the active keymap (e.g. with one resolved from `config.toml`).
+    pub fn set_keymap(&mut self, keymap: keymap::Keymap) {
+        self.keymap = keymap;
+    }
     pub fn set_preview(&mut self, visible: bool, width_pct: u16) {
         self.preview_visible = visible;
         self.preview_width_pct = width_pct.clamp(20, 80);
@@ -234,7 +243,7 @@ impl App {
                 _ => Action::None,
             };
         }
-        if let Some(act) = keymap::control_chord_action(&key) {
+        if let Some(act) = self.keymap.chord_action(&key) {
             return self.apply_command(act);
         }
         // Main search handling.
@@ -304,17 +313,6 @@ impl App {
             }
             KeyCode::Delete => self.delete_query_char(),
             KeyCode::Backspace => self.backspace_query_char(),
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.query_cursor = 0;
-                Action::None
-            }
-            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.query_cursor = self.query.len();
-                Action::None
-            }
-            KeyCode::Char('w') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.delete_query_word_before_cursor()
-            }
             // `?` is reserved for help in every state, so it never types.
             KeyCode::Char('?') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.help_open = true;
@@ -329,6 +327,7 @@ impl App {
 
     fn apply_command(&mut self, command: keymap::Command) -> Action {
         match command {
+            keymap::Command::Quit => Action::Quit,
             keymap::Command::TogglePreview => {
                 self.preview_visible = !self.preview_visible;
                 Action::None
@@ -374,31 +373,6 @@ impl App {
         }
         let next = next_boundary(&self.query, self.query_cursor);
         self.query.drain(self.query_cursor..next);
-        self.preview_scroll = 0;
-        Action::Search
-    }
-
-    fn delete_query_word_before_cursor(&mut self) -> Action {
-        let mut start = self.query_cursor;
-        while let Some(prev) = prev_boundary(&self.query, start) {
-            let ch = self.query[prev..start].chars().next().unwrap();
-            if !ch.is_whitespace() {
-                break;
-            }
-            start = prev;
-        }
-        while let Some(prev) = prev_boundary(&self.query, start) {
-            let ch = self.query[prev..start].chars().next().unwrap();
-            if ch.is_whitespace() {
-                break;
-            }
-            start = prev;
-        }
-        if start == self.query_cursor {
-            return Action::None;
-        }
-        self.query.drain(start..self.query_cursor);
-        self.query_cursor = start;
         self.preview_scroll = 0;
         Action::Search
     }
@@ -700,12 +674,6 @@ mod tests {
         app.handle_key(key(KeyCode::Home));
         assert_eq!(app.handle_key(key(KeyCode::Delete)), Action::Search);
         assert_eq!(app.query(), "bcd");
-        app.handle_key(key(KeyCode::End));
-        assert_eq!(
-            app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL)),
-            Action::Search
-        );
-        assert_eq!(app.query(), "");
     }
 
     #[test]
@@ -751,16 +719,14 @@ mod tests {
             "PgUp/PgDn" => ev(PageDown, none),
             // Scroll-down rep: scroll-up at offset 0 is a no-op, so the pair is
             // represented by Ctrl+D, which always moves the preview.
-            "Ctrl+U/D" => ev(Char('d'), ctrl),
-            "Ctrl+N/B" => ev(Char('n'), ctrl),
+            "Ctrl+U/Ctrl+D" => ev(Char('d'), ctrl),
+            "Ctrl+N/Ctrl+B" => ev(Char('n'), ctrl),
             "Ctrl+P" => ev(Char('p'), ctrl),
-            "Ctrl+←/→" => ev(Left, ctrl),
+            "Ctrl+←/Ctrl+→" => ev(Left, ctrl),
             "←/→" => ev(Left, none),
             "Home/End" => ev(Home, none),
             "Backspace" => ev(Backspace, none),
             "Delete" => ev(Delete, none),
-            "Ctrl+A/E" => ev(Char('a'), ctrl),
-            "Ctrl+W" => ev(Char('w'), ctrl),
             "Enter" => ev(Enter, none),
             "Tab" => ev(Tab, none),
             "?" => ev(Char('?'), none),
@@ -787,8 +753,8 @@ mod tests {
 
     #[test]
     fn every_binding_is_handled() {
-        for b in crate::tui::keymap::bindings() {
-            let Some(ev) = binding_event(b.keys) else {
+        for b in crate::tui::keymap::bindings(&crate::tui::keymap::Keymap::defaults()) {
+            let Some(ev) = binding_event(&b.keys) else {
                 continue; // "type" tested in `typing_updates_query_and_requests_search`
             };
             // Fresh app per binding; populated + yolo-supported so Enter has work.
