@@ -8,8 +8,6 @@ Fast full-text search and resume for coding-agent sessions (**Claude Code**, **C
   <img src="demo/hop.gif" alt="hop demo: search, preview, and resume coding-agent sessions" width="100%">
 </p>
 
-> The demo is generated with [VHS](https://github.com/charmbracelet/vhs) against a throwaway sandbox of synthetic sessions. Regenerate it any time with `./demo/record.sh`.
-
 ---
 
 ## ✨ Features
