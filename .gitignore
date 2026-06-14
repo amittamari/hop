@@ -3,3 +3,6 @@
 Cargo.lock.orig
 .DS_Store
 .superpowers/
+
+# Throwaway sandbox seeded for the VHS demo recording
+demo/.demo-home/
