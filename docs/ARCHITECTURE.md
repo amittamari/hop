@@ -106,6 +106,9 @@ rows and surface as sync status warnings.
 - **I-001 Non-Fatal Sync:** Index sync is incremental and non-fatal: parse
   errors skip individual files, adapter scan failures preserve that adapter's
   indexed rows, and unavailable adapters are reported without forcing deletion.
+  Sessions that parse to no usable conversation (zero messages or empty content,
+  e.g. a Cursor subagent spawn the model blocked before any reply) are counted as
+  `empty_sessions` and skipped rather than indexed.
 - **I-003 Schema Versioning:** Schema changes must bump `SCHEMA_VERSION` in
   `src/index.rs`.
 - **I-004 Shared Transcript Extraction:** Search content and preview transcript

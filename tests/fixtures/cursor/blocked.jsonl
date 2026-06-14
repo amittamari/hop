@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>\nYou are a read-only reviewer. DO NOT edit files.\n</user_query>"}]}}
+{"type":"turn_ended","status":"error","error":"Model Blocked This model has been blocked by your team admin settings."}

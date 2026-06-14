@@ -210,7 +210,52 @@ fn strips_redacted_thinking_placeholders() {
     assert!(!s.content.contains("REDACTED"));
 }
 
-// ── Test 7: AgentId round-trip ────────────────────────────────────────────────
+// ── Test 7: blocked subagent session → empty ─────────────────────────────────
+
+/// A subagent spawn that the model blocked produces only a user prompt and a
+/// `turn_ended` error line, with no agent reply. There is no usable
+/// conversation, so it must parse to an empty session (0 messages).
+#[test]
+fn blocked_subagent_session_parses_as_empty() {
+    let tmp = tempfile::tempdir().unwrap();
+    let slug = "myproject";
+    let conv_dir = tmp.path().join(slug).join("agent-transcripts").join(UUID);
+    std::fs::create_dir_all(&conv_dir).unwrap();
+    let canonical = conv_dir.join(format!("{UUID}.jsonl"));
+    std::fs::copy(fixture("blocked.jsonl"), &canonical).unwrap();
+
+    let adapter = CursorAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&canonical).unwrap();
+
+    assert_eq!(s.message_count, 0);
+    assert!(
+        s.content.trim().is_empty(),
+        "blocked session should carry no content; got: {:?}",
+        s.content
+    );
+}
+
+// ── Test 8: error after a real agent reply is preserved ───────────────────────
+
+/// A `turn_ended` error must only suppress the session when no agent reply was
+/// produced. If the agent answered before the error, the conversation is real.
+#[test]
+fn error_after_agent_reply_is_kept() {
+    let tmp = tempfile::tempdir().unwrap();
+    let slug = "myproject";
+    let conv_dir = tmp.path().join(slug).join("agent-transcripts").join(UUID);
+    std::fs::create_dir_all(&conv_dir).unwrap();
+    let canonical = conv_dir.join(format!("{UUID}.jsonl"));
+    std::fs::copy(fixture("errored-after-reply.jsonl"), &canonical).unwrap();
+
+    let adapter = CursorAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&canonical).unwrap();
+
+    assert_eq!(s.message_count, 2);
+    assert!(s.content.contains("Working on it."));
+}
+
+// ── Test 9: AgentId round-trip ────────────────────────────────────────────────
 
 #[test]
 fn agent_id_cursor_round_trip() {
