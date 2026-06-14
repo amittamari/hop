@@ -4,6 +4,10 @@ Fast full-text search and resume for coding-agent sessions (**Claude Code**, **C
 
 `hop` aggregates your past Claude Code, Codex, and Cursor sessions into a single full-text index, allowing you to jump straight back into any of them. Type a few words you remember, pick the result, hit Enter, and you are immediately resumed in the original agent and the original working directory.
 
+<p align="center">
+  <img src="demo/hop.gif" alt="hop demo: search, preview, and resume coding-agent sessions" width="100%">
+</p>
+
 ---
 
 ## ✨ Features
