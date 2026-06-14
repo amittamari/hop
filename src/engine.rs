@@ -253,7 +253,10 @@ fn sync_index(
                     s.source_path = Some(entry.path.clone());
                 }
                 if s.message_count == 0 || s.content.trim().is_empty() {
+                    // Nothing to search or resume (e.g. a Cursor subagent spawn
+                    // the model blocked before any reply). Don't index it.
                     report.empty_sessions += 1;
+                    continue;
                 }
                 index.upsert(&mut writer, &s);
                 report.indexed += 1;
@@ -565,6 +568,26 @@ mod tests {
         engine.search().unwrap();
         assert_eq!(engine.results().len(), 1);
         assert_eq!(engine.results()[0].id, "a");
+    }
+
+    #[test]
+    fn empty_sessions_are_not_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut empty = sess_for(AgentId::Claude, "empty", "");
+        empty.content.clear();
+        empty.message_count = 0;
+        let adapters: Vec<Box<dyn Adapter>> = vec![adapter(
+            AgentId::Claude,
+            vec![empty, sess("real", "auth bug")],
+        )];
+        let mut engine = Engine::new(dir.path(), adapters).unwrap();
+        engine.sync_once().unwrap();
+        engine.set_query("");
+        engine.search().unwrap();
+
+        // The empty session is skipped; only the real one is searchable.
+        assert_eq!(engine.results().len(), 1);
+        assert_eq!(engine.results()[0].id, "real");
     }
 
     #[test]

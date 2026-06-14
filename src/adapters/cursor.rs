@@ -55,6 +55,11 @@ impl CursorAdapter {
 struct Line {
     role: Option<String>,
     message: Option<LineMessage>,
+    /// Control lines carry a top-level `type` (e.g. `turn_ended`) instead of a role.
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    /// On a `turn_ended` line: `success`, `aborted`, or `error`.
+    status: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +150,7 @@ impl CursorAdapter {
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut messages: Vec<Message> = Vec::new();
+        let mut errored = false;
 
         for line in raw.lines() {
             if line.trim().is_empty() {
@@ -155,6 +161,12 @@ impl CursorAdapter {
                 Ok(l) => l,
                 Err(_) => continue,
             };
+            if parsed.kind.as_deref() == Some("turn_ended")
+                && parsed.status.as_deref() == Some("error")
+            {
+                errored = true;
+                continue;
+            }
             let role = match parsed.role.as_deref() {
                 Some("user") => Role::User,
                 Some("assistant") => Role::Agent,
@@ -189,6 +201,15 @@ impl CursorAdapter {
             messages.push(Message {
                 role,
                 blocks: split,
+            });
+        }
+
+        // A turn that errored before the agent replied (e.g. a blocked subagent
+        // spawn) has no usable conversation. Drop it so it isn't indexed.
+        let has_agent_reply = messages.iter().any(|m| m.role == Role::Agent);
+        if errored && !has_agent_reply {
+            return Ok(Extracted {
+                messages: Vec::new(),
             });
         }
 
