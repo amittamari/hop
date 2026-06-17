@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3](https://github.com/amittamari/hop/compare/v0.2.2...v0.2.3) - 2026-06-17
+
+### Added
+
+- *(config)* add custom launcher command for session resume ([#39](https://github.com/amittamari/hop/pull/39))
+
+### Fixed
+
+- *(cursor)* skip blocked subagent sessions ([#33](https://github.com/amittamari/hop/pull/33))
+
+### Other
+
+- add VHS demo recording and embed in README ([#36](https://github.com/amittamari/hop/pull/36))
+
 ## [0.2.2](https://github.com/amittamari/hop/compare/v0.2.1...v0.2.2) - 2026-06-13
 
 ### Added
