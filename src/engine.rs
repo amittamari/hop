@@ -142,11 +142,16 @@ impl Engine {
         &self,
         session: &SessionSummary,
         yolo: bool,
+        launcher: &crate::config::LauncherConfig,
     ) -> Option<ResumeCommand> {
         let full = self.indexed_session(session)?;
         let adapter = self.adapter_for(full.agent)?;
         let argv = adapter.resume_command(&full, yolo);
-        // Archived sessions need an unarchive step before `resume` can find them.
+        let argv = match launcher.rewrite_argv(full.agent, &argv) {
+            Some(Ok(rewritten)) => rewritten,
+            Some(Err(_)) => return None,
+            None => argv,
+        };
         let prepare = full
             .archived
             .then(|| adapter.unarchive_command(&full))
@@ -445,10 +450,11 @@ mod tests {
                 .cloned()
                 .unwrap()
         };
-        let active_cmd = engine.resume_command_for(&row("active"), false).unwrap();
+        let no_launcher = crate::config::LauncherConfig::default();
+        let active_cmd = engine.resume_command_for(&row("active"), false, &no_launcher).unwrap();
         assert_eq!(active_cmd.prepare, None, "active sessions need no prep");
 
-        let archived_cmd = engine.resume_command_for(&row("gone"), false).unwrap();
+        let archived_cmd = engine.resume_command_for(&row("gone"), false, &no_launcher).unwrap();
         assert_eq!(
             archived_cmd.prepare,
             Some(vec!["unarchive".to_string(), "gone".to_string()]),

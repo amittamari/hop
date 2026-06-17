@@ -98,7 +98,7 @@ fn main() -> Result<()> {
 
     if let Some((session, yolo)) = pending {
         let command = engine
-            .resume_command_for(&session, yolo || cli.yolo)
+            .resume_command_for(&session, yolo || cli.yolo, &config.launcher)
             .unwrap_or_else(|| ResumeCommand {
                 directory: session.directory.clone(),
                 argv: Vec::new(),
@@ -193,7 +193,7 @@ fn run_tui(
             let modal_command = app.yolo_modal().and_then(|(index, yolo)| {
                 app.results()
                     .get(index)
-                    .and_then(|s| engine.resume_command_for(s, yolo))
+                    .and_then(|s| engine.resume_command_for(s, yolo, &config.launcher))
                     .map(|command| command.argv)
             });
             app.set_indexing(if sync_done {
