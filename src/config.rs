@@ -46,17 +46,17 @@ pub struct LauncherConfig {
 }
 
 impl LauncherConfig {
-    pub fn rewrite_argv(&self, agent: AgentId, argv: &[String]) -> Option<anyhow::Result<Vec<String>>> {
+    pub fn rewrite_argv(
+        &self,
+        agent: AgentId,
+        argv: &[String],
+    ) -> Option<anyhow::Result<Vec<String>>> {
         let tmpl = self.command.as_deref()?;
         Some(rewrite_argv_inner(tmpl, agent, argv))
     }
 }
 
-fn rewrite_argv_inner(
-    tmpl: &str,
-    agent: AgentId,
-    argv: &[String],
-) -> anyhow::Result<Vec<String>> {
+fn rewrite_argv_inner(tmpl: &str, agent: AgentId, argv: &[String]) -> anyhow::Result<Vec<String>> {
     let expanded = tmpl.replace("{agent}", agent.slug());
     if let Some(pos) = expanded.find('{') {
         if let Some(end) = expanded[pos..].find('}') {
@@ -257,7 +257,14 @@ mod tests {
         let result = cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().unwrap();
         assert_eq!(
             result,
-            vec!["kv", "--ai", "claude", "--dangerously-skip-permissions", "--resume", "id"]
+            vec![
+                "kv",
+                "--ai",
+                "claude",
+                "--dangerously-skip-permissions",
+                "--resume",
+                "id"
+            ]
         );
     }
 

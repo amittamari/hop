@@ -451,10 +451,14 @@ mod tests {
                 .unwrap()
         };
         let no_launcher = crate::config::LauncherConfig::default();
-        let active_cmd = engine.resume_command_for(&row("active"), false, &no_launcher).unwrap();
+        let active_cmd = engine
+            .resume_command_for(&row("active"), false, &no_launcher)
+            .unwrap();
         assert_eq!(active_cmd.prepare, None, "active sessions need no prep");
 
-        let archived_cmd = engine.resume_command_for(&row("gone"), false, &no_launcher).unwrap();
+        let archived_cmd = engine
+            .resume_command_for(&row("gone"), false, &no_launcher)
+            .unwrap();
         assert_eq!(
             archived_cmd.prepare,
             Some(vec!["unarchive".to_string(), "gone".to_string()]),
