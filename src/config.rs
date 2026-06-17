@@ -41,6 +41,39 @@ pub struct ColumnsConfig {
 }
 
 #[derive(Debug, Default, Deserialize)]
+pub struct LauncherConfig {
+    pub command: Option<String>,
+}
+
+impl LauncherConfig {
+    pub fn rewrite_argv(&self, agent: AgentId, argv: &[String]) -> Option<anyhow::Result<Vec<String>>> {
+        let tmpl = self.command.as_deref()?;
+        Some(rewrite_argv_inner(tmpl, agent, argv))
+    }
+}
+
+fn rewrite_argv_inner(
+    tmpl: &str,
+    agent: AgentId,
+    argv: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let expanded = tmpl.replace("{agent}", agent.slug());
+    if let Some(pos) = expanded.find('{') {
+        if let Some(end) = expanded[pos..].find('}') {
+            let unknown = &expanded[pos..pos + end + 1];
+            anyhow::bail!("unknown launcher template variable: {unknown}");
+        }
+    }
+    let mut prefix = shlex::split(&expanded)
+        .ok_or_else(|| anyhow::anyhow!("unterminated quote in launcher command"))?;
+    if prefix.is_empty() {
+        anyhow::bail!("launcher command expands to empty string");
+    }
+    prefix.extend_from_slice(&argv[1..]);
+    Ok(prefix)
+}
+
+#[derive(Debug, Default, Deserialize)]
 pub struct Config {
     #[serde(default)]
     pub data_dirs: HashMap<String, PathBuf>,
@@ -55,6 +88,8 @@ pub struct Config {
     pub preview: PreviewConfig,
     #[serde(default)]
     pub columns: ColumnsConfig,
+    #[serde(default)]
+    pub launcher: LauncherConfig,
 }
 
 impl Config {
@@ -196,6 +231,60 @@ mod tests {
             cfg.keybindings.get("quit").map(String::as_str),
             Some("ctrl+q")
         );
+    }
+
+    #[test]
+    fn launcher_rewrites_argv() {
+        let cfg = LauncherConfig {
+            command: Some("kv --ai {agent}".into()),
+        };
+        let argv: Vec<String> = vec!["claude".into(), "--resume".into(), "abc-123".into()];
+        let result = cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().unwrap();
+        assert_eq!(result, vec!["kv", "--ai", "claude", "--resume", "abc-123"]);
+    }
+
+    #[test]
+    fn launcher_preserves_yolo_flags() {
+        let cfg = LauncherConfig {
+            command: Some("kv --ai {agent}".into()),
+        };
+        let argv: Vec<String> = vec![
+            "claude".into(),
+            "--dangerously-skip-permissions".into(),
+            "--resume".into(),
+            "id".into(),
+        ];
+        let result = cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().unwrap();
+        assert_eq!(
+            result,
+            vec!["kv", "--ai", "claude", "--dangerously-skip-permissions", "--resume", "id"]
+        );
+    }
+
+    #[test]
+    fn launcher_none_when_unconfigured() {
+        let cfg = LauncherConfig::default();
+        let argv: Vec<String> = vec!["claude".into()];
+        assert!(cfg.rewrite_argv(AgentId::Claude, &argv).is_none());
+    }
+
+    #[test]
+    fn launcher_unknown_variable_is_error() {
+        let cfg = LauncherConfig {
+            command: Some("kv {unknown}".into()),
+        };
+        let argv: Vec<String> = vec!["claude".into()];
+        assert!(cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().is_err());
+    }
+
+    #[test]
+    fn launcher_from_toml() {
+        let toml = r#"
+            [launcher]
+            command = "kv --ai {agent}"
+        "#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        assert_eq!(cfg.launcher.command.as_deref(), Some("kv --ai {agent}"));
     }
 
     #[test]
