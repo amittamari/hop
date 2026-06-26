@@ -360,6 +360,9 @@ impl PreviewState {
     pub fn invalidate(&mut self) {
         self.transcript_for = None;
         self.key = None;
+        self.transcript = Vec::new();
+        self.lines = Vec::new();
+        self.source_unavailable = false;
     }
 
     pub fn update(
@@ -592,6 +595,50 @@ mod tests {
     fn unknown_lang_falls_back_to_plain() {
         let lines = highlight_code("x = 1", Some("nope-lang"));
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn invalidate_clears_all_stale_state() {
+        let mut app = crate::tui::App::new();
+        let session = crate::core::SessionSummary {
+            id: "sess-1".into(),
+            agent: crate::core::AgentId::Claude,
+            title: "test session".into(),
+            directory: "/tmp".into(),
+            timestamp: 1000,
+            message_count: 2,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: false,
+        };
+        let transcript = crate::core::Transcript {
+            messages: msgs(),
+        };
+
+        let mut ps = PreviewState::default();
+        let terms: Vec<String> = vec!["auth".into()];
+        let t = transcript.clone();
+        ps.update(
+            &mut app,
+            Some(&session),
+            &terms,
+            |_| Some(t),
+            |_| None,
+        );
+        assert!(!ps.transcript.is_empty());
+        assert!(!ps.lines.is_empty());
+        assert!(ps.transcript_for.is_some());
+        assert!(ps.key.is_some());
+
+        ps.invalidate();
+
+        assert!(ps.transcript.is_empty(), "transcript should be cleared");
+        assert!(ps.lines.is_empty(), "lines should be cleared");
+        assert!(ps.transcript_for.is_none(), "transcript_for should be None");
+        assert!(ps.key.is_none(), "key should be None");
+        assert!(!ps.source_unavailable, "source_unavailable should be false");
     }
 
     #[test]
