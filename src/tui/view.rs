@@ -1372,7 +1372,7 @@ mod tests {
             "archived modal should explain the unarchive step"
         );
         assert!(
-            text.contains("unarchives & resumes"),
+            text.contains("unarchive & resume"),
             "archived modal legend should reflect the unarchive step"
         );
     }
