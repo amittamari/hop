@@ -350,7 +350,14 @@ fn recency_boosts_recent_over_old_with_similar_text() {
     let three_months_ago = now - 90 * 86_400;
     idx.upsert(
         &mut w,
-        &sess("old", "deploy api", "deploy api", AgentId::Claude, three_months_ago, 1),
+        &sess(
+            "old",
+            "deploy api",
+            "deploy api",
+            AgentId::Claude,
+            three_months_ago,
+            1,
+        ),
     );
     idx.upsert(
         &mut w,
