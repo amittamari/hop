@@ -39,6 +39,19 @@ brew install amittamari/tap/hop
 cargo install --locked --path .
 ```
 
+### Dependencies
+
+`hop` works standalone for searching and previewing sessions. Additional tools
+unlock more features:
+
+| Dependency | Purpose | Notes |
+| --- | --- | --- |
+| **git** | Resolve repo names and branches at index time | Effectively always present on developer machines |
+| **[gh](https://cli.github.com/)** | PR column and `Ctrl+O` open-in-browser | Without it, the PR column stays empty — everything else works fine |
+| **[claude](https://docs.anthropic.com/en/docs/claude-code)** | Resume Claude Code sessions | Only needed if you use Claude Code |
+| **[codex](https://github.com/openai/codex)** | Resume Codex sessions | Only needed if you use Codex |
+| **[cursor-agent](https://www.cursor.com/)** | Resume Cursor sessions | Only needed if you use Cursor |
+
 ### Usage Examples
 
 ```bash

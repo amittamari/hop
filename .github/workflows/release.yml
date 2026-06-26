@@ -101,6 +101,8 @@ jobs:
             version "${version}"
             license "MIT"
 
+            depends_on "gh" => :recommended
+
             on_macos do
               on_arm do
                 url "$(url aarch64-apple-darwin)"
