@@ -26,7 +26,7 @@ serde_json = "1"
 simd-json = "0.17"
 jiff = "0.2"
 directories = "6"
-toml = "0.8"
+toml = "1.1"
 syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
