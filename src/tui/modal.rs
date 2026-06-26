@@ -4,7 +4,7 @@ use crate::tui::theme::Theme;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph};
+use ratatui::widgets::{Block, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
 /// A `w` x `h` rect centered within `area` on both axes (clamped to `area`).
@@ -46,32 +46,37 @@ pub fn render_yolo_modal(
     let min_h = 6.min(max_h);
     let w = 72u16.min(max_w).max(min_w);
     let extra = u16::from(archived) + u16::from(dir_missing);
-    let h = (10u16 + extra).min(max_h).max(min_h);
+    // +4 for padding (top 1 + bottom 1 + border top/bottom 2 already in bordered)
+    let h = (12u16 + extra).min(max_h).max(min_h);
     let rect = center(area, w, h);
 
+    // Inner width after border (1+1) and horizontal padding (2+2).
+    let inner_w = rect.width.saturating_sub(6) as usize;
+    let label_w = if archived || dir_missing { 10 } else { 10 };
+    let value_budget = inner_w.saturating_sub(label_w);
+
     let title = session
-        .map(|s| fit_for_modal(&s.title, rect.width.saturating_sub(4) as usize))
+        .map(|s| fit_for_modal(&s.title, value_budget))
         .unwrap_or_else(|| "(no session)".to_string());
     let directory = session
-        .map(|s| fit_for_modal(&s.directory, rect.width.saturating_sub(15) as usize))
+        .map(|s| fit_for_modal(&s.directory, value_budget))
         .unwrap_or_else(|| "—".to_string());
     let command = modal_command
         .map(shell_join)
         .unwrap_or_else(|| "resume command unavailable".to_string());
-    let command = fit_for_modal(&command, rect.width.saturating_sub(13) as usize);
-    let danger = if yolo {
-        "YOLO on: approvals and sandbox may be bypassed"
-    } else {
-        "YOLO off: normal resume"
-    };
+    let command = fit_for_modal(&command, value_budget);
+
+    let label_style = Style::default()
+        .fg(theme.muted)
+        .add_modifier(Modifier::BOLD);
 
     let mut body = vec![
         Line::from(vec![
-            Span::styled("Session  ", Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<label_w$}", "Session"), label_style),
             Span::raw(title),
         ]),
         Line::from(vec![
-            Span::styled("Directory ", Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<label_w$}", "Directory"), label_style),
             if dir_missing {
                 Span::styled(directory, Style::default().fg(theme.warning))
             } else {
@@ -79,13 +84,13 @@ pub fn render_yolo_modal(
             },
         ]),
         Line::from(vec![
-            Span::styled("Command   ", Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<label_w$}", "Command"), label_style),
             Span::raw(command),
         ]),
     ];
     if archived {
         body.push(Line::from(vec![
-            Span::styled("Archived  ", Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<label_w$}", "Archived"), label_style),
             Span::styled(
                 "session is archived; it will be unarchived first",
                 Style::default()
@@ -96,7 +101,7 @@ pub fn render_yolo_modal(
     }
     if dir_missing {
         body.push(Line::from(vec![
-            Span::styled("Missing   ", Style::default().fg(theme.muted)),
+            Span::styled(format!("{:<label_w$}", "Missing"), label_style),
             Span::styled(
                 "directory does not exist; agent will start in current dir",
                 Style::default()
@@ -107,7 +112,11 @@ pub fn render_yolo_modal(
     }
     body.push(Line::from(""));
     body.push(Line::from(Span::styled(
-        danger,
+        if yolo {
+            "YOLO on: approvals and sandbox may be bypassed"
+        } else {
+            "YOLO off: normal resume"
+        },
         if yolo {
             Style::default()
                 .fg(theme.warning)
@@ -117,11 +126,26 @@ pub fn render_yolo_modal(
         },
     )));
     body.push(Line::from(""));
-    body.push(Line::from(if archived {
-        "Tab toggles yolo · Enter unarchives & resumes · Esc cancels"
+
+    let key_style = Style::default().fg(theme.accent);
+    let sep_style = Style::default().fg(theme.border);
+    let hint_style = Style::default().fg(theme.muted);
+    let sep = Span::styled(" · ", sep_style);
+    let confirm_label = if archived {
+        "unarchive & resume"
     } else {
-        "Tab toggles yolo · Enter resumes · Esc cancels"
-    }));
+        "resume"
+    };
+    body.push(Line::from(vec![
+        Span::styled("Tab", key_style),
+        Span::styled(" toggle yolo", hint_style),
+        sep.clone(),
+        Span::styled("Enter", key_style),
+        Span::styled(format!(" {confirm_label}"), hint_style),
+        sep,
+        Span::styled("Esc", key_style),
+        Span::styled(" cancel", hint_style),
+    ]));
 
     let modal_title = if archived {
         " unarchive & resume "
@@ -133,10 +157,17 @@ pub fn render_yolo_modal(
         Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
     );
     f.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_style(Style::default().fg(theme.accent))
+        .title(modal_title)
+        .title_style(
+            Style::default()
+                .fg(theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )
+        .padding(Padding::symmetric(2, 1));
     f.render_widget(
-        Paragraph::new(body)
-            .block(Block::bordered().title(modal_title))
-            .alignment(Alignment::Left),
+        Paragraph::new(body).block(block).alignment(Alignment::Left),
         rect,
     );
 }
