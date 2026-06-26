@@ -14,7 +14,9 @@ The core user journey is:
 
 - Launch should render immediately from the existing local index.
 - Background sync should update the index without blocking the TUI.
-- Search should cover conversation content, not only titles.
+- Search should cover conversation content, not only titles. Results are
+  recency-boosted so recent sessions surface above older ones with similar
+  text relevance.
 - Preview should show user/agent turns and hide internal noise such as tool calls,
   command tags, meta lines, and system reminders.
 - Resume should restore the terminal, `chdir` to the session directory, and
@@ -29,6 +31,10 @@ In scope:
 - Full-text search with keyword filters.
 - TUI preview, columns, background PR enrichment, and yolo resume.
 - Optional TOML config with zero-config defaults.
+
+- Optional `[launcher]` config to override the resume binary with a custom
+  command template.
+- Background update notification on startup (cached, non-blocking).
 
 Out of scope for now:
 

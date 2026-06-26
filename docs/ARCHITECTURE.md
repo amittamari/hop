@@ -49,8 +49,9 @@ rows and surface as sync status warnings.
 - `src/query.rs`: parses user query text into a structured query independent of
   Tantivy.
 - `src/index.rs`: owns Tantivy schema, upsert/delete, incremental diff helpers,
-  and search execution. Indexed rows use a namespaced `agent:id` document key;
-  the raw session id remains on `Session` for agent resume commands.
+  and search execution with recency-boosted ranking. Indexed rows use a
+  namespaced `agent:id` document key; the raw session id remains on `Session`
+  for agent resume commands.
 - `src/engine.rs`: UI-agnostic orchestration for query state, search results,
   transcript loading, resume command construction, debouncing, and background
   sync status.
@@ -62,7 +63,12 @@ rows and surface as sync status warnings.
 - `src/resume.rs`: terminal-safe process handoff through `exec`, plus an
   optional run-and-wait prepare step (e.g. `codex unarchive <id>` for archived
   sessions) executed after terminal restore and before the resume `exec`.
-- `src/config.rs`: optional TOML config and persisted UI state.
+- `src/config.rs`: optional TOML config, persisted UI state, and launcher
+  override (`[launcher]` section with `{agent}` template for custom resume
+  binaries).
+- `src/update.rs`: background update checker. Queries GitHub releases API at
+  startup (cached 24 hours), detects install method (Homebrew vs cargo), and
+  prints an upgrade notice to stderr after the TUI exits.
 
 ## Stable Boundaries
 
