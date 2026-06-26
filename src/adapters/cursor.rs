@@ -1,17 +1,18 @@
 use crate::adapters::{file_mtime_ms, git_remote_url, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, split_blocks, AgentId, Message, Role, ScanEntry, Session, SessionId,
+    SessionSummary,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 pub struct CursorAdapter {
     root: PathBuf,
     // cache: project_dir -> Option<workspacePath>
-    wp_cache: Mutex<HashMap<PathBuf, Option<String>>>,
+    wp_cache: RefCell<HashMap<PathBuf, Option<String>>>,
     /// Cursor records no git remote; resolve it from the workspace path at parse time.
     repo_cache: GitFieldCache,
 }
@@ -20,14 +21,14 @@ impl CursorAdapter {
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
-            wp_cache: Mutex::new(HashMap::new()),
+            wp_cache: RefCell::new(HashMap::new()),
             repo_cache: GitFieldCache::new(git_remote_url),
         }
     }
 
     /// Read workspacePath from <project_dir>/worker.log, cached.
     fn workspace_path(&self, project_dir: &Path) -> Option<String> {
-        let mut cache = self.wp_cache.lock().unwrap();
+        let mut cache = self.wp_cache.borrow_mut();
         if let Some(cached) = cache.get(project_dir) {
             return cached.clone();
         }
@@ -325,19 +326,21 @@ impl Adapter for CursorAdapter {
         let repo_url = self.repo_cache.resolve(&directory);
 
         Ok(Session {
-            id,
-            agent: AgentId::Cursor,
-            title,
-            directory,
-            timestamp,
+            meta: SessionSummary {
+                id,
+                agent: AgentId::Cursor,
+                title,
+                directory,
+                timestamp,
+                message_count: ex.messages.len() as u32,
+                yolo,
+                branch: None,
+                repo_url,
+                source_path: Some(path.to_path_buf()),
+                archived: false,
+            },
             content,
-            message_count: ex.messages.len() as u32,
             mtime: 0,
-            yolo,
-            branch: None,
-            repo_url,
-            source_path: Some(path.to_path_buf()),
-            archived: false,
         })
     }
 
@@ -351,10 +354,10 @@ impl Adapter for CursorAdapter {
                 "cursor-agent".into(),
                 "--force".into(),
                 "--resume".into(),
-                s.id.clone(),
+                s.meta.id.clone(),
             ]
         } else {
-            vec!["cursor-agent".into(), "--resume".into(), s.id.clone()]
+            vec!["cursor-agent".into(), "--resume".into(), s.meta.id.clone()]
         }
     }
 

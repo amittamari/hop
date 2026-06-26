@@ -71,7 +71,7 @@ pub fn render(f: &mut Frame, keymap: &Keymap, theme: &Theme) {
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
         .max(4);
-    let rect = crate::tui::view::center(area, w, h);
+    let rect = crate::tui::modal::center(area, w, h);
     f.buffer_mut().set_style(
         area,
         Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),

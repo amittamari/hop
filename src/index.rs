@@ -106,27 +106,28 @@ impl SearchIndex {
     }
 
     pub fn upsert(&self, w: &mut IndexWriter, s: &Session) {
-        let doc_key = s.document_key();
+        let m = &s.meta;
+        let doc_key = m.document_key();
         w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
         let mut doc = TantivyDocument::default();
         doc.add_text(self.f.doc_key, &doc_key);
-        doc.add_text(self.f.id, &s.id);
-        doc.add_text(self.f.agent, s.agent.slug());
-        doc.add_text(self.f.title, &s.title);
+        doc.add_text(self.f.id, &m.id);
+        doc.add_text(self.f.agent, m.agent.slug());
+        doc.add_text(self.f.title, &m.title);
         doc.add_text(self.f.content, &s.content);
-        doc.add_text(self.f.directory, &s.directory);
-        doc.add_u64(self.f.timestamp, s.timestamp.max(0) as u64);
+        doc.add_text(self.f.directory, &m.directory);
+        doc.add_u64(self.f.timestamp, m.timestamp.max(0) as u64);
         doc.add_u64(self.f.mtime, s.mtime.max(0) as u64);
-        doc.add_u64(self.f.message_count, s.message_count as u64);
-        doc.add_u64(self.f.yolo, s.yolo as u64);
-        doc.add_u64(self.f.archived, s.archived as u64);
-        if let Some(b) = &s.branch {
+        doc.add_u64(self.f.message_count, m.message_count as u64);
+        doc.add_u64(self.f.yolo, m.yolo as u64);
+        doc.add_u64(self.f.archived, m.archived as u64);
+        if let Some(b) = &m.branch {
             doc.add_text(self.f.branch, b);
         }
-        if let Some(r) = &s.repo_url {
+        if let Some(r) = &m.repo_url {
             doc.add_text(self.f.repo_url, r);
         }
-        if let Some(path) = &s.source_path {
+        if let Some(path) = &m.source_path {
             doc.add_text(self.f.source_path, path.to_string_lossy());
         }
         let _ = w.add_document(doc);
@@ -308,48 +309,20 @@ impl SearchIndex {
     }
 
     fn to_session(&self, doc: &TantivyDocument) -> Session {
-        let get_str = |f: Field| {
-            doc.get_first(f)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
-        let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
+        let meta = self.to_summary(doc);
+        let content = doc
+            .get_first(self.f.content)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mtime = doc
+            .get_first(self.f.mtime)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as i64;
         Session {
-            id: get_str(self.f.id),
-            agent: AgentId::from_slug(&get_str(self.f.agent)).unwrap_or(AgentId::Claude),
-            title: get_str(self.f.title),
-            directory: get_str(self.f.directory),
-            timestamp: get_u64(self.f.timestamp) as i64,
-            content: get_str(self.f.content),
-            message_count: get_u64(self.f.message_count) as u32,
-            mtime: get_u64(self.f.mtime) as i64,
-            yolo: get_u64(self.f.yolo) != 0,
-            branch: {
-                let b = get_str(self.f.branch);
-                if b.is_empty() {
-                    None
-                } else {
-                    Some(b)
-                }
-            },
-            repo_url: {
-                let r = get_str(self.f.repo_url);
-                if r.is_empty() {
-                    None
-                } else {
-                    Some(r)
-                }
-            },
-            source_path: {
-                let p = get_str(self.f.source_path);
-                if p.is_empty() {
-                    None
-                } else {
-                    Some(p.into())
-                }
-            },
-            archived: get_u64(self.f.archived) != 0,
+            meta,
+            content,
+            mtime,
         }
     }
 

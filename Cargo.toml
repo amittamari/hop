@@ -4,6 +4,8 @@ version = "0.2.5"
 edition = "2021"
 description = "Fast full-text search and resume for coding-agent sessions"
 license = "MIT"
+# Resume uses Unix exec(2) to replace the process; not portable to Windows.
+readme = "README.md"
 
 [[bin]]
 name = "hop"

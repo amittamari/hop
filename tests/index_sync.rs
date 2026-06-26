@@ -1,4 +1,4 @@
-use hop::core::{AgentId, ScanEntry, Session};
+use hop::core::{AgentId, ScanEntry, Session, SessionSummary};
 use hop::index::{diff, diff_authoritative, SearchIndex};
 use hop::query;
 use std::collections::HashMap;
@@ -6,19 +6,21 @@ use std::path::PathBuf;
 
 fn sess(id: &str, title: &str, content: &str, agent: AgentId, ts: i64, mtime: i64) -> Session {
     Session {
-        id: id.into(),
-        agent,
-        title: title.into(),
-        directory: "/work/api".into(),
-        timestamp: ts,
+        meta: SessionSummary {
+            id: id.into(),
+            agent,
+            title: title.into(),
+            directory: "/work/api".into(),
+            timestamp: ts,
+            message_count: 1,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: false,
+        },
         content: content.into(),
-        message_count: 1,
         mtime,
-        yolo: false,
-        branch: None,
-        repo_url: None,
-        source_path: None,
-        archived: false,
     }
 }
 
@@ -32,7 +34,7 @@ fn sess_in_dir(
     mtime: i64,
 ) -> Session {
     let mut s = sess(id, title, content, agent, ts, mtime);
-    s.directory = directory.into();
+    s.meta.directory = directory.into();
     s
 }
 
@@ -304,26 +306,28 @@ fn dir_filter_pages_past_many_filtered_out_hits() {
 
 #[test]
 fn branch_roundtrips_through_index() {
-    use hop::core::{AgentId, Session};
+    use hop::core::{AgentId, Session, SessionSummary};
     use hop::index::SearchIndex;
     use hop::query::ParsedQuery;
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
     let mut w = idx.writer().unwrap();
     let s = Session {
-        id: "a".into(),
-        agent: AgentId::Codex,
-        title: "t".into(),
-        directory: "/w".into(),
-        timestamp: 1,
+        meta: SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Codex,
+            title: "t".into(),
+            directory: "/w".into(),
+            timestamp: 1,
+            message_count: 1,
+            yolo: false,
+            branch: Some("feat/x".into()),
+            repo_url: Some("git@github.com:me/web.git".into()),
+            source_path: Some(std::path::PathBuf::from("/sessions/a.jsonl")),
+            archived: false,
+        },
         content: "hello".into(),
-        message_count: 1,
         mtime: 1,
-        yolo: false,
-        branch: Some("feat/x".into()),
-        repo_url: Some("git@github.com:me/web.git".into()),
-        source_path: Some(std::path::PathBuf::from("/sessions/a.jsonl")),
-        archived: false,
     };
     idx.upsert(&mut w, &s);
     w.commit().unwrap();

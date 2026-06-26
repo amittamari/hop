@@ -14,10 +14,10 @@ fn parses_id_cwd_and_excludes_noise() {
     let adapter = ClaudeAdapter::new(PathBuf::from("/unused"));
     let s = adapter.parse(&fixture("sample.jsonl")).unwrap();
 
-    assert_eq!(s.agent, AgentId::Claude);
-    assert_eq!(s.id, "sample"); // from filename
-    assert_eq!(s.directory, "/Users/me/work/api");
-    assert!(s.timestamp > 0); // RFC3339 timestamp parsed, not the 0 fallback
+    assert_eq!(s.meta.agent, AgentId::Claude);
+    assert_eq!(s.meta.id, "sample"); // from filename
+    assert_eq!(s.meta.directory, "/Users/me/work/api");
+    assert!(s.meta.timestamp > 0); // RFC3339 timestamp parsed, not the 0 fallback
 
     // content keeps only real user + assistant text
     assert!(s.content.contains("fix the auth refresh token bug"));
@@ -32,9 +32,9 @@ fn parses_id_cwd_and_excludes_noise() {
     assert!(!s.content.contains("meta note"));
 
     // title = first real user prompt; message_count = real text messages
-    assert_eq!(s.title, "fix the auth refresh token bug");
-    assert_eq!(s.message_count, 2);
-    assert!(!s.yolo);
+    assert_eq!(s.meta.title, "fix the auth refresh token bug");
+    assert_eq!(s.meta.message_count, 2);
+    assert!(!s.meta.yolo);
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn claude_prefers_ai_title_over_first_prompt() {
 
     let a = ClaudeAdapter::new(tmp.path().to_path_buf());
     let s = a.parse(&file).unwrap();
-    assert_eq!(s.title, "Concise Claude Conversation Title");
+    assert_eq!(s.meta.title, "Concise Claude Conversation Title");
     assert!(s.content.contains("long raw first prompt"));
 }
 
@@ -85,7 +85,7 @@ fn claude_uses_top_level_summary_title() {
 
     let a = ClaudeAdapter::new(tmp.path().to_path_buf());
     let s = a.parse(&file).unwrap();
-    assert_eq!(s.title, "Legacy Claude Summary Title");
+    assert_eq!(s.meta.title, "Legacy Claude Summary Title");
 }
 
 #[test]
@@ -110,8 +110,8 @@ fn claude_preserves_long_normalized_title() {
 
     let a = ClaudeAdapter::new(tmp.path().to_path_buf());
     let s = a.parse(&file).unwrap();
-    assert_eq!(s.title, long_title);
-    assert!(s.title.chars().count() > 80);
+    assert_eq!(s.meta.title, long_title);
+    assert!(s.meta.title.chars().count() > 80);
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn claude_captures_branch_and_filters_internals() {
 
     let a = ClaudeAdapter::new(tmp.path().to_path_buf());
     let s = a.parse(&file).unwrap();
-    assert_eq!(s.branch.as_deref(), Some("feat/x"));
+    assert_eq!(s.meta.branch.as_deref(), Some("feat/x"));
     assert!(s.content.contains("fix the bug"));
     assert!(s.content.contains("done"));
     assert!(!s.content.contains("/clear"));

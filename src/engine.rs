@@ -145,19 +145,20 @@ impl Engine {
         launcher: &crate::config::LauncherConfig,
     ) -> Option<ResumeCommand> {
         let full = self.indexed_session(session)?;
-        let adapter = self.adapter_for(full.agent)?;
+        let adapter = self.adapter_for(full.meta.agent)?;
         let argv = adapter.resume_command(&full, yolo);
-        let argv = match launcher.rewrite_argv(full.agent, &argv) {
+        let argv = match launcher.rewrite_argv(full.meta.agent, &argv) {
             Some(Ok(rewritten)) => rewritten,
             Some(Err(_)) => return None,
             None => argv,
         };
         let prepare = full
+            .meta
             .archived
             .then(|| adapter.unarchive_command(&full))
             .flatten();
         Some(ResumeCommand {
-            directory: full.directory,
+            directory: full.meta.directory,
             argv,
             prepare,
         })
@@ -254,10 +255,10 @@ fn sync_index(
         match adapters[ai].parse(&entry.path) {
             Ok(mut s) => {
                 s.mtime = entry.mtime;
-                if s.source_path.is_none() {
-                    s.source_path = Some(entry.path.clone());
+                if s.meta.source_path.is_none() {
+                    s.meta.source_path = Some(entry.path.clone());
                 }
-                if s.message_count == 0 || s.content.trim().is_empty() {
+                if s.meta.message_count == 0 || s.content.trim().is_empty() {
                     // Nothing to search or resume (e.g. a Cursor subagent spawn
                     // the model blocked before any reply). Don't index it.
                     report.empty_sessions += 1;
@@ -286,7 +287,7 @@ fn sync_index(
 mod tests {
     use super::*;
     use crate::adapters::Adapter;
-    use crate::core::{AgentId, ScanEntry, Session, SessionId};
+    use crate::core::{AgentId, ScanEntry, Session, SessionId, SessionSummary};
     use std::collections::HashMap;
     use std::path::{Path, PathBuf};
 
@@ -314,9 +315,9 @@ mod tests {
                 .iter()
                 .map(|s| {
                     (
-                        s.id.clone(),
+                        s.meta.id.clone(),
                         ScanEntry {
-                            path: PathBuf::from(&s.id),
+                            path: PathBuf::from(&s.meta.id),
                             mtime: s.mtime,
                         },
                     )
@@ -330,12 +331,12 @@ mod tests {
             let id = path.to_string_lossy().to_string();
             self.sessions
                 .iter()
-                .find(|s| s.id == id)
+                .find(|s| s.meta.id == id)
                 .cloned()
                 .ok_or_else(|| anyhow::anyhow!("not found"))
         }
         fn resume_command(&self, s: &Session, _yolo: bool) -> Vec<String> {
-            vec!["echo".into(), s.id.clone()]
+            vec!["echo".into(), s.meta.id.clone()]
         }
         fn transcript(&self, _path: &Path) -> anyhow::Result<Vec<crate::core::Message>> {
             Ok(Vec::new())
@@ -344,7 +345,7 @@ mod tests {
             true
         }
         fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
-            Some(vec!["unarchive".into(), s.id.clone()])
+            Some(vec!["unarchive".into(), s.meta.id.clone()])
         }
     }
 
@@ -354,19 +355,21 @@ mod tests {
 
     fn sess_for(agent: AgentId, id: &str, title: &str) -> Session {
         Session {
-            id: id.into(),
-            agent,
-            title: title.into(),
-            directory: "/d".into(),
-            timestamp: 100,
+            meta: SessionSummary {
+                id: id.into(),
+                agent,
+                title: title.into(),
+                directory: "/d".into(),
+                timestamp: 100,
+                message_count: 1,
+                yolo: false,
+                branch: None,
+                repo_url: None,
+                source_path: None,
+                archived: false,
+            },
             content: title.into(),
-            message_count: 1,
             mtime: 10,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
         }
     }
 
@@ -432,9 +435,9 @@ mod tests {
     fn resume_command_adds_unarchive_prepare_only_for_archived() {
         let dir = tempfile::tempdir().unwrap();
         let mut active = sess("active", "live one");
-        active.archived = false;
+        active.meta.archived = false;
         let mut archived = sess("gone", "old one");
-        archived.archived = true;
+        archived.meta.archived = true;
         let adapters: Vec<Box<dyn Adapter>> =
             vec![adapter(AgentId::Claude, vec![active, archived])];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
@@ -585,7 +588,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut empty = sess_for(AgentId::Claude, "empty", "");
         empty.content.clear();
-        empty.message_count = 0;
+        empty.meta.message_count = 0;
         let adapters: Vec<Box<dyn Adapter>> = vec![adapter(
             AgentId::Claude,
             vec![empty, sess("real", "auth bug")],
@@ -605,7 +608,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut empty = sess_for(AgentId::Claude, "empty", "");
         empty.content.clear();
-        empty.message_count = 0;
+        empty.meta.message_count = 0;
         let mut engine = Engine::new(
             dir.path(),
             vec![

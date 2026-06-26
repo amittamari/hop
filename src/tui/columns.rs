@@ -434,7 +434,10 @@ mod tests {
 
     #[test]
     fn fit_end_truncates_start() {
-        assert_eq!(fit_end("/Users/amitt/workspaces/personal/hop", 20), "…spaces/personal/hop");
+        assert_eq!(
+            fit_end("/Users/amitt/workspaces/personal/hop", 20),
+            "…spaces/personal/hop"
+        );
         assert_eq!(fit_end("/short", 20), "/short");
         assert_eq!(fit_end("abc", 3), "abc");
         assert_eq!(fit_end("abcd", 3), "…cd");

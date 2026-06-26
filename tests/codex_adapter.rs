@@ -16,9 +16,9 @@ fn parses_meta_clean_text_and_detects_yolo() {
         .parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl"))
         .unwrap();
 
-    assert_eq!(s.agent, AgentId::Codex);
-    assert_eq!(s.id, "codexsample"); // from session_meta.payload.id
-    assert_eq!(s.directory, "/Users/me/work/web");
+    assert_eq!(s.meta.agent, AgentId::Codex);
+    assert_eq!(s.meta.id, "codexsample"); // from session_meta.payload.id
+    assert_eq!(s.meta.directory, "/Users/me/work/web");
 
     // clean event_msg text only
     assert!(s.content.contains("refactor the auth guard"));
@@ -29,10 +29,10 @@ fn parses_meta_clean_text_and_detects_yolo() {
     assert!(!s.content.contains("exec_command"));
     assert!(!s.content.contains("token_count"));
 
-    assert_eq!(s.title, "refactor the auth guard");
-    assert_eq!(s.message_count, 2);
+    assert_eq!(s.meta.title, "refactor the auth guard");
+    assert_eq!(s.meta.message_count, 2);
     // any turn_context with never + danger-full-access => yolo
-    assert!(s.yolo);
+    assert!(s.meta.yolo);
 }
 
 #[test]
@@ -50,11 +50,11 @@ fn flags_archived_sessions_by_directory() {
 
     let adapter = CodexAdapter::new(tmp.path().to_path_buf());
     assert!(
-        !adapter.parse(&active_file).unwrap().archived,
+        !adapter.parse(&active_file).unwrap().meta.archived,
         "sessions under sessions/ are not archived"
     );
     assert!(
-        adapter.parse(&archived_file).unwrap().archived,
+        adapter.parse(&archived_file).unwrap().meta.archived,
         "sessions under archived_sessions/ are archived"
     );
 }
@@ -67,7 +67,7 @@ fn codex_unarchive_command_wraps_session_id() {
         .unwrap();
     assert_eq!(
         adapter.unarchive_command(&s),
-        Some(vec!["codex".into(), "unarchive".into(), s.id.clone()])
+        Some(vec!["codex".into(), "unarchive".into(), s.meta.id.clone()])
     );
 }
 
@@ -101,8 +101,11 @@ fn codex_captures_branch_and_repo_url() {
         std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
     let a = CodexAdapter::new(std::path::PathBuf::from("/unused"));
     let s = a.parse(path).unwrap();
-    assert_eq!(s.branch.as_deref(), Some("main"));
-    assert_eq!(s.repo_url.as_deref(), Some("git@github.com:me/web.git"));
+    assert_eq!(s.meta.branch.as_deref(), Some("main"));
+    assert_eq!(
+        s.meta.repo_url.as_deref(),
+        Some("git@github.com:me/web.git")
+    );
 }
 
 #[test]
@@ -144,8 +147,8 @@ fn codex_preserves_long_normalized_title() {
 
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));
     let s = adapter.parse(&file).unwrap();
-    assert_eq!(s.title, long_title);
-    assert!(s.title.chars().count() > 80);
+    assert_eq!(s.meta.title, long_title);
+    assert!(s.meta.title.chars().count() > 80);
 }
 
 #[test]
@@ -175,8 +178,8 @@ fn codex_filters_event_message_tags_and_external_tool_blocks() {
 
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));
     let s = adapter.parse(&file).unwrap();
-    assert_eq!(s.title, "check last commit - top - nested");
-    assert_eq!(s.message_count, 2);
+    assert_eq!(s.meta.title, "check last commit - top - nested");
+    assert_eq!(s.meta.message_count, 2);
     assert!(s.content.contains("check last commit"));
     assert!(s.content.contains("Done after tool."));
     assert!(!s.content.contains("<context>"));

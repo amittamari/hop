@@ -40,17 +40,17 @@ fn parses_transcript_and_strips_noise() {
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.agent, AgentId::Cursor);
-    assert_eq!(s.id, UUID);
+    assert_eq!(s.meta.agent, AgentId::Cursor);
+    assert_eq!(s.meta.id, UUID);
 
     // Title from first <user_query>
-    assert_eq!(s.title, "fix the cursor session bug");
+    assert_eq!(s.meta.title, "fix the cursor session bug");
 
     // No worker.log → directory falls back to ""
-    assert_eq!(s.directory, "");
+    assert_eq!(s.meta.directory, "");
 
     // 4 messages: 2 user + 2 assistant (each has a text block)
-    assert_eq!(s.message_count, 4);
+    assert_eq!(s.meta.message_count, 4);
 
     // Content contains user prose and assistant text
     assert!(s.content.contains("fix the cursor session bug"));
@@ -65,10 +65,10 @@ fn parses_transcript_and_strips_noise() {
     assert!(!s.content.contains("<file_path>"));
 
     // timestamp from file mtime (non-zero)
-    assert!(s.timestamp > 0);
+    assert!(s.meta.timestamp > 0);
 
     // No store.db → yolo defaults to false
-    assert!(!s.yolo);
+    assert!(!s.meta.yolo);
 }
 
 // ── Test 2: scan skips hook sidecars ─────────────────────────────────────────
@@ -142,9 +142,9 @@ fn enriches_from_store_db() {
     let adapter = CursorAdapter::new(projects_dir);
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.title, "My Chat");
-    assert_eq!(s.timestamp, 1_700_000_000);
-    assert!(s.yolo);
+    assert_eq!(s.meta.title, "My Chat");
+    assert_eq!(s.meta.timestamp, 1_700_000_000);
+    assert!(s.meta.yolo);
 }
 
 // ── Test 4: cwd from worker.log ───────────────────────────────────────────────
@@ -169,7 +169,7 @@ fn reads_cwd_from_worker_log() {
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.directory, "/tmp/my workspace");
+    assert_eq!(s.meta.directory, "/tmp/my workspace");
 }
 
 // ── Test 5: resume_command ────────────────────────────────────────────────────
@@ -203,7 +203,7 @@ fn strips_redacted_thinking_placeholders() {
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.message_count, 3);
+    assert_eq!(s.meta.message_count, 3);
     assert!(s.content.contains("hello"));
     assert!(s.content.contains("I'll help."));
     assert!(s.content.contains("Done."));
@@ -227,7 +227,7 @@ fn blocked_subagent_session_parses_as_empty() {
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.message_count, 0);
+    assert_eq!(s.meta.message_count, 0);
     assert!(
         s.content.trim().is_empty(),
         "blocked session should carry no content; got: {:?}",
@@ -251,7 +251,7 @@ fn error_after_agent_reply_is_kept() {
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();
 
-    assert_eq!(s.message_count, 2);
+    assert_eq!(s.meta.message_count, 2);
     assert!(s.content.contains("Working on it."));
 }
 

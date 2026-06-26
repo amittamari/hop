@@ -1,6 +1,7 @@
 use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
+    SessionSummary,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -247,19 +248,21 @@ impl Adapter for CodexAdapter {
             .repo_url
             .or_else(|| self.repo_cache.resolve(&ex.directory));
         Ok(Session {
-            id,
-            agent: AgentId::Codex,
-            title,
-            directory: ex.directory,
-            timestamp: ex.first_ts.unwrap_or(0),
+            meta: SessionSummary {
+                id,
+                agent: AgentId::Codex,
+                title,
+                directory: ex.directory,
+                timestamp: ex.first_ts.unwrap_or(0),
+                message_count: ex.messages.len() as u32,
+                yolo: ex.yolo,
+                branch: ex.branch,
+                repo_url,
+                source_path: Some(path.to_path_buf()),
+                archived: is_archived_path(path),
+            },
             content,
-            message_count: ex.messages.len() as u32,
             mtime: 0,
-            yolo: ex.yolo,
-            branch: ex.branch,
-            repo_url,
-            source_path: Some(path.to_path_buf()),
-            archived: is_archived_path(path),
         })
     }
 
@@ -269,10 +272,10 @@ impl Adapter for CodexAdapter {
                 "codex".into(),
                 "--dangerously-bypass-approvals-and-sandbox".into(),
                 "resume".into(),
-                s.id.clone(),
+                s.meta.id.clone(),
             ]
         } else {
-            vec!["codex".into(), "resume".into(), s.id.clone()]
+            vec!["codex".into(), "resume".into(), s.meta.id.clone()]
         }
     }
 
@@ -285,7 +288,7 @@ impl Adapter for CodexAdapter {
     }
 
     fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
-        Some(vec!["codex".into(), "unarchive".into(), s.id.clone()])
+        Some(vec!["codex".into(), "unarchive".into(), s.meta.id.clone()])
     }
 }
 
