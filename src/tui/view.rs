@@ -1799,7 +1799,11 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
-        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
+        let command = vec![
+            "claude".to_string(),
+            "--resume".to_string(),
+            "a".to_string(),
+        ];
 
         let backend = TestBackend::new(180, 16);
         let mut term = Terminal::new(backend).unwrap();
@@ -1857,7 +1861,11 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::columns::default_columns();
-        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
+        let command = vec![
+            "claude".to_string(),
+            "--resume".to_string(),
+            "a".to_string(),
+        ];
 
         let backend = TestBackend::new(180, 16);
         let mut term = Terminal::new(backend).unwrap();

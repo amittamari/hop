@@ -94,9 +94,10 @@ pub fn git_remote_url(dir: &str) -> Option<String> {
             break;
         }
         if ancestor.exists() {
-            if let Some(url) =
-                git_field(&ancestor.to_string_lossy(), &["remote", "get-url", "origin"])
-            {
+            if let Some(url) = git_field(
+                &ancestor.to_string_lossy(),
+                &["remote", "get-url", "origin"],
+            ) {
                 return Some(url);
             }
             break;

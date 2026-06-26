@@ -9,3 +9,4 @@ pub mod index;
 pub mod query;
 pub mod resume;
 pub mod tui;
+pub mod update;

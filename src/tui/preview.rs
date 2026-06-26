@@ -613,20 +613,12 @@ mod tests {
             source_path: None,
             archived: false,
         };
-        let transcript = crate::core::Transcript {
-            messages: msgs(),
-        };
+        let transcript = crate::core::Transcript { messages: msgs() };
 
         let mut ps = PreviewState::default();
         let terms: Vec<String> = vec!["auth".into()];
         let t = transcript.clone();
-        ps.update(
-            &mut app,
-            Some(&session),
-            &terms,
-            |_| Some(t),
-            |_| None,
-        );
+        ps.update(&mut app, Some(&session), &terms, |_| Some(t), |_| None);
         assert!(!ps.transcript.is_empty());
         assert!(!ps.lines.is_empty());
         assert!(ps.transcript_for.is_some());

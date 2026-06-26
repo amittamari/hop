@@ -35,6 +35,12 @@ fn ui_state_path() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-ui-state.toml"))
 }
 
+fn update_cache_path() -> std::path::PathBuf {
+    hop_dirs()
+        .map(|d| d.cache_dir().join("update_check.json"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".hop-update-check.json"))
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = Config::load()?;
@@ -85,6 +91,9 @@ fn main() -> Result<()> {
         .map(|u| (u.preview_visible, u.preview_width_pct))
         .unwrap_or((config.preview.visible, config.preview.width_pct));
 
+    let update_cache = update_cache_path();
+    let update_handle = std::thread::spawn(move || hop::update::check_for_update(&update_cache));
+
     // resume request escapes the TUI loop so we exec AFTER restoring the terminal
     let pending = run_tui(
         &mut engine,
@@ -95,6 +104,10 @@ fn main() -> Result<()> {
         init_preview,
         ui_path,
     )?;
+
+    if let Ok(Some(info)) = update_handle.join() {
+        eprintln!("{}", hop::update::upgrade_message(&info));
+    }
 
     if let Some((session, yolo)) = pending {
         let command = engine
