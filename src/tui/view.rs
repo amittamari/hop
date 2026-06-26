@@ -389,13 +389,15 @@ fn render_yolo_modal(
         return;
     }
     let archived = session.is_some_and(|s| s.archived);
+    let dir_missing = session
+        .is_some_and(|s| !s.directory.is_empty() && !std::path::Path::new(&s.directory).is_dir());
     let max_w = area.width.saturating_sub(2);
     let max_h = area.height.saturating_sub(2);
     let min_w = 20.min(max_w);
     let min_h = 6.min(max_h);
     let w = 72u16.min(max_w).max(min_w);
-    // Archived sessions add an extra notice line, so the box is one row taller.
-    let h = if archived { 11u16 } else { 10u16 }.min(max_h).max(min_h);
+    let extra = u16::from(archived) + u16::from(dir_missing);
+    let h = (10u16 + extra).min(max_h).max(min_h);
     let rect = center(area, w, h);
 
     let title = session
@@ -421,7 +423,11 @@ fn render_yolo_modal(
         ]),
         Line::from(vec![
             Span::styled("Directory ", Style::default().fg(theme.muted)),
-            Span::raw(directory),
+            if dir_missing {
+                Span::styled(directory, Style::default().fg(theme.warning))
+            } else {
+                Span::raw(directory)
+            },
         ]),
         Line::from(vec![
             Span::styled("Command   ", Style::default().fg(theme.muted)),
@@ -433,6 +439,17 @@ fn render_yolo_modal(
             Span::styled("Archived  ", Style::default().fg(theme.muted)),
             Span::styled(
                 "session is archived; it will be unarchived first",
+                Style::default()
+                    .fg(theme.warning)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+    }
+    if dir_missing {
+        body.push(Line::from(vec![
+            Span::styled("Missing   ", Style::default().fg(theme.muted)),
+            Span::styled(
+                "directory does not exist; agent will start in current dir",
                 Style::default()
                     .fg(theme.warning)
                     .add_modifier(Modifier::BOLD),
@@ -1756,6 +1773,118 @@ mod tests {
         assert!(text.contains("/1"), "header count missing: {text:?}");
         assert!(text.contains("fix auth"), "list row missing: {text:?}");
         assert!(text.contains("type to search"), "footer missing: {text:?}");
+    }
+
+    #[test]
+    fn yolo_modal_warns_when_directory_missing() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/tmp/nonexistent-hop-test-dir-999999".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: false,
+        }]);
+        app.open_yolo_modal_with(false);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
+
+        let backend = TestBackend::new(180, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: Some(&command),
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            text.contains("does not exist"),
+            "missing-dir warning should appear: {text:?}"
+        );
+        assert!(
+            text.contains("Missing"),
+            "Missing label should appear: {text:?}"
+        );
+    }
+
+    #[test]
+    fn yolo_modal_no_warning_when_directory_exists() {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+
+        let mut app = App::new();
+        app.set_results(vec![SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth".into(),
+            directory: "/tmp".into(),
+            timestamp: 0,
+            message_count: 3,
+            yolo: false,
+            branch: None,
+            repo_url: None,
+            source_path: None,
+            archived: false,
+        }]);
+        app.open_yolo_modal_with(false);
+
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::columns::default_columns();
+        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
+
+        let backend = TestBackend::new(180, 16);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: Some(&command),
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        let buf = term.backend().buffer().clone();
+        let text: String = buf.content().iter().map(|c| c.symbol()).collect();
+        assert!(
+            !text.contains("does not exist"),
+            "missing-dir warning should NOT appear for valid dir: {text:?}"
+        );
     }
 
     #[test]

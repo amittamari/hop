@@ -27,7 +27,9 @@ pub fn exec_resume(directory: &str, argv: &[String]) -> Result<std::convert::Inf
     }
     if !directory.is_empty() {
         // best-effort chdir; a vanished dir shouldn't block resume
-        let _ = std::env::set_current_dir(directory);
+        if let Err(e) = std::env::set_current_dir(directory) {
+            eprintln!("hop: warning: could not chdir to {directory}: {e}");
+        }
     }
     let err = Command::new(&argv[0]).args(&argv[1..]).exec();
     bail!("failed to exec {}: {err}", argv[0]);
@@ -40,6 +42,14 @@ mod tests {
     #[test]
     fn empty_argv_is_rejected() {
         let err = exec_resume("/tmp", &[]).unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn nonexistent_directory_is_rejected_before_exec_only_for_empty_argv() {
+        // With a nonexistent directory but empty argv, we still get the empty
+        // argv error (chdir is attempted only after the argv check passes).
+        let err = exec_resume("/tmp/nonexistent-hop-test-dir-999999", &[]).unwrap_err();
         assert!(err.to_string().contains("empty"));
     }
 }
