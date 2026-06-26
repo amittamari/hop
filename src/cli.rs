@@ -56,7 +56,11 @@ impl Cli {
         if let Some(q) = &self.query {
             parts.push(q.clone());
         }
-        parts.join(" ")
+        let mut q = parts.join(" ");
+        if !q.is_empty() {
+            q.push(' ');
+        }
+        q
     }
 
     /// Whether to auto-scope to the current repo: not `--all`, no explicit `--repo`,
@@ -107,7 +111,7 @@ mod tests {
         };
         assert_eq!(
             cli.initial_query(None),
-            "agent:claude dir:api repo:hop auth"
+            "agent:claude dir:api repo:hop auth "
         );
     }
 
@@ -117,7 +121,19 @@ mod tests {
             query: Some("auth".into()),
             ..cli()
         };
-        assert_eq!(cli.initial_query(Some("me/hop")), "repo:me/hop auth");
+        assert_eq!(cli.initial_query(Some("me/hop")), "repo:me/hop auth ");
+    }
+
+    #[test]
+    fn initial_query_auto_repo_only_has_trailing_space() {
+        let c = cli();
+        assert_eq!(c.initial_query(Some("me/hop")), "repo:me/hop ");
+    }
+
+    #[test]
+    fn initial_query_bare_returns_empty() {
+        let c = cli();
+        assert_eq!(c.initial_query(None), "");
     }
 
     #[test]
