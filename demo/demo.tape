@@ -36,7 +36,7 @@ Enter
 Sleep 2.8s
 
 # --- Live full-text search, narrowing within the auto-scoped repo ------------
-Type " preview"
+Type "preview"
 Sleep 2.6s
 
 # --- Browse results; the preview pane updates per selection ------------------
