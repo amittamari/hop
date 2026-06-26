@@ -131,7 +131,7 @@ pub fn upgrade_message(info: &UpdateAvailable) -> String {
         _ => "  See https://github.com/amittamari/hop/releases/latest".to_string(),
     };
     format!(
-        "hop: update available v{} \u{2192} v{}\n{}",
+        "\u{2728} A new version is available! v{} \u{2192} v{}\n{}",
         info.current, info.latest, instruction
     )
 }

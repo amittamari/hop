@@ -1,12 +1,11 @@
 use clap::Parser;
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "hop",
-    version,
-    about = "Search and resume coding-agent sessions"
-)]
+#[command(name = "hop", about = "Search and resume coding-agent sessions")]
 pub struct Cli {
+    /// Print version and check for updates.
+    #[arg(short = 'V', long)]
+    pub version: bool,
     /// Pre-fill the search query.
     pub query: Option<String>,
 
@@ -90,6 +89,7 @@ mod tests {
 
     fn cli() -> Cli {
         Cli {
+            version: false,
             query: None,
             agent: None,
             dir: None,

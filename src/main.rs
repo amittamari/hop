@@ -43,6 +43,16 @@ fn update_cache_path() -> std::path::PathBuf {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.version {
+        println!("hop {}", env!("CARGO_PKG_VERSION"));
+        match hop::update::check_for_update(&update_cache_path()) {
+            Some(info) => eprintln!("{}", hop::update::upgrade_message(&info)),
+            None => println!("(up to date)"),
+        }
+        return Ok(());
+    }
+
     let config = Config::load()?;
     let dir = index_dir();
 
