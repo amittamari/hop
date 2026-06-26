@@ -1,0 +1,23 @@
+{
+  "skill_name": "garden-docs",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "garden the docs",
+      "expected_output": "Should find the drift window in the hop repo, analyze commits since last docs/ change, produce a gap report, and update any stale docs",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "are the docs up to date? check if anything drifted since the last docs commit",
+      "expected_output": "Should identify the drift window, analyze changes, and report whether docs are current or have gaps. Should not make changes unless gaps are found.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "the docs feel stale, can you sync them with the code?",
+      "expected_output": "Should detect staleness, produce a clear gap report showing what changed vs what docs say, then apply minimal targeted fixes to the doc files",
+      "files": []
+    }
+  ]
+}
