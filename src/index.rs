@@ -17,7 +17,9 @@ use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 pub const SCHEMA_VERSION: u32 = 2;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
-const SCORE_BUCKET_SCALE: f32 = 1_000.0;
+const SCORE_BUCKET_SCALE: f32 = 10.0;
+const RECENCY_BOOST_MAX: f32 = 3.0;
+const RECENCY_HALF_LIFE_SECS: f64 = 604_800.0;
 const WRITER_HEAP: usize = 50_000_000;
 
 struct Fields {
@@ -247,19 +249,23 @@ impl SearchIndex {
                     .map(|(_, a)| a)
                     .collect()
             } else {
+                let now_ts = now.max(0) as u64;
                 searcher
                     .search(
                         &query,
                         &TopDocs::with_limit(page_limit)
                             .and_offset(offset)
-                            .tweak_score(|segment_reader: &tantivy::SegmentReader| {
+                            .tweak_score(move |segment_reader: &tantivy::SegmentReader| {
                                 let timestamps = segment_reader
                                     .fast_fields()
                                     .u64("timestamp")
                                     .unwrap()
                                     .first_or_default_col(0);
                                 move |doc: tantivy::DocId, score: tantivy::Score| {
-                                    (score_bucket(score), timestamps.get_val(doc))
+                                    let ts = timestamps.get_val(doc);
+                                    let age = now_ts.saturating_sub(ts);
+                                    let combined = score + recency_boost(age);
+                                    (score_bucket(combined), ts)
                                 }
                             }),
                     )?
@@ -419,6 +425,11 @@ fn score_bucket(score: tantivy::Score) -> i64 {
         return 0;
     }
     (score * SCORE_BUCKET_SCALE).round() as i64
+}
+
+fn recency_boost(age_secs: u64) -> f32 {
+    let decay = (-std::f64::consts::LN_2 * age_secs as f64 / RECENCY_HALF_LIFE_SECS).exp();
+    RECENCY_BOOST_MAX * decay as f32
 }
 
 /// Escape characters that would make tantivy's QueryParser error out.

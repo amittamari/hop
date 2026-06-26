@@ -340,3 +340,28 @@ fn branch_roundtrips_through_index() {
         Some(std::path::Path::new("/sessions/a.jsonl"))
     );
 }
+
+#[test]
+fn recency_boosts_recent_over_old_with_similar_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    let mut w = idx.writer().unwrap();
+    let now = 1_700_000_000i64;
+    let three_months_ago = now - 90 * 86_400;
+    idx.upsert(
+        &mut w,
+        &sess("old", "deploy api", "deploy api", AgentId::Claude, three_months_ago, 1),
+    );
+    idx.upsert(
+        &mut w,
+        &sess("new", "deploy api", "deploy api", AgentId::Claude, now, 1),
+    );
+    w.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("deploy");
+    let results = idx.search(&q, now, 50).unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].id, "new");
+    assert_eq!(results[1].id, "old");
+}
