@@ -1,6 +1,6 @@
 use crate::columns::Column;
 use crate::core::SessionSummary;
-use crate::enrich::{BranchEnricher, Enricher, RepoEnricher};
+use crate::enrich::{BranchEnricher, Enricher};
 use crate::tui::theme::Theme;
 use crate::tui::{help, results_list, App};
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
@@ -203,9 +203,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
         let selected = app.results().get(app.selected());
         let (preview_header_area, transcript_area) =
-            if app.preview_header_visible() && selected.is_some() && inner.height >= 3 {
+            if app.preview_header_visible() && selected.is_some() && inner.height >= 5 {
                 let [head, body] =
-                    Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).areas(inner);
+                    Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(inner);
                 (Some(head), body)
             } else {
                 (None, inner)
@@ -217,6 +217,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                     model.now,
                     model.resolved,
                     &model.theme,
+                    preview_header_area.width,
                 ))
                 .style(Style::default().fg(model.theme.preview_text)),
                 preview_header_area,
@@ -523,60 +524,107 @@ fn preview_header_lines(
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     theme: &Theme,
+    width: u16,
 ) -> Vec<Line<'static>> {
-    let repo = RepoEnricher
-        .resolve(s)
-        .map(|v| v.text)
-        .unwrap_or_else(|| "—".to_string());
-    let branch = BranchEnricher
-        .resolve(s)
-        .map(|v| v.text)
-        .unwrap_or_else(|| "—".to_string());
+    let w = width as usize;
+    let title_line = Line::from(Span::styled(
+        fit_for_modal(&s.title, w),
+        Style::default().add_modifier(Modifier::BOLD),
+    ));
+
+    let sep_style = Style::default().fg(theme.border);
+    let muted = Style::default().fg(theme.muted);
+    const SEP: &str = " · ";
+    let sep_w = crate::columns::display_width(SEP);
+
+    let badge = s.agent.badge();
+    let branch = BranchEnricher.resolve(s).map(|v| v.text);
     let pr = resolved
         .get(&(s.document_key(), "pr"))
         .and_then(|v| v.as_deref());
-    let msgs = if s.message_count == 0 {
-        "— msgs".to_string()
+    let msgs = if s.message_count > 0 {
+        Some(format!("{} msgs", s.message_count))
     } else {
-        format!("{} msgs", s.message_count)
+        None
+    };
+    let time = rel_time(s.timestamp, now);
+
+    let dw = crate::columns::display_width;
+    let fixed_w = dw(badge)
+        + sep_w // separator after badge
+        + branch.as_ref().map_or(0, |_| sep_w)
+        + pr.map_or(0, |p| sep_w + dw(p))
+        + msgs.as_ref().map_or(0, |m| sep_w + dw(m))
+        + sep_w
+        + dw(&time);
+
+    let variable_budget = w.saturating_sub(fixed_w);
+    let dir_raw_w = dw(&s.directory);
+    let branch_raw_w = branch.as_ref().map_or(0, |b| dw(b));
+
+    let (dir_budget, branch_budget) = if branch.is_some() && variable_budget > 0 {
+        let total_raw = dir_raw_w + branch_raw_w;
+        if total_raw <= variable_budget {
+            (dir_raw_w, branch_raw_w)
+        } else {
+            let dir_share = variable_budget * 3 / 5;
+            let branch_share = variable_budget - dir_share;
+            (dir_share.min(dir_raw_w), branch_share.min(branch_raw_w))
+        }
+    } else {
+        (variable_budget.min(dir_raw_w), 0)
     };
 
-    let mut first = vec![
-        Span::styled(
-            s.agent.badge(),
-            Style::default()
-                .fg(theme.agent_color(s.agent))
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(repo, Style::default().fg(theme.muted)),
-        Span::raw("  "),
-        Span::styled(branch, Style::default().fg(theme.muted)),
-        Span::raw("  "),
-    ];
+    let dir_text = crate::columns::fit_end(&s.directory, dir_budget as u16);
+    let branch_text = branch
+        .as_ref()
+        .map(|b| fit_for_modal(b, branch_budget));
+
+    let push_sep = |spans: &mut Vec<Span<'static>>| {
+        spans.push(Span::styled(SEP, sep_style));
+    };
+    let mut meta: Vec<Span<'static>> = Vec::new();
+
+    meta.push(Span::styled(
+        badge,
+        Style::default()
+            .fg(theme.agent_color(s.agent))
+            .add_modifier(Modifier::BOLD),
+    ));
+
+    if !dir_text.is_empty() {
+        push_sep(&mut meta);
+        meta.push(Span::styled(dir_text, muted));
+    }
+
+    if let Some(branch_text) = branch_text.filter(|t| !t.is_empty()) {
+        push_sep(&mut meta);
+        meta.push(Span::styled(branch_text, muted));
+    }
+
     if let Some(pr) = pr {
-        first.push(Span::styled(
+        push_sep(&mut meta);
+        meta.push(Span::styled(
             pr.to_string(),
             Style::default().fg(theme.accent),
         ));
-        first.push(Span::raw("  "));
     }
-    first.extend([
-        Span::styled(msgs, Style::default().fg(theme.muted)),
-        Span::raw("  "),
-        Span::styled(rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
-    ]);
 
-    vec![
-        Line::from(first),
-        Line::from(vec![
-            Span::raw(s.title.clone()),
-            Span::styled(
-                format!(" · {}", s.directory),
-                Style::default().fg(theme.muted),
-            ),
-        ]),
-    ]
+    if let Some(msgs) = msgs {
+        push_sep(&mut meta);
+        meta.push(Span::styled(msgs, muted));
+    }
+
+    push_sep(&mut meta);
+    meta.push(Span::styled(time, muted));
+
+    let meta_line = Line::from(meta);
+    let rule_line = Line::from(Span::styled(
+        "─".repeat(w.max(1)),
+        sep_style,
+    ));
+
+    vec![title_line, meta_line, rule_line]
 }
 
 pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Range<usize> {

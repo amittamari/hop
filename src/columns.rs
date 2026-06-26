@@ -223,6 +223,31 @@ pub fn display_width(s: &str) -> usize {
     s.chars().map(char_width).sum()
 }
 
+/// Like `fit`, but truncates from the start: `…rsonal/hop`.
+pub fn fit_end(s: &str, width: u16) -> String {
+    let w = width as usize;
+    if w == 0 {
+        return String::new();
+    }
+    let total = display_width(s);
+    if total <= w {
+        return s.to_string();
+    }
+    let keep = w.saturating_sub(1);
+    let skip = total - keep;
+    let mut skipped = 0usize;
+    let mut start_byte = 0;
+    for (i, c) in s.char_indices() {
+        if skipped >= skip {
+            start_byte = i;
+            break;
+        }
+        skipped += char_width(c);
+        start_byte = i + c.len_utf8();
+    }
+    format!("…{}", &s[start_byte..])
+}
+
 fn take_display_width(s: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
@@ -405,6 +430,15 @@ mod tests {
         assert_eq!(display_width(cafe), 4);
         assert_eq!(fit(cafe, 4, Align::Left), cafe);
         assert_eq!(fit(cafe, 3, Align::Left), "ca…");
+    }
+
+    #[test]
+    fn fit_end_truncates_start() {
+        assert_eq!(fit_end("/Users/amitt/workspaces/personal/hop", 20), "…spaces/personal/hop");
+        assert_eq!(fit_end("/short", 20), "/short");
+        assert_eq!(fit_end("abc", 3), "abc");
+        assert_eq!(fit_end("abcd", 3), "…cd");
+        assert_eq!(fit_end("x", 0), "");
     }
 
     #[test]
