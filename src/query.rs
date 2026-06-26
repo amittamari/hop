@@ -275,7 +275,7 @@ pub fn autocomplete(input: &str) -> Option<String> {
     let prefix = &input[..prefix_len];
 
     let completion = if let Some(partial) = last.strip_prefix("agent:") {
-        complete_value(partial, &["claude", "codex"]).map(|v| format!("agent:{v}"))
+        complete_value(partial, &["claude", "codex", "cursor"]).map(|v| format!("agent:{v}"))
     } else if let Some(partial) = last.strip_prefix("date:") {
         complete_value(partial, &["today", "yesterday", "week", "month"])
             .map(|v| format!("date:{v}"))

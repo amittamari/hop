@@ -152,16 +152,13 @@ fn run_tui(
     app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);
 
-    let columns = hop::columns::configured_columns(
-        hop::columns::default_columns(),
+    let columns = hop::tui::columns::configured_columns(
+        hop::tui::columns::default_columns(),
         &config.columns.disabled,
         &config.columns.order,
     );
 
-    let mut enrichment = EnrichmentState::default();
-    let mut preview_state = preview::PreviewState::default();
-    let mut sync_status = Some("syncing".to_string());
-    let mut sync_done = false;
+    let mut state = LoopState::new();
 
     let outcome = (|| -> Result<Option<(SessionSummary, bool)>> {
         loop {
@@ -182,7 +179,7 @@ fn run_tui(
 
             let terms = engine.parsed_query().free_terms();
             let selected_for_preview = app.results().get(app.selected()).cloned();
-            preview_state.update(
+            state.preview.update(
                 &mut app,
                 selected_for_preview.as_ref(),
                 &terms,
@@ -190,26 +187,18 @@ fn run_tui(
                 |s| engine.indexed_content(s),
             );
             let now = jiff::Timestamp::now().as_second();
-            let status = StatusLine {
-                sync: sync_status.clone(),
-                pr_pending: enrichment.pr_pending(),
-                warning: if app.preview_visible()
-                    && selected_for_preview.is_some()
-                    && preview_state.source_unavailable()
-                {
-                    Some("source unavailable".to_string())
-                } else {
-                    None
-                },
-                filters: engine.parsed_query().filter_summary(),
-            };
+            let status = state.build_status(
+                &app,
+                engine,
+                selected_for_preview.is_some(),
+            );
             let modal_command = app.yolo_modal().and_then(|(index, yolo)| {
                 app.results()
                     .get(index)
                     .and_then(|s| engine.resume_command_for(s, yolo, &config.launcher))
                     .map(|command| command.argv)
             });
-            app.set_indexing(if sync_done {
+            app.set_indexing(if state.sync_done {
                 None
             } else {
                 Some(app.results().len())
@@ -222,9 +211,9 @@ fn run_tui(
                         now,
                         columns: &columns,
                         enrichers: render_enrichers,
-                        resolved: &enrichment.resolved,
+                        resolved: &state.enrichment.resolved,
                         query_terms: &terms,
-                        preview_lines: &preview_state.lines,
+                        preview_lines: &state.preview.lines,
                         status: &status,
                         modal_command: modal_command.as_deref(),
                         theme: *app.theme(),
@@ -238,23 +227,10 @@ fn run_tui(
                 list_rows_height as usize,
             );
             let visible_rows = app.results().get(visible).unwrap_or_default();
-            enrichment.request_visible(service, visible_rows);
+            state.enrichment.request_visible(service, visible_rows);
 
             if !app.modal_open() {
-                while let Ok(update) = updates.try_recv() {
-                    match update {
-                        Update::Refresh => {
-                            engine.reload()?;
-                            engine.search()?;
-                            sync_results_into_app(engine, &mut app);
-                            preview_state.invalidate();
-                        }
-                        Update::Done { report } => {
-                            sync_status = Some(report.status_line());
-                            sync_done = true;
-                        }
-                    }
-                }
+                state.process_sync(&updates, engine, &mut app)?;
             }
 
             if event::poll(Duration::from_millis(50))? {
@@ -268,11 +244,9 @@ fn run_tui(
                             }
                         }
                         Action::OpenPr { index } => {
-                            // The resolved PR label lives in the run loop's
-                            // enrichment state; open it only when one was found.
                             if let Some(s) = app.results().get(index) {
                                 if let Some(Some(pr)) =
-                                    enrichment.resolved.get(&(s.document_key(), "pr"))
+                                    state.enrichment.resolved.get(&(s.document_key(), "pr"))
                                 {
                                     hop::enrich::gh_pr::open_pr_in_browser(
                                         pr,
@@ -290,7 +264,7 @@ fn run_tui(
             if !app.modal_open() && engine.search_due() {
                 engine.search()?;
                 sync_results_into_app(engine, &mut app);
-                preview_state.invalidate();
+                state.preview.invalidate();
             }
         }
     })();
@@ -302,6 +276,68 @@ fn run_tui(
     }
     .save(&ui_path);
     outcome
+}
+
+struct LoopState {
+    enrichment: EnrichmentState,
+    preview: preview::PreviewState,
+    sync_status: Option<String>,
+    sync_done: bool,
+}
+
+impl LoopState {
+    fn new() -> Self {
+        Self {
+            enrichment: EnrichmentState::default(),
+            preview: preview::PreviewState::default(),
+            sync_status: Some("syncing".to_string()),
+            sync_done: false,
+        }
+    }
+
+    fn build_status(
+        &self,
+        app: &App,
+        engine: &Engine,
+        has_selected: bool,
+    ) -> StatusLine {
+        StatusLine {
+            sync: self.sync_status.clone(),
+            pr_pending: self.enrichment.pr_pending(),
+            warning: if app.preview_visible()
+                && has_selected
+                && self.preview.source_unavailable()
+            {
+                Some("source unavailable".to_string())
+            } else {
+                None
+            },
+            filters: engine.parsed_query().filter_summary(),
+        }
+    }
+
+    fn process_sync(
+        &mut self,
+        updates: &std::sync::mpsc::Receiver<Update>,
+        engine: &mut Engine,
+        app: &mut App,
+    ) -> Result<()> {
+        while let Ok(update) = updates.try_recv() {
+            match update {
+                Update::Refresh => {
+                    engine.reload()?;
+                    engine.search()?;
+                    sync_results_into_app(engine, app);
+                    self.preview.invalidate();
+                }
+                Update::Done { report } => {
+                    self.sync_status = Some(report.status_line());
+                    self.sync_done = true;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn sync_results_into_app(engine: &Engine, app: &mut App) {

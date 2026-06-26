@@ -181,48 +181,20 @@ pub struct ScanEntry {
 /// A fully parsed session, ready to index.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Session {
-    pub id: SessionId,
-    pub agent: AgentId,
-    pub title: String,
-    pub directory: String,
-    /// Session timestamp (first message), unix seconds.
-    pub timestamp: i64,
+    pub meta: SessionSummary,
     /// Indexed conversation content (user + assistant text only).
     pub content: String,
-    pub message_count: u32,
     /// Source file mtime, unix milliseconds (drives incremental sync).
     pub mtime: i64,
-    pub yolo: bool,
-    /// Git branch at session time, captured from conversation data when present.
-    pub branch: Option<String>,
-    /// Git remote URL when the agent records it (Codex). None otherwise.
-    pub repo_url: Option<String>,
-    /// Source JSONL path used for preview transcript loading.
-    pub source_path: Option<PathBuf>,
-    /// Session was archived by the agent (Codex moves these to
-    /// `archived_sessions/`). Always false for agents without an archive notion.
-    pub archived: bool,
 }
 
 impl Session {
     pub fn document_key(&self) -> DocumentKey {
-        document_key(self.agent, &self.id)
+        self.meta.document_key()
     }
 
     pub fn summary(&self) -> SessionSummary {
-        SessionSummary {
-            id: self.id.clone(),
-            agent: self.agent,
-            title: self.title.clone(),
-            directory: self.directory.clone(),
-            timestamp: self.timestamp,
-            message_count: self.message_count,
-            yolo: self.yolo,
-            branch: self.branch.clone(),
-            repo_url: self.repo_url.clone(),
-            source_path: self.source_path.clone(),
-            archived: self.archived,
-        }
+        self.meta.clone()
     }
 }
 

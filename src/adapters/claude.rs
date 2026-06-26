@@ -1,6 +1,7 @@
 use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
 use crate::core::{
     derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
+    SessionSummary,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -193,19 +194,21 @@ impl Adapter for ClaudeAdapter {
         let content = flatten_messages(&ex.messages);
         let repo_url = self.repo_cache.resolve(&ex.directory);
         Ok(Session {
-            id,
-            agent: AgentId::Claude,
-            title,
-            directory: ex.directory,
-            timestamp: ex.first_ts.unwrap_or(0),
+            meta: SessionSummary {
+                id,
+                agent: AgentId::Claude,
+                title,
+                directory: ex.directory,
+                timestamp: ex.first_ts.unwrap_or(0),
+                message_count: ex.messages.len() as u32,
+                yolo: false,
+                branch: ex.branch,
+                repo_url,
+                source_path: Some(path.to_path_buf()),
+                archived: false,
+            },
             content,
-            message_count: ex.messages.len() as u32,
             mtime: 0,
-            yolo: false,
-            branch: ex.branch,
-            repo_url,
-            source_path: Some(path.to_path_buf()),
-            archived: false,
         })
     }
 
@@ -215,10 +218,10 @@ impl Adapter for ClaudeAdapter {
                 "claude".into(),
                 "--dangerously-skip-permissions".into(),
                 "--resume".into(),
-                s.id.clone(),
+                s.meta.id.clone(),
             ]
         } else {
-            vec!["claude".into(), "--resume".into(), s.id.clone()]
+            vec!["claude".into(), "--resume".into(), s.meta.id.clone()]
         }
     }
 

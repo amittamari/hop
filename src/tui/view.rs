@@ -1,12 +1,13 @@
-use crate::columns::Column;
+use crate::tui::columns::Column;
 use crate::core::SessionSummary;
 use crate::enrich::{BranchEnricher, Enricher};
 use crate::tui::theme::Theme;
 use crate::tui::{help, results_list, App};
+use crate::tui::modal;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Row, Table, TableState, Wrap};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph, Row, Table, TableState, Wrap};
 use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
@@ -105,8 +106,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
         let x = header_area
             .x
-            .saturating_add(crate::columns::display_width(" ❯ ") as u16)
-            .saturating_add(crate::columns::display_width(query_prefix) as u16);
+            .saturating_add(crate::tui::columns::display_width(" ❯ ") as u16)
+            .saturating_add(crate::tui::columns::display_width(query_prefix) as u16);
         let x = x.min(header_area.right().saturating_sub(1));
         f.set_cursor_position(Position::new(x, header_area.y));
     }
@@ -130,7 +131,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // results table (Table owns its header; no separate header pane)
     let cols = model.columns;
-    let marker_w = crate::columns::display_width(SELECTION_MARKER) as u16;
+    let marker_w = crate::tui::columns::display_width(SELECTION_MARKER) as u16;
     let list_inner_w = list_area.width.saturating_sub(marker_w);
     let visible = visible_result_range(
         app.results().len(),
@@ -252,7 +253,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        render_yolo_modal(f, session, yolo, model.modal_command, &model.theme);
+        modal::render_yolo_modal(f, session, yolo, model.modal_command, &model.theme);
     }
 
     // help overlay (drawn last, on top)
@@ -347,7 +348,7 @@ fn footer_status_width(status: &StatusLine, theme: &Theme) -> u16 {
         .iter()
         .map(|s| s.content.as_ref())
         .collect();
-    crate::columns::display_width(&text).min(u16::MAX as usize) as u16
+    crate::tui::columns::display_width(&text).min(u16::MAX as usize) as u16
 }
 
 /// Message shown in the body area when there are no results.
@@ -359,166 +360,6 @@ fn empty_state_message(query_is_empty: bool) -> &'static str {
     }
 }
 
-/// A `w` x `h` rect centered within `area` on both axes (clamped to `area`).
-pub fn center(area: Rect, w: u16, h: u16) -> Rect {
-    let [_, mid, _] = Layout::horizontal([
-        Constraint::Fill(1),
-        Constraint::Length(w.min(area.width)),
-        Constraint::Fill(1),
-    ])
-    .flex(Flex::Center)
-    .areas(area);
-    let [_, rect, _] = Layout::vertical([
-        Constraint::Fill(1),
-        Constraint::Length(h.min(area.height)),
-        Constraint::Fill(1),
-    ])
-    .flex(Flex::Center)
-    .areas(mid);
-    rect
-}
-
-fn render_yolo_modal(
-    f: &mut Frame,
-    session: Option<&SessionSummary>,
-    yolo: bool,
-    modal_command: Option<&[String]>,
-    theme: &Theme,
-) {
-    let area = f.area();
-    if area.width < 4 || area.height < 4 {
-        return;
-    }
-    let archived = session.is_some_and(|s| s.archived);
-    let dir_missing = session
-        .is_some_and(|s| !s.directory.is_empty() && !std::path::Path::new(&s.directory).is_dir());
-    let max_w = area.width.saturating_sub(2);
-    let max_h = area.height.saturating_sub(2);
-    let min_w = 20.min(max_w);
-    let min_h = 6.min(max_h);
-    let w = 72u16.min(max_w).max(min_w);
-    let extra = u16::from(archived) + u16::from(dir_missing);
-    let h = (10u16 + extra).min(max_h).max(min_h);
-    let rect = center(area, w, h);
-
-    let title = session
-        .map(|s| fit_for_modal(&s.title, rect.width.saturating_sub(4) as usize))
-        .unwrap_or_else(|| "(no session)".to_string());
-    let directory = session
-        .map(|s| fit_for_modal(&s.directory, rect.width.saturating_sub(15) as usize))
-        .unwrap_or_else(|| "—".to_string());
-    let command = modal_command
-        .map(shell_join)
-        .unwrap_or_else(|| "resume command unavailable".to_string());
-    let command = fit_for_modal(&command, rect.width.saturating_sub(13) as usize);
-    let danger = if yolo {
-        "YOLO on: approvals and sandbox may be bypassed"
-    } else {
-        "YOLO off: normal resume"
-    };
-
-    let mut body = vec![
-        Line::from(vec![
-            Span::styled("Session  ", Style::default().fg(theme.muted)),
-            Span::raw(title),
-        ]),
-        Line::from(vec![
-            Span::styled("Directory ", Style::default().fg(theme.muted)),
-            if dir_missing {
-                Span::styled(directory, Style::default().fg(theme.warning))
-            } else {
-                Span::raw(directory)
-            },
-        ]),
-        Line::from(vec![
-            Span::styled("Command   ", Style::default().fg(theme.muted)),
-            Span::raw(command),
-        ]),
-    ];
-    if archived {
-        body.push(Line::from(vec![
-            Span::styled("Archived  ", Style::default().fg(theme.muted)),
-            Span::styled(
-                "session is archived; it will be unarchived first",
-                Style::default()
-                    .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-    }
-    if dir_missing {
-        body.push(Line::from(vec![
-            Span::styled("Missing   ", Style::default().fg(theme.muted)),
-            Span::styled(
-                "directory does not exist; agent will start in current dir",
-                Style::default()
-                    .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ]));
-    }
-    body.push(Line::from(""));
-    body.push(Line::from(Span::styled(
-        danger,
-        if yolo {
-            Style::default()
-                .fg(theme.warning)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.muted)
-        },
-    )));
-    body.push(Line::from(""));
-    body.push(Line::from(if archived {
-        "Tab toggles yolo · Enter unarchives & resumes · Esc cancels"
-    } else {
-        "Tab toggles yolo · Enter resumes · Esc cancels"
-    }));
-
-    let modal_title = if archived {
-        " unarchive & resume "
-    } else {
-        " confirm resume "
-    };
-    f.buffer_mut().set_style(
-        area,
-        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
-    );
-    f.render_widget(Clear, rect);
-    f.render_widget(
-        Paragraph::new(body)
-            .block(Block::bordered().title(modal_title))
-            .alignment(Alignment::Left),
-        rect,
-    );
-}
-
-fn shell_join(argv: &[String]) -> String {
-    argv.iter()
-        .map(|arg| {
-            if arg
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_./:@".contains(c))
-            {
-                arg.clone()
-            } else {
-                format!("'{}'", arg.replace('\'', "'\\''"))
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn fit_for_modal(s: &str, width: usize) -> String {
-    crate::columns::fit(
-        s,
-        width.min(u16::MAX as usize) as u16,
-        crate::columns::Align::Left,
-    )
-    .trim_end()
-    .to_string()
-}
-
 fn preview_header_lines(
     s: &SessionSummary,
     now: i64,
@@ -528,14 +369,14 @@ fn preview_header_lines(
 ) -> Vec<Line<'static>> {
     let w = width as usize;
     let title_line = Line::from(Span::styled(
-        fit_for_modal(&s.title, w),
+        modal::fit_for_modal(&s.title, w),
         Style::default().add_modifier(Modifier::BOLD),
     ));
 
     let sep_style = Style::default().fg(theme.border);
     let muted = Style::default().fg(theme.muted);
     const SEP: &str = " · ";
-    let sep_w = crate::columns::display_width(SEP);
+    let sep_w = crate::tui::columns::display_width(SEP);
 
     let badge = s.agent.badge();
     let branch = BranchEnricher.resolve(s).map(|v| v.text);
@@ -549,7 +390,7 @@ fn preview_header_lines(
     };
     let time = rel_time(s.timestamp, now);
 
-    let dw = crate::columns::display_width;
+    let dw = crate::tui::columns::display_width;
     let fixed_w = dw(badge)
         + sep_w // separator after badge
         + branch.as_ref().map_or(0, |_| sep_w)
@@ -575,10 +416,10 @@ fn preview_header_lines(
         (variable_budget.min(dir_raw_w), 0)
     };
 
-    let dir_text = crate::columns::fit_end(&s.directory, dir_budget as u16);
+    let dir_text = crate::tui::columns::fit_end(&s.directory, dir_budget as u16);
     let branch_text = branch
         .as_ref()
-        .map(|b| fit_for_modal(b, branch_budget));
+        .map(|b| modal::fit_for_modal(b, branch_budget));
 
     let push_sep = |spans: &mut Vec<Span<'static>>| {
         spans.push(Span::styled(SEP, sep_style));
@@ -656,7 +497,7 @@ mod tests {
         let app = App::new(); // empty results, empty query
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -691,7 +532,7 @@ mod tests {
         app.set_query("nope".to_string()); // results stay empty
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -739,7 +580,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -794,7 +635,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -838,7 +679,7 @@ mod tests {
         app.set_indexing(Some(7));
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -908,7 +749,7 @@ mod tests {
             app.theme(),
         );
 
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(100, 12);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -962,7 +803,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let status = StatusLine {
             sync: Some("sync complete; parse errors 2".to_string()),
             pr_pending: 1,
@@ -1034,7 +875,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(80, 8);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1086,7 +927,7 @@ mod tests {
         let app = App::new();
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
 
         let backend = TestBackend::new(100, 8);
         let mut term = Terminal::new(backend).unwrap();
@@ -1131,7 +972,7 @@ mod tests {
         app.set_preview(preview, 50);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(width, 8);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1203,7 +1044,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let preview_lines = vec![Line::from(
             "wrap-start one two three four five six seven eight nine ten wrap-end",
         )];
@@ -1256,7 +1097,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(30, 8);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1319,7 +1160,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let terms = vec!["auth".to_string()];
         let backend = TestBackend::new(100, 8);
         let mut term = Terminal::new(backend).unwrap();
@@ -1384,7 +1225,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(120, 16);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1448,7 +1289,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(120, 16);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1502,7 +1343,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let backend = TestBackend::new(120, 18);
         let mut term = Terminal::new(backend).unwrap();
         term.draw(|f| {
@@ -1560,7 +1401,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
 
         let backend = TestBackend::new(20, 4);
         let mut term = Terminal::new(backend).unwrap();
@@ -1614,7 +1455,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let transcript = vec![Message {
             role: Role::User,
             blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
@@ -1679,7 +1520,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let transcript = vec![Message {
             role: Role::User,
             blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
@@ -1733,7 +1574,7 @@ mod tests {
         let app = App::new();
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let status = StatusLine {
             sync: None,
             pr_pending: 0,
@@ -1793,7 +1634,7 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
 
         let backend = TestBackend::new(80, 6); // exactly the guard floor
         let mut term = Terminal::new(backend).unwrap();
@@ -1846,7 +1687,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let command = vec![
             "claude".to_string(),
             "--resume".to_string(),
@@ -1908,7 +1749,7 @@ mod tests {
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let cols = crate::columns::default_columns();
+        let cols = crate::tui::columns::default_columns();
         let command = vec![
             "claude".to_string(),
             "--resume".to_string(),
@@ -1943,13 +1784,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn center_centers_on_both_axes() {
-        let area = Rect::new(0, 0, 100, 40);
-        let rect = center(area, 20, 10);
-        assert_eq!(rect.width, 20);
-        assert_eq!(rect.height, 10);
-        assert_eq!(rect.x, 40); // (100 - 20) / 2
-        assert_eq!(rect.y, 15); // (40 - 10) / 2
-    }
 }

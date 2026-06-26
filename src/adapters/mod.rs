@@ -6,9 +6,9 @@ use crate::core::{AgentId, ScanEntry, Session, SessionId};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Mutex;
+use std::cell::RefCell;
 
-pub trait Adapter: Send + Sync {
+pub trait Adapter: Send {
     fn id(&self) -> AgentId;
     /// True if this agent's data directory exists.
     fn is_available(&self) -> bool;
@@ -110,14 +110,14 @@ pub fn git_remote_url(dir: &str) -> Option<String> {
 /// directory, so a `--rebuild` would otherwise spawn one `git` per session;
 /// this collapses that to one per unique directory.
 pub(crate) struct GitFieldCache {
-    cache: Mutex<HashMap<String, Option<String>>>,
+    cache: RefCell<HashMap<String, Option<String>>>,
     resolver: fn(&str) -> Option<String>,
 }
 
 impl GitFieldCache {
     pub(crate) fn new(resolver: fn(&str) -> Option<String>) -> Self {
         Self {
-            cache: Mutex::new(HashMap::new()),
+            cache: RefCell::new(HashMap::new()),
             resolver,
         }
     }
@@ -126,7 +126,7 @@ impl GitFieldCache {
         if dir.is_empty() {
             return None;
         }
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.borrow_mut();
         if let Some(hit) = cache.get(dir) {
             return hit.clone();
         }

@@ -1,5 +1,7 @@
+pub mod columns;
 pub mod help;
 pub mod keymap;
+pub mod modal;
 pub mod preview;
 pub mod results_list;
 pub mod theme;

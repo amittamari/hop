@@ -1,7 +1,7 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
 
-use crate::columns::{display_width, fit, solve_layout_with_desired, Column};
+use crate::tui::columns::{display_width, fit, solve_layout_with_desired, Column};
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::theme::Theme;
@@ -185,7 +185,7 @@ fn title_line(
     let base = Line::from(Span::raw(fit(
         title,
         title_width,
-        crate::columns::Align::Left,
+        crate::tui::columns::Align::Left,
     )));
     let highlighted = if terms.is_empty() {
         base
@@ -216,7 +216,7 @@ pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) ->
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::columns::{default_columns, solve_layout};
+    use crate::tui::columns::{default_columns, solve_layout};
     use crate::core::{AgentId, SessionSummary};
     use crate::enrich::{BranchEnricher, RepoEnricher};
 
