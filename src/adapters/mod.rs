@@ -77,8 +77,32 @@ fn git_field(dir: &str, args: &[&str]) -> Option<String> {
 
 /// The `origin` remote URL. Same across all worktrees of a repo, which is what
 /// makes it a stable repo key.
+///
+/// When `dir` no longer exists on disk (e.g. a deleted worktree), walk up
+/// ancestor directories until we find one that exists and can resolve the
+/// remote — the parent repo root will have the same origin.
 pub fn git_remote_url(dir: &str) -> Option<String> {
-    git_field(dir, &["remote", "get-url", "origin"])
+    let result = git_field(dir, &["remote", "get-url", "origin"]);
+    if result.is_some() {
+        return result;
+    }
+    if Path::new(dir).exists() {
+        return None;
+    }
+    for ancestor in Path::new(dir).ancestors().skip(1) {
+        if ancestor.as_os_str().is_empty() {
+            break;
+        }
+        if ancestor.exists() {
+            if let Some(url) =
+                git_field(&ancestor.to_string_lossy(), &["remote", "get-url", "origin"])
+            {
+                return Some(url);
+            }
+            break;
+        }
+    }
+    None
 }
 
 /// Directory-keyed cache over a git resolver. Many sessions share a working
