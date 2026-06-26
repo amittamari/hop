@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7](https://github.com/amittamari/hop/compare/v0.2.6...v0.2.7) - 2026-06-26
+
+### Added
+
+- check for updates on `hop --version` ([#44](https://github.com/amittamari/hop/pull/44))
+
+### Other
+
+- *(deps)* bump shlex from 1.3.0 to 2.0.1 ([#60](https://github.com/amittamari/hop/pull/60))
+- *(deps)* bump md5 from 0.7.0 to 0.8.0 ([#59](https://github.com/amittamari/hop/pull/59))
+- *(deps)* bump toml from 0.8.23 to 1.1.2+spec-1.1.0 ([#58](https://github.com/amittamari/hop/pull/58))
+- *(deps)* bump pulldown-cmark from 0.12.2 to 0.13.4 ([#57](https://github.com/amittamari/hop/pull/57))
+- *(deps)* bump ureq from 2.12.1 to 3.3.0 ([#53](https://github.com/amittamari/hop/pull/53))
+- *(deps)* bump rusqlite from 0.32.1 to 0.40.1 ([#55](https://github.com/amittamari/hop/pull/55))
+- *(deps)* bump openssl from 0.10.75 to 0.10.81 in the cargo group across 1 directory ([#56](https://github.com/amittamari/hop/pull/56))
+- *(deps)* bump ratatui from 0.30.0 to 0.30.2 ([#54](https://github.com/amittamari/hop/pull/54))
+- *(deps)* bump jiff from 0.2.28 to 0.2.29 ([#52](https://github.com/amittamari/hop/pull/52))
+- *(deps)* bump anyhow from 1.0.102 to 1.0.103 ([#51](https://github.com/amittamari/hop/pull/51))
+- add dependabot config
+
 ## [0.2.6](https://github.com/amittamari/hop/compare/v0.2.5...v0.2.6) - 2026-06-26
 
 ### Fixed
