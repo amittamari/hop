@@ -65,17 +65,20 @@ fn write_cache(path: &Path, cache: &UpdateCache) {
 }
 
 fn fetch_latest_version() -> Option<String> {
-    let agent = ureq::AgentBuilder::new()
-        .timeout_connect(std::time::Duration::from_secs(5))
-        .timeout_read(std::time::Duration::from_secs(5))
+    let config = ureq::Agent::config_builder()
+        .timeout_connect(Some(std::time::Duration::from_secs(5)))
+        .timeout_recv_body(Some(std::time::Duration::from_secs(5)))
         .user_agent(concat!("hop/", env!("CARGO_PKG_VERSION")))
         .build();
-    let response = agent
+    let agent = ureq::Agent::new_with_config(config);
+    let body: serde_json::Value = agent
         .get(GITHUB_RELEASES_URL)
-        .set("Accept", "application/vnd.github+json")
+        .header("Accept", "application/vnd.github+json")
         .call()
+        .ok()?
+        .body_mut()
+        .read_json()
         .ok()?;
-    let body: serde_json::Value = response.into_json().ok()?;
     let tag = body.get("tag_name")?.as_str()?;
     Some(tag.strip_prefix('v').unwrap_or(tag).to_string())
 }

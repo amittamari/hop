@@ -33,7 +33,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 md5 = "0.7"
 hex = "0.4"
 shlex = "1"
-ureq = { version = "2", default-features = false, features = ["json", "native-tls", "gzip"] }
+ureq = { version = "3", default-features = false, features = ["json", "native-tls", "gzip"] }
 semver = "1"
 
 [dev-dependencies]
