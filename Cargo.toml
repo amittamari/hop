@@ -30,7 +30,7 @@ toml = "1.1"
 syntect = { version = "5.2", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
-md5 = "0.7"
+md5 = "0.8"
 hex = "0.4"
 shlex = "1"
 ureq = { version = "3", default-features = false, features = ["json", "native-tls", "gzip"] }
