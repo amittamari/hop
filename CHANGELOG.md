@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4](https://github.com/amittamari/hop/compare/v0.2.3...v0.2.4) - 2026-06-26
+
+### Added
+
+- *(update)* notify when a newer version is available
+
+### Fixed
+
+- *(cli)* append trailing space to initial query for immediate typing
+- *(resume)* warn when session directory does not exist ([#31](https://github.com/amittamari/hop/pull/31))
+- *(adapters)* resolve repo from ancestor dirs for deleted worktrees ([#37](https://github.com/amittamari/hop/pull/37))
+- *(preview)* clear stale transcript when results become empty ([#23](https://github.com/amittamari/hop/pull/23))
+
 ## [0.2.3](https://github.com/amittamari/hop/compare/v0.2.2...v0.2.3) - 2026-06-17
 
 ### Added
