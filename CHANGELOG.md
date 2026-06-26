@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6](https://github.com/amittamari/hop/compare/v0.2.5...v0.2.6) - 2026-06-26
+
+### Fixed
+
+- *(tui)* prettify confirmation modal to match help overlay ([#38](https://github.com/amittamari/hop/pull/38))
+- *(tui)* improve preview header UX ([#42](https://github.com/amittamari/hop/pull/42))
+- *(ci)* use CHANGELOG.md for release notes instead of auto-generated
+
+### Other
+
+- update demo gif
+- embed SessionSummary in Session, move columns to tui, extract modal
+- optimize dependencies and binary size (14M → 8M)
+- *(skills)* add `garden-docs` skill
+
 ## [0.2.5](https://github.com/amittamari/hop/compare/v0.2.4...v0.2.5) - 2026-06-26
 
 ### Added
