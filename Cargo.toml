@@ -32,7 +32,7 @@ pulldown-cmark = { version = "0.12", default-features = false }
 rusqlite = { version = "0.40", features = ["bundled"] }
 md5 = "0.7"
 hex = "0.4"
-shlex = "1"
+shlex = "2"
 ureq = { version = "3", default-features = false, features = ["json", "native-tls", "gzip"] }
 semver = "1"
 
