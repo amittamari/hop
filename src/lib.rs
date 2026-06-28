@@ -4,6 +4,7 @@ pub mod config;
 pub mod core;
 pub mod engine;
 pub mod enrich;
+pub mod hooks;
 pub mod index;
 pub mod query;
 pub mod resume;
