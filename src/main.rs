@@ -44,6 +44,42 @@ fn update_cache_path() -> std::path::PathBuf {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if let Some(cmd) = &cli.command {
+        return match cmd {
+            hop::cli::Command::Meta { action } => match action {
+                hop::cli::MetaAction::Capture { agent, event } => {
+                    let agent = hop::core::AgentId::from_slug(agent)
+                        .ok_or_else(|| anyhow::anyhow!("unknown agent: {agent}"))?;
+                    let event = match event.as_str() {
+                        "start" => hop::hooks::sidecar::HookEvent::Start,
+                        "stop" => hop::hooks::sidecar::HookEvent::Stop,
+                        _ => anyhow::bail!("unknown event: {event}"),
+                    };
+                    let mut stdin = String::new();
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)?;
+                    hop::hooks::capture::capture(agent, event, &stdin)
+                }
+            },
+            hop::cli::Command::Hooks { action } => {
+                // Placeholder for Task 5
+                match action {
+                    hop::cli::HooksAction::Install { .. } => {
+                        eprintln!("hop hooks install: not yet implemented");
+                        Ok(())
+                    }
+                    hop::cli::HooksAction::Uninstall { .. } => {
+                        eprintln!("hop hooks uninstall: not yet implemented");
+                        Ok(())
+                    }
+                    hop::cli::HooksAction::Status => {
+                        eprintln!("hop hooks status: not yet implemented");
+                        Ok(())
+                    }
+                }
+            }
+        };
+    }
+
     if cli.version {
         println!("hop {}", env!("CARGO_PKG_VERSION"));
         match hop::update::check_for_update(&update_cache_path()) {
