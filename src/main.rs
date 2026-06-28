@@ -86,15 +86,12 @@ fn main() -> Result<()> {
                             eprintln!("Detected providers:");
                             for (i, p) in detected.iter().enumerate() {
                                 let effort = if p.best_effort { " [best-effort]" } else { "" };
-                                let status =
-                                    if p.installed { " (already installed)" } else { "" };
-                                eprintln!(
-                                    "  {}. {}{}{}",
-                                    i + 1,
-                                    p.agent.badge(),
-                                    effort,
-                                    status
-                                );
+                                let status = if p.installed {
+                                    " (already installed)"
+                                } else {
+                                    ""
+                                };
+                                eprintln!("  {}. {}{}{}", i + 1, p.agent.badge(), effort, status);
                             }
                             eprint!("Install for all? [Y/n] ");
                             let mut input = String::new();
@@ -137,7 +134,11 @@ fn main() -> Result<()> {
                         let providers = hop::hooks::providers::detect_providers();
                         for p in &providers {
                             let detected = if p.detected { "detected" } else { "not found" };
-                            let installed = if p.installed { "installed" } else { "not installed" };
+                            let installed = if p.installed {
+                                "installed"
+                            } else {
+                                "not installed"
+                            };
                             let effort = if p.best_effort { " [best-effort]" } else { "" };
                             eprintln!(
                                 "{}: {} / {}{}",
