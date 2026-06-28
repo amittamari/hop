@@ -183,6 +183,8 @@ mod tests {
             repo_url: None,
             source_path: None,
             archived: false,
+            worktree: None,
+            permission_mode: None,
         };
         assert_eq!(GhPrEnricher.resolve(&s), None);
     }

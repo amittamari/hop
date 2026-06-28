@@ -338,6 +338,8 @@ impl Adapter for CursorAdapter {
                 repo_url,
                 source_path: Some(path.to_path_buf()),
                 archived: false,
+                worktree: None,
+                permission_mode: None,
             },
             content,
             mtime: 0,

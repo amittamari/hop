@@ -218,6 +218,10 @@ pub struct SessionSummary {
     /// Session was archived by the agent (Codex). False for agents without an
     /// archive notion.
     pub archived: bool,
+    /// Git worktree path, if the session ran in one.
+    pub worktree: Option<String>,
+    /// Permission mode: "default", "yolo", "auto". Replaces the boolean `yolo` field.
+    pub permission_mode: Option<String>,
 }
 
 impl SessionSummary {
