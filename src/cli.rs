@@ -1,8 +1,11 @@
-use clap::Parser;
+use clap::{Parser, Subcommand as ClapSubcommand};
 
 #[derive(Parser, Debug)]
 #[command(name = "hop", about = "Search and resume coding-agent sessions")]
 pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
     /// Print version and check for updates.
     #[arg(short = 'V', long)]
     pub version: bool,
@@ -32,6 +35,55 @@ pub struct Cli {
     /// Wipe and rebuild the index before starting.
     #[arg(long)]
     pub rebuild: bool,
+}
+
+#[derive(ClapSubcommand, Debug)]
+pub enum Command {
+    /// Manage session metadata hooks.
+    Hooks {
+        #[command(subcommand)]
+        action: HooksAction,
+    },
+    /// Internal: capture session metadata (called by hooks).
+    Meta {
+        #[command(subcommand)]
+        action: MetaAction,
+    },
+}
+
+#[derive(ClapSubcommand, Debug)]
+pub enum HooksAction {
+    /// Install hooks for detected providers.
+    Install {
+        /// Install for all detected providers without prompting.
+        #[arg(long)]
+        all: bool,
+        /// Install for a specific provider only.
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Remove all hop hooks.
+    Uninstall {
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Show hook installation status.
+    Status,
+}
+
+#[derive(ClapSubcommand, Debug)]
+pub enum MetaAction {
+    /// Capture session metadata from hook stdin.
+    Capture {
+        /// Agent name (claude, codex, cursor).
+        #[arg(long)]
+        agent: String,
+        /// Hook event (start, stop).
+        #[arg(long)]
+        event: String,
+    },
 }
 
 impl Cli {
@@ -89,6 +141,7 @@ mod tests {
 
     fn cli() -> Cli {
         Cli {
+            command: None,
             version: false,
             query: None,
             agent: None,
