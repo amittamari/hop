@@ -1,4 +1,5 @@
 use crate::core::SessionSummary;
+use crate::hooks::git_meta::GitMeta;
 use crate::hooks::sidecar::{sidecar_path, Sidecar};
 
 pub fn apply_sidecar(summary: &mut SessionSummary, sidecar: &Sidecar) {
@@ -16,11 +17,31 @@ pub fn apply_sidecar(summary: &mut SessionSummary, sidecar: &Sidecar) {
     }
 }
 
+pub fn enrich_from_git_if_needed(summary: &mut SessionSummary) {
+    if summary.branch.is_some() && summary.repo_url.is_some() {
+        return;
+    }
+    if summary.directory.is_empty() {
+        return;
+    }
+    let git = GitMeta::collect(&summary.directory);
+    if summary.branch.is_none() {
+        summary.branch = git.branch;
+    }
+    if summary.repo_url.is_none() {
+        summary.repo_url = git.repo_url;
+    }
+    if summary.worktree.is_none() {
+        summary.worktree = git.worktree;
+    }
+}
+
 pub fn merge_sidecar(summary: &mut SessionSummary) {
     let path = sidecar_path(summary.agent, &summary.id);
     if let Some(sidecar) = Sidecar::read(&path) {
         apply_sidecar(summary, &sidecar);
     }
+    enrich_from_git_if_needed(summary);
 }
 
 #[cfg(test)]
@@ -130,6 +151,50 @@ mod tests {
         }]);
         apply_sidecar(&mut summary, &sidecar);
         assert_eq!(summary.directory, "/sidecar/path");
+    }
+
+    #[test]
+    fn cursor_enrichment_fills_branch_at_index_time() {
+        let mut summary = base_summary();
+        summary.agent = AgentId::Cursor;
+        summary.branch = None;
+        summary.directory = ".".into(); // current dir is a git repo
+        enrich_from_git_if_needed(&mut summary);
+        assert!(summary.branch.is_some());
+    }
+
+    #[test]
+    fn enrichment_skips_when_branch_and_repo_url_present() {
+        let mut summary = base_summary();
+        summary.branch = Some("existing-branch".into());
+        summary.repo_url = Some("https://example.com/repo".into());
+        summary.directory = ".".into();
+        enrich_from_git_if_needed(&mut summary);
+        // Values unchanged — should not have shelled out
+        assert_eq!(summary.branch.as_deref(), Some("existing-branch"));
+        assert_eq!(summary.repo_url.as_deref(), Some("https://example.com/repo"));
+    }
+
+    #[test]
+    fn enrichment_skips_on_empty_directory() {
+        let mut summary = base_summary();
+        summary.branch = None;
+        summary.directory = String::new();
+        enrich_from_git_if_needed(&mut summary);
+        assert!(summary.branch.is_none());
+    }
+
+    #[test]
+    fn enrichment_fills_repo_url_when_only_branch_present() {
+        let mut summary = base_summary();
+        summary.branch = Some("main".into());
+        summary.repo_url = None;
+        summary.directory = ".".into();
+        enrich_from_git_if_needed(&mut summary);
+        // repo_url should now be filled from git
+        assert!(summary.repo_url.is_some());
+        // branch should remain unchanged
+        assert_eq!(summary.branch.as_deref(), Some("main"));
     }
 
     #[test]
