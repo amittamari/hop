@@ -14,7 +14,7 @@ use tantivy::schema::{
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
 const SCORE_BUCKET_SCALE: f32 = 10.0;
@@ -37,6 +37,8 @@ struct Fields {
     repo_url: Field,
     source_path: Field,
     archived: Field,
+    worktree: Field,
+    permission_mode: Field,
 }
 
 pub struct SearchIndex {
@@ -62,6 +64,8 @@ fn build_schema() -> (Schema, Fields) {
         repo_url: b.add_text_field("repo_url", STRING | STORED),
         source_path: b.add_text_field("source_path", STRING | STORED),
         archived: b.add_u64_field("archived", STORED),
+        worktree: b.add_text_field("worktree", STRING | STORED),
+        permission_mode: b.add_text_field("permission_mode", STRING | STORED),
     };
     (b.build(), f)
 }
@@ -129,6 +133,12 @@ impl SearchIndex {
         }
         if let Some(path) = &m.source_path {
             doc.add_text(self.f.source_path, path.to_string_lossy());
+        }
+        if let Some(w) = &m.worktree {
+            doc.add_text(self.f.worktree, w);
+        }
+        if let Some(pm) = &m.permission_mode {
+            doc.add_text(self.f.permission_mode, pm);
         }
         let _ = w.add_document(doc);
     }
@@ -367,6 +377,22 @@ impl SearchIndex {
                 }
             },
             archived: get_u64(self.f.archived) != 0,
+            worktree: {
+                let w = get_str(self.f.worktree);
+                if w.is_empty() {
+                    None
+                } else {
+                    Some(w)
+                }
+            },
+            permission_mode: {
+                let pm = get_str(self.f.permission_mode);
+                if pm.is_empty() {
+                    None
+                } else {
+                    Some(pm)
+                }
+            },
         }
     }
 }

@@ -123,6 +123,8 @@ mod tests {
             repo_url: repo_url.map(|s| s.to_string()),
             source_path: None,
             archived: false,
+            worktree: None,
+            permission_mode: None,
         }
     }
 
