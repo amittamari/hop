@@ -48,16 +48,20 @@ fn main() -> Result<()> {
         return match cmd {
             hop::cli::Command::Meta { action } => match action {
                 hop::cli::MetaAction::Capture { agent, event } => {
-                    let agent = hop::core::AgentId::from_slug(agent)
-                        .ok_or_else(|| anyhow::anyhow!("unknown agent: {agent}"))?;
-                    let event = match event.as_str() {
-                        "start" => hop::hooks::sidecar::HookEvent::Start,
-                        "stop" => hop::hooks::sidecar::HookEvent::Stop,
-                        _ => anyhow::bail!("unknown event: {event}"),
-                    };
-                    let mut stdin = String::new();
-                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)?;
-                    hop::hooks::capture::capture(agent, event, &stdin)
+                    let result: anyhow::Result<()> = (|| {
+                        let agent = hop::core::AgentId::from_slug(agent)
+                            .ok_or_else(|| anyhow::anyhow!("unknown agent: {agent}"))?;
+                        let event = match event.as_str() {
+                            "start" => hop::hooks::sidecar::HookEvent::Start,
+                            "stop" => hop::hooks::sidecar::HookEvent::Stop,
+                            _ => anyhow::bail!("unknown event: {event}"),
+                        };
+                        let mut stdin = String::new();
+                        std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)?;
+                        hop::hooks::capture::capture(agent, event, &stdin)
+                    })();
+                    let _ = result;
+                    Ok(())
                 }
             },
             hop::cli::Command::Hooks { action } => {
