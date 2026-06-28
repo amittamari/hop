@@ -61,18 +61,88 @@ fn main() -> Result<()> {
                 }
             },
             hop::cli::Command::Hooks { action } => {
-                // Placeholder for Task 5
+                let home = hop::hooks::providers::home_dir();
                 match action {
-                    hop::cli::HooksAction::Install { .. } => {
-                        eprintln!("hop hooks install: not yet implemented");
+                    hop::cli::HooksAction::Install { all, provider } => {
+                        let providers = hop::hooks::providers::detect_providers();
+                        let targets: Vec<_> = if let Some(name) = provider {
+                            let agent = hop::core::AgentId::from_slug(name)
+                                .ok_or_else(|| anyhow::anyhow!("unknown provider: {name}"))?;
+                            providers.into_iter().filter(|p| p.agent == agent).collect()
+                        } else if *all {
+                            providers.into_iter().filter(|p| p.detected).collect()
+                        } else {
+                            // Interactive: show detected, ask user
+                            let detected: Vec<_> =
+                                providers.into_iter().filter(|p| p.detected).collect();
+                            if detected.is_empty() {
+                                eprintln!("No providers detected.");
+                                return Ok(());
+                            }
+                            eprintln!("Detected providers:");
+                            for (i, p) in detected.iter().enumerate() {
+                                let effort = if p.best_effort { " [best-effort]" } else { "" };
+                                let status =
+                                    if p.installed { " (already installed)" } else { "" };
+                                eprintln!(
+                                    "  {}. {}{}{}",
+                                    i + 1,
+                                    p.agent.badge(),
+                                    effort,
+                                    status
+                                );
+                            }
+                            eprint!("Install for all? [Y/n] ");
+                            let mut input = String::new();
+                            std::io::stdin().read_line(&mut input)?;
+                            if input.trim().eq_ignore_ascii_case("n") {
+                                return Ok(());
+                            }
+                            detected
+                        };
+                        for p in &targets {
+                            match hop::hooks::providers::install_provider(p.agent, &home) {
+                                Ok(msg) => eprintln!("{msg}"),
+                                Err(e) => {
+                                    eprintln!("Failed to install for {}: {e}", p.agent.badge())
+                                }
+                            }
+                        }
                         Ok(())
                     }
-                    hop::cli::HooksAction::Uninstall { .. } => {
-                        eprintln!("hop hooks uninstall: not yet implemented");
+                    hop::cli::HooksAction::Uninstall { all: _, provider } => {
+                        let providers = hop::hooks::providers::detect_providers();
+                        let targets: Vec<_> = if let Some(name) = provider {
+                            let agent = hop::core::AgentId::from_slug(name)
+                                .ok_or_else(|| anyhow::anyhow!("unknown provider: {name}"))?;
+                            providers.into_iter().filter(|p| p.agent == agent).collect()
+                        } else {
+                            providers.into_iter().filter(|p| p.installed).collect()
+                        };
+                        for p in &targets {
+                            match hop::hooks::providers::uninstall_provider(p.agent, &home) {
+                                Ok(msg) => eprintln!("{msg}"),
+                                Err(e) => {
+                                    eprintln!("Failed to uninstall for {}: {e}", p.agent.badge())
+                                }
+                            }
+                        }
                         Ok(())
                     }
                     hop::cli::HooksAction::Status => {
-                        eprintln!("hop hooks status: not yet implemented");
+                        let providers = hop::hooks::providers::detect_providers();
+                        for p in &providers {
+                            let detected = if p.detected { "detected" } else { "not found" };
+                            let installed = if p.installed { "installed" } else { "not installed" };
+                            let effort = if p.best_effort { " [best-effort]" } else { "" };
+                            eprintln!(
+                                "{}: {} / {}{}",
+                                p.agent.badge(),
+                                detected,
+                                installed,
+                                effort
+                            );
+                        }
                         Ok(())
                     }
                 }
