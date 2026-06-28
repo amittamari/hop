@@ -64,15 +64,24 @@ fn write_cache(path: &Path, cache: &UpdateCache) {
     }
 }
 
-fn fetch_latest_version() -> Option<String> {
+fn build_http_agent() -> ureq::Agent {
+    use ureq::tls::{TlsConfig, TlsProvider};
     let config = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(5)))
         .timeout_recv_body(Some(std::time::Duration::from_secs(5)))
         .user_agent(concat!("hop/", env!("CARGO_PKG_VERSION")))
+        .tls_config(
+            TlsConfig::builder()
+                .provider(TlsProvider::NativeTls)
+                .build(),
+        )
         .build();
-    let agent = ureq::Agent::new_with_config(config);
+    ureq::Agent::new_with_config(config)
+}
+
+fn fetch_latest_version_from(url: &str, agent: &ureq::Agent) -> Option<String> {
     let body: serde_json::Value = agent
-        .get(GITHUB_RELEASES_URL)
+        .get(url)
         .header("Accept", "application/vnd.github+json")
         .call()
         .ok()?
@@ -81,6 +90,10 @@ fn fetch_latest_version() -> Option<String> {
         .ok()?;
     let tag = body.get("tag_name")?.as_str()?;
     Some(tag.strip_prefix('v').unwrap_or(tag).to_string())
+}
+
+fn fetch_latest_version() -> Option<String> {
+    fetch_latest_version_from(GITHUB_RELEASES_URL, &build_http_agent())
 }
 
 pub fn check_for_update(cache_path: &Path) -> Option<UpdateAvailable> {
@@ -139,6 +152,7 @@ pub fn upgrade_message(info: &UpdateAvailable) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read as _, Write as _};
     use std::path::PathBuf;
 
     #[test]
@@ -279,5 +293,67 @@ mod tests {
 
         let info = check_for_update(&path).unwrap();
         assert_eq!(info.latest, semver::Version::new(99, 0, 0));
+    }
+
+    fn mock_server(body: &str) -> (std::net::SocketAddr, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            body,
+        );
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (addr, handle)
+    }
+
+    #[test]
+    fn fetch_parses_github_release_response() {
+        let (addr, handle) = mock_server(r#"{"tag_name": "v1.2.3"}"#);
+        let agent = build_http_agent();
+        let version = fetch_latest_version_from(&format!("http://{addr}/"), &agent);
+        assert_eq!(version, Some("1.2.3".to_string()));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn fetch_strips_v_prefix() {
+        let (addr, handle) = mock_server(r#"{"tag_name": "v0.3.0"}"#);
+        let agent = build_http_agent();
+        let version = fetch_latest_version_from(&format!("http://{addr}/"), &agent);
+        assert_eq!(version, Some("0.3.0".to_string()));
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn fetch_handles_missing_tag_name() {
+        let (addr, handle) = mock_server(r#"{"name": "release"}"#);
+        let agent = build_http_agent();
+        let version = fetch_latest_version_from(&format!("http://{addr}/"), &agent);
+        assert_eq!(version, None);
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn https_does_not_panic() {
+        // Start a plain TCP server so the TCP connection succeeds and ureq
+        // proceeds to the TLS provider check.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let handle = std::thread::spawn(move || {
+            let _ = listener.accept();
+        });
+        let agent = build_http_agent();
+        // TLS handshake will fail (plain TCP, not TLS), but must not panic.
+        // Before the native-tls fix this panicked with:
+        //   "uri scheme is https, provider is Rustls but feature is not enabled"
+        let _ = agent.get(&format!("https://127.0.0.1:{port}")).call();
+        handle.join().unwrap();
     }
 }
