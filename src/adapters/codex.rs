@@ -260,6 +260,12 @@ impl Adapter for CodexAdapter {
                 repo_url,
                 source_path: Some(path.to_path_buf()),
                 archived: is_archived_path(path),
+                worktree: None,
+                permission_mode: if ex.yolo {
+                    Some("yolo".into())
+                } else {
+                    Some("default".into())
+                },
             },
             content,
             mtime: 0,

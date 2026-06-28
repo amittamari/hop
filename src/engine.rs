@@ -258,6 +258,7 @@ fn sync_index(
                 if s.meta.source_path.is_none() {
                     s.meta.source_path = Some(entry.path.clone());
                 }
+                crate::hooks::merge::merge_sidecar(&mut s.meta);
                 if s.meta.message_count == 0 || s.content.trim().is_empty() {
                     // Nothing to search or resume (e.g. a Cursor subagent spawn
                     // the model blocked before any reply). Don't index it.
@@ -367,6 +368,8 @@ mod tests {
                 repo_url: None,
                 source_path: None,
                 archived: false,
+                worktree: None,
+                permission_mode: None,
             },
             content: title.into(),
             mtime: 10,
