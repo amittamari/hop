@@ -24,6 +24,9 @@ pub fn enrich_from_git_if_needed(summary: &mut SessionSummary) {
     if summary.directory.is_empty() {
         return;
     }
+    if !std::path::Path::new(&summary.directory).is_dir() {
+        return;
+    }
     let git = GitMeta::collect(&summary.directory);
     if summary.branch.is_none() {
         summary.branch = git.branch;
