@@ -65,10 +65,8 @@ impl Sidecar {
         }
         let json = serde_json::to_string_pretty(self).context("serializing sidecar")?;
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, &json)
-            .with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, path)
-            .with_context(|| format!("renaming to {}", path.display()))?;
+        std::fs::write(&tmp, &json).with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::rename(&tmp, path).with_context(|| format!("renaming to {}", path.display()))?;
         Ok(())
     }
 
@@ -97,7 +95,9 @@ pub fn sidecar_dir() -> PathBuf {
 }
 
 pub fn sidecar_path(agent: AgentId, session_id: &str) -> PathBuf {
-    sidecar_dir().join(agent.slug()).join(format!("{session_id}.json"))
+    sidecar_dir()
+        .join(agent.slug())
+        .join(format!("{session_id}.json"))
 }
 
 #[cfg(test)]

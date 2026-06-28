@@ -12,8 +12,7 @@ impl GitMeta {
         if cwd.is_empty() {
             return Self::default();
         }
-        let branch = git_field(cwd, &["rev-parse", "--abbrev-ref", "HEAD"])
-            .filter(|b| b != "HEAD");
+        let branch = git_field(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).filter(|b| b != "HEAD");
         let repo_url = git_field(cwd, &["remote", "get-url", "origin"]);
         let worktree = detect_worktree(cwd);
         Self {
@@ -35,7 +34,11 @@ fn git_field(dir: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 fn detect_worktree(dir: &str) -> Option<String> {

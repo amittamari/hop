@@ -175,7 +175,10 @@ mod tests {
         enrich_from_git_if_needed(&mut summary);
         // Values unchanged — should not have shelled out
         assert_eq!(summary.branch.as_deref(), Some("existing-branch"));
-        assert_eq!(summary.repo_url.as_deref(), Some("https://example.com/repo"));
+        assert_eq!(
+            summary.repo_url.as_deref(),
+            Some("https://example.com/repo")
+        );
     }
 
     #[test]

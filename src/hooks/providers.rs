@@ -110,12 +110,9 @@ pub fn merge_claude_hooks(existing_json: &str) -> Result<String> {
         .context("settings.json is not an object")?
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}));
-    let hooks_obj = hooks
-        .as_object_mut()
-        .context("hooks is not an object")?;
+    let hooks_obj = hooks.as_object_mut().context("hooks is not an object")?;
 
-    let start_entry: serde_json::Value =
-        serde_json::from_str(&claude_hook_entry("SessionStart"))?;
+    let start_entry: serde_json::Value = serde_json::from_str(&claude_hook_entry("SessionStart"))?;
     let end_entry: serde_json::Value = serde_json::from_str(&claude_hook_entry("SessionEnd"))?;
 
     for (event_name, entry) in [("SessionStart", start_entry), ("SessionEnd", end_entry)] {
@@ -277,10 +274,7 @@ pub fn uninstall_cursor(home: &Path) -> Result<String> {
     }
     let json = serde_json::to_string_pretty(&v)?;
     std::fs::write(&path, &json)?;
-    Ok(format!(
-        "Cursor: removed hop hooks from {}",
-        path.display()
-    ))
+    Ok(format!("Cursor: removed hop hooks from {}", path.display()))
 }
 
 pub fn install_provider(agent: AgentId, home: &Path) -> Result<String> {
@@ -344,10 +338,7 @@ mod tests {
         assert!(!v["hooks"]["PreToolUse"].is_null());
         assert!(
             v["hooks"]["SessionStart"].is_null()
-                || v["hooks"]["SessionStart"]
-                    .as_array()
-                    .unwrap()
-                    .is_empty()
+                || v["hooks"]["SessionStart"].as_array().unwrap().is_empty()
         );
     }
 

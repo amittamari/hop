@@ -379,11 +379,19 @@ impl SearchIndex {
             archived: get_u64(self.f.archived) != 0,
             worktree: {
                 let w = get_str(self.f.worktree);
-                if w.is_empty() { None } else { Some(w) }
+                if w.is_empty() {
+                    None
+                } else {
+                    Some(w)
+                }
             },
             permission_mode: {
                 let pm = get_str(self.f.permission_mode);
-                if pm.is_empty() { None } else { Some(pm) }
+                if pm.is_empty() {
+                    None
+                } else {
+                    Some(pm)
+                }
             },
         }
     }
