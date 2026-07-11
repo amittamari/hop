@@ -131,8 +131,9 @@ its on-disk session format to `hop`'s `core` types.
 ## ⌨️ Keyboard Shortcuts
 
 The query is always live — just start typing to filter. Navigation lives on the
-arrows and secondary actions on `Ctrl` chords, so no key ever does double duty.
-The `Ctrl` chords below are rebindable via `[keybindings]` in `config.toml` (see
+arrows and secondary actions on `Ctrl` chords, so no key ever does double duty
+(there is no vim-style normal/insert mode — see the note below). The `Ctrl` chords
+below are rebindable via `[keybindings]` in `config.toml` (see
 [Configuration](#️-configuration)).
 
 | Key | Action |
@@ -140,9 +141,11 @@ The `Ctrl` chords below are rebindable via `[keybindings]` in `config.toml` (see
 | **Typing** | Filters search results |
 | `↑` / `↓` | Move selection up / down |
 | `PgUp` / `PgDn` | Page viewport up / down |
-| `←` / `→` / `Home` / `End` | Move the query cursor |
-| `Tab` | Autocomplete keywords (e.g., `agent:cl` → `agent:claude`) |
+| `Tab` / `Shift+Tab` | **Simple mode:** move focus between the query and the Scope / Sort toolbar. **Raw mode:** autocomplete keywords (e.g., `agent:cl` → `agent:claude`) |
+| `←` / `→` | Adjust the focused toolbar control, or move the query cursor when the query is focused |
+| `Home` / `End` | Jump the query cursor |
 | `Enter` | **Resume selected session** (prompts for yolo when supported) |
+| `Ctrl + R` | Toggle simple ⇄ raw search (see [Search Modes](#-search-modes)) |
 | `Ctrl + O` | Open the selected session's PR in the browser (when one is resolved) |
 | `Ctrl + P` | Toggle the preview pane |
 | `Ctrl + U` / `D` | Scroll preview pane up / down by viewport |
@@ -152,11 +155,36 @@ The `Ctrl` chords below are rebindable via `[keybindings]` in `config.toml` (see
 | `Esc` | Clear the query, or quit when it's already empty |
 | `Ctrl + C` | Quit |
 
+> **No modal (vim) keymode.** Because the query field is always live, `hop` stays
+> modeless — bare `j`/`k` type into the query rather than navigating, matching how
+> fuzzy-finder pickers like `fzf`, `atuin`, and Codex's `/resume` behave. Reach for
+> **raw search mode** (below) when you want the full query language, not a key mode.
+
+---
+
+## 🧭 Search Modes
+
+`hop` starts in **simple mode**: type plain text to fuzzy-match, and use the guided
+toolbar under the query for the common filters — no query syntax to learn.
+
+| Control | Values | Effect |
+| --- | --- | --- |
+| **Scope** | `This repo` · `All` | Limit to the current repo (when launched inside one) or search everywhere |
+| **Sort** | `Relevance` · `Recent` · `Oldest` | Order by blended relevance+recency, newest-first, or oldest-first |
+
+`Tab` / `Shift+Tab` move focus to a control; `←` / `→` change its value. Press
+`Ctrl + R` to switch to **raw mode**, where the query line accepts the full
+[query syntax](#-query-syntax) directly and the toolbar is hidden. Set the startup
+default with `search_mode = "simple"` or `"raw"` in `config.toml`; typing DSL or
+passing `--agent`/`--dir` on the command line starts in raw mode automatically.
+
 ---
 
 ## 🔍 Query Syntax
 
-Advanced filtering keywords can be used alongside regular free-text search.
+These keywords power **raw mode** (`Ctrl + R`); most everyday filtering is covered
+by the simple-mode toolbar above. Keywords can be mixed with regular free-text
+search, and still work if typed in simple mode.
 
 | Example | Filter Type | Description |
 | --- | --- | --- |
@@ -209,6 +237,9 @@ Leftover width is dynamically allocated to the conversation Title.
 An optional configuration file can be created in your platform's config directory (e.g., `~/.config/hop/config.toml`).
 
 ```toml
+# Startup search mode: "simple" (guided toolbar, the default) or "raw" (query DSL).
+search_mode = "simple"
+
 [preview]
 visible = true
 width_pct = 50
@@ -231,6 +262,7 @@ jump_match_next       = "ctrl+n"
 resize_preview_smaller = "ctrl+left"
 resize_preview_larger  = "ctrl+right"
 open_pr                = "ctrl+o"
+toggle_search_mode     = "ctrl+r"
 quit                  = "ctrl+c"
 
 ```
