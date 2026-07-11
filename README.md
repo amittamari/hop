@@ -61,8 +61,14 @@ hop --all                # Search across all repos (disable auto-scoping)
 hop -a claude -d api     # Filter by agent and directory on launch
 hop -r hop               # Filter to one repo across all its worktrees
 hop --rebuild            # Wipe and rebuild the search index
-
+hop hooks install --all  # Install metadata hooks for detected agents
+hop hooks status         # Show metadata-hook installation status
+hop hooks uninstall      # Remove installed hop metadata hooks
 ```
+
+Metadata hooks capture the final working directory and Git state at session
+start and stop. Codex hooks are installed as a local Codex plugin; Claude and
+Cursor hooks are merged into their existing hook configuration.
 
 ---
 

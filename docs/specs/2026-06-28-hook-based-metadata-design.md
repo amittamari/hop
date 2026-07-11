@@ -161,8 +161,11 @@ remove them. If a hook array becomes empty, remove the key.
 
 **Hook input (stdin JSON)**: `session_id`, `cwd`, `hook_event_name`
 
-**Install**: Create a hop plugin directory at
-`~/.codex/.tmp/plugins/plugins/hop/` with a `hooks.json`:
+**Install**: Create a manifest-backed local marketplace under
+`~/.hop/codex-plugin-marketplace/`, register it with
+`codex plugin marketplace add`, and install
+`hop-session-metadata@hop-local` with `codex plugin add`. The plugin includes
+`.codex-plugin/plugin.json` plus this `hooks.json`:
 
 ```json
 {
@@ -186,7 +189,8 @@ remove them. If a hook array becomes empty, remove the key.
 Note: Codex uses `Stop` (fires each time the agent stops) rather than
 `SessionEnd`. The last `Stop` before exit captures the final state.
 
-**Uninstall**: Remove the `~/.codex/.tmp/plugins/plugins/hop/` directory.
+**Uninstall**: Use `codex plugin remove` to remove the installed plugin, remove
+the `hop-local` marketplace registration, then delete hop's marketplace source.
 
 **Detection**: `~/.codex` directory exists with `config.toml`.
 
@@ -276,7 +280,11 @@ checks for a matching sidecar at `~/.hop/meta/<agent>/<session-id>.json`.
 
 Sidecar wins for git fields and cwd because it captures state at the actual
 moment of session start/stop. Vendor wins for title, timestamp, and
-permission mode because these are reliably provided by vendors.
+permission mode because these are reliably provided by vendors. Live-Git and
+vendor fallback values are resolved before applying the final sidecar event;
+an explicit `null` branch, repo URL, or worktree in that final snapshot is
+authoritative and must not fall back to an older event or later repository
+state.
 
 #### Schema Changes
 
@@ -286,8 +294,10 @@ New fields on `SessionSummary`:
 - `permission_mode: Option<String>` — replaces `yolo: bool`. Values:
   `"default"`, `"yolo"`, `"auto"`, or `None`.
 
-Tantivy index schema bumps to version 3 with new stored fields `worktree`
-and `permission_mode`. This triggers an automatic index rebuild on first run.
+Tantivy index schema bumps to version 4 with new stored fields `worktree`,
+`permission_mode`, and the internal `sidecar_stamp`. The stamp lets a sidecar
+write trigger reindexing even when the vendor transcript mtime is unchanged.
+This triggers an automatic index rebuild on first run.
 
 The `yolo` field on `SessionSummary` and in the index schema is deprecated
 in favor of `permission_mode`. Migration: `yolo: true` → `permission_mode:
