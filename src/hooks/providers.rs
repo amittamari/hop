@@ -1,8 +1,12 @@
 use crate::core::AgentId;
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 const HOP_HOOK_ID: &str = "hop-meta";
+const CODEX_MARKETPLACE_NAME: &str = "hop-local";
+const CODEX_PLUGIN_NAME: &str = "hop-session-metadata";
+const CODEX_PLUGIN_SELECTOR: &str = "hop-session-metadata@hop-local";
 
 #[derive(Debug)]
 pub struct ProviderStatus {
@@ -42,15 +46,10 @@ fn detect_claude(home: &Path) -> ProviderStatus {
 }
 
 fn detect_codex(home: &Path) -> ProviderStatus {
-    let plugin_dir = home
-        .join(".codex")
-        .join(".tmp")
-        .join("plugins")
-        .join("plugins")
-        .join("hop");
+    let plugin_dir = codex_plugin_dir(home);
     let config_path = plugin_dir.join("hooks.json");
-    let detected = home.join(".codex").exists();
-    let installed = config_path.exists();
+    let detected = home.join(".codex").join("config.toml").exists();
+    let installed = detected && is_codex_plugin_installed();
     ProviderStatus {
         agent: AgentId::Codex,
         detected,
@@ -137,7 +136,7 @@ pub fn unmerge_claude_hooks(existing_json: &str) -> Result<String> {
         // Remove empty arrays
         let empty_keys: Vec<String> = hooks
             .iter()
-            .filter(|(_, v)| v.as_array().map_or(false, |a| a.is_empty()))
+            .filter(|(_, v)| v.as_array().is_some_and(|a| a.is_empty()))
             .map(|(k, _)| k.clone())
             .collect();
         for k in empty_keys {
@@ -188,35 +187,181 @@ pub fn codex_hooks_json() -> String {
     .unwrap()
 }
 
+fn codex_marketplace_root(home: &Path) -> PathBuf {
+    home.join(".hop").join("codex-plugin-marketplace")
+}
+
+fn codex_plugin_dir(home: &Path) -> PathBuf {
+    codex_marketplace_root(home)
+        .join("plugins")
+        .join(CODEX_PLUGIN_NAME)
+}
+
+fn codex_plugin_manifest() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "name": CODEX_PLUGIN_NAME,
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Capture Codex session metadata for hop.",
+        "author": { "name": "hop" },
+        "license": "MIT",
+        "keywords": ["hop", "session-metadata"],
+        "interface": {
+            "displayName": "hop Session Metadata",
+            "shortDescription": "Capture Codex session metadata for hop",
+            "longDescription": "Captures session lifecycle metadata so hop can index the final working directory and Git state.",
+            "developerName": "hop",
+            "category": "Developer Tools",
+            "capabilities": ["Write"],
+            "defaultPrompt": "Show hop metadata hook status."
+        }
+    }))
+    .unwrap()
+}
+
+fn codex_marketplace_json() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "name": CODEX_MARKETPLACE_NAME,
+        "interface": { "displayName": "hop" },
+        "plugins": [{
+            "name": CODEX_PLUGIN_NAME,
+            "source": {
+                "source": "local",
+                "path": format!("./plugins/{CODEX_PLUGIN_NAME}")
+            },
+            "policy": {
+                "installation": "AVAILABLE",
+                "authentication": "ON_INSTALL"
+            },
+            "category": "Developer Tools"
+        }]
+    }))
+    .unwrap()
+}
+
+fn write_codex_plugin(home: &Path) -> Result<PathBuf> {
+    let root = codex_marketplace_root(home);
+    let plugin_dir = codex_plugin_dir(home);
+    let manifest_dir = plugin_dir.join(".codex-plugin");
+    std::fs::create_dir_all(&manifest_dir)
+        .with_context(|| format!("creating {}", manifest_dir.display()))?;
+    std::fs::create_dir_all(root.join(".agents").join("plugins"))?;
+    std::fs::write(manifest_dir.join("plugin.json"), codex_plugin_manifest())?;
+    std::fs::write(plugin_dir.join("hooks.json"), codex_hooks_json())?;
+    std::fs::write(
+        root.join(".agents")
+            .join("plugins")
+            .join("marketplace.json"),
+        codex_marketplace_json(),
+    )?;
+    Ok(root)
+}
+
+fn codex_json(args: &[&str]) -> Result<serde_json::Value> {
+    let output = Command::new("codex")
+        .args(args)
+        .output()
+        .with_context(|| format!("running codex {}", args.join(" ")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("codex {} failed: {}", args.join(" "), stderr.trim());
+    }
+    serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("parsing codex {} output", args.join(" ")))
+}
+
+fn is_codex_plugin_installed() -> bool {
+    codex_json(&["plugin", "list", "--json"])
+        .ok()
+        .is_some_and(|value| codex_plugin_is_enabled(&value))
+}
+
+fn codex_plugin_is_enabled(value: &serde_json::Value) -> bool {
+    value
+        .get("installed")
+        .and_then(|i| i.as_array())
+        .is_some_and(|installed| {
+            installed.iter().any(|plugin| {
+                plugin.get("pluginId").and_then(|id| id.as_str()) == Some(CODEX_PLUGIN_SELECTOR)
+                    && plugin.get("enabled").and_then(|e| e.as_bool()) == Some(true)
+            })
+        })
+}
+
+fn registered_codex_marketplace_root() -> Result<Option<PathBuf>> {
+    let value = codex_json(&["plugin", "marketplace", "list", "--json"])?;
+    Ok(codex_marketplace_root_from_json(&value))
+}
+
+fn codex_marketplace_root_from_json(value: &serde_json::Value) -> Option<PathBuf> {
+    value
+        .get("marketplaces")
+        .and_then(|m| m.as_array())
+        .and_then(|marketplaces| {
+            marketplaces.iter().find_map(|marketplace| {
+                (marketplace.get("name").and_then(|n| n.as_str()) == Some(CODEX_MARKETPLACE_NAME))
+                    .then(|| {
+                        marketplace
+                            .get("marketplaceSource")
+                            .and_then(|source| source.get("source"))
+                            .and_then(|source| source.as_str())
+                            .or_else(|| marketplace.get("root").and_then(|root| root.as_str()))
+                    })
+                    .flatten()
+                    .map(PathBuf::from)
+            })
+        })
+}
+
 pub fn install_codex(home: &Path) -> Result<String> {
-    let plugin_dir = home
-        .join(".codex")
-        .join(".tmp")
-        .join("plugins")
-        .join("plugins")
-        .join("hop");
-    std::fs::create_dir_all(&plugin_dir)?;
-    let hooks_path = plugin_dir.join("hooks.json");
-    std::fs::write(&hooks_path, codex_hooks_json())?;
+    let root = write_codex_plugin(home)?;
+    match registered_codex_marketplace_root()? {
+        Some(existing) if existing != root => anyhow::bail!(
+            "Codex marketplace {CODEX_MARKETPLACE_NAME} already points to {}",
+            existing.display()
+        ),
+        Some(_) => {}
+        None => {
+            let root_arg = root.to_string_lossy();
+            codex_json(&["plugin", "marketplace", "add", root_arg.as_ref(), "--json"])?;
+        }
+    }
+    codex_json(&["plugin", "add", CODEX_PLUGIN_SELECTOR, "--json"])?;
     Ok(format!(
-        "Codex: installed hop plugin at {}",
-        plugin_dir.display()
+        "Codex: installed {CODEX_PLUGIN_SELECTOR} from {}",
+        root.display()
     ))
 }
 
 pub fn uninstall_codex(home: &Path) -> Result<String> {
-    let plugin_dir = home
-        .join(".codex")
-        .join(".tmp")
-        .join("plugins")
-        .join("plugins")
-        .join("hop");
-    if plugin_dir.exists() {
-        std::fs::remove_dir_all(&plugin_dir)?;
-        Ok(format!(
-            "Codex: removed hop plugin from {}",
-            plugin_dir.display()
-        ))
+    let root = codex_marketplace_root(home);
+    let installed = is_codex_plugin_installed();
+    let registered = registered_codex_marketplace_root()?;
+    if let Some(existing) = &registered {
+        if existing != &root {
+            anyhow::bail!(
+                "Codex marketplace {CODEX_MARKETPLACE_NAME} points to {}, not hop's {}",
+                existing.display(),
+                root.display()
+            );
+        }
+    }
+    if installed {
+        codex_json(&["plugin", "remove", CODEX_PLUGIN_SELECTOR, "--json"])?;
+    }
+    if registered.is_some() {
+        codex_json(&[
+            "plugin",
+            "marketplace",
+            "remove",
+            CODEX_MARKETPLACE_NAME,
+            "--json",
+        ])?;
+    }
+    if root.exists() {
+        std::fs::remove_dir_all(&root)?;
+    }
+    if installed {
+        Ok(format!("Codex: removed {CODEX_PLUGIN_SELECTOR}"))
     } else {
         Ok("Codex: no hop plugin found, nothing to remove".into())
     }
@@ -245,7 +390,7 @@ pub fn install_cursor(home: &Path) -> Result<String> {
     arr.retain(|e| {
         e.get("command")
             .and_then(|c| c.as_str())
-            .map_or(true, |c| !c.contains("hop meta capture"))
+            .is_none_or(|c| !c.contains("hop meta capture"))
     });
     arr.push(serde_json::json!({"command": "hop meta capture --agent cursor --event stop"}));
     let json = serde_json::to_string_pretty(&v)?;
@@ -268,7 +413,7 @@ pub fn uninstall_cursor(home: &Path) -> Result<String> {
             stop.retain(|e| {
                 e.get("command")
                     .and_then(|c| c.as_str())
-                    .map_or(true, |c| !c.contains("hop meta capture"))
+                    .is_none_or(|c| !c.contains("hop meta capture"))
             });
         }
     }
@@ -348,5 +493,69 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(!v["hooks"]["SessionStart"].is_null());
         assert!(!v["hooks"]["Stop"].is_null());
+    }
+
+    #[test]
+    fn codex_plugin_files_have_manifest_and_marketplace_entry() {
+        let home = tempfile::tempdir().unwrap();
+        let root = write_codex_plugin(home.path()).unwrap();
+        let plugin_dir = root.join("plugins").join(CODEX_PLUGIN_NAME);
+
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(plugin_dir.join(".codex-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["name"], CODEX_PLUGIN_NAME);
+        assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+        assert!(manifest["interface"]["defaultPrompt"].is_string());
+
+        let marketplace: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(".agents/plugins/marketplace.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(marketplace["name"], CODEX_MARKETPLACE_NAME);
+        assert_eq!(marketplace["plugins"][0]["name"], CODEX_PLUGIN_NAME);
+        assert_eq!(
+            marketplace["plugins"][0]["source"]["path"],
+            format!("./plugins/{CODEX_PLUGIN_NAME}")
+        );
+        assert!(plugin_dir.join("hooks.json").is_file());
+    }
+
+    #[test]
+    fn codex_status_requires_enabled_installed_plugin() {
+        let enabled = serde_json::json!({
+            "installed": [{
+                "pluginId": CODEX_PLUGIN_SELECTOR,
+                "enabled": true
+            }]
+        });
+        assert!(codex_plugin_is_enabled(&enabled));
+
+        let disabled = serde_json::json!({
+            "installed": [{
+                "pluginId": CODEX_PLUGIN_SELECTOR,
+                "enabled": false
+            }]
+        });
+        assert!(!codex_plugin_is_enabled(&disabled));
+    }
+
+    #[test]
+    fn codex_marketplace_lookup_uses_registered_name() {
+        let value = serde_json::json!({
+            "marketplaces": [{
+                "name": CODEX_MARKETPLACE_NAME,
+                "root": "/tmp/cache/hop-marketplace",
+                "marketplaceSource": {
+                    "sourceType": "local",
+                    "source": "/tmp/hop-marketplace"
+                }
+            }]
+        });
+        assert_eq!(
+            codex_marketplace_root_from_json(&value),
+            Some(PathBuf::from("/tmp/hop-marketplace"))
+        );
     }
 }
