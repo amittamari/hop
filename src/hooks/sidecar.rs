@@ -70,21 +70,11 @@ impl Sidecar {
         Ok(())
     }
 
-    /// The last event's value for a field, preferring stop over start.
-    pub fn last_branch(&self) -> Option<&str> {
-        self.events.iter().rev().find_map(|e| e.branch.as_deref())
-    }
-
-    pub fn last_repo_url(&self) -> Option<&str> {
-        self.events.iter().rev().find_map(|e| e.repo_url.as_deref())
-    }
-
-    pub fn last_cwd(&self) -> Option<&str> {
-        self.events.iter().rev().find_map(|e| e.cwd.as_deref())
-    }
-
-    pub fn last_worktree(&self) -> Option<&str> {
-        self.events.iter().rev().find_map(|e| e.worktree.as_deref())
+    /// The most recently appended snapshot. Its optional Git fields are
+    /// authoritative, including `None` when the final state has no branch,
+    /// origin remote, or linked worktree.
+    pub fn last_event(&self) -> Option<&SidecarEvent> {
+        self.events.last()
     }
 }
 
@@ -94,10 +84,25 @@ pub fn sidecar_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".hop/meta"))
 }
 
+pub fn sidecar_path_in(base: &Path, agent: AgentId, session_id: &str) -> PathBuf {
+    base.join(agent.slug()).join(format!("{session_id}.json"))
+}
+
 pub fn sidecar_path(agent: AgentId, session_id: &str) -> PathBuf {
-    sidecar_dir()
-        .join(agent.slug())
-        .join(format!("{session_id}.json"))
+    sidecar_path_in(&sidecar_dir(), agent, session_id)
+}
+
+/// A cheap file stamp for incremental indexing. Length is included so an
+/// append is still detected on filesystems whose modification-time resolution
+/// is too coarse to distinguish adjacent hook writes.
+pub fn sidecar_stamp_in(base: &Path, agent: AgentId, session_id: &str) -> Option<String> {
+    let metadata = std::fs::metadata(sidecar_path_in(base, agent, session_id)).ok()?;
+    let modified = metadata.modified().ok()?;
+    let nanos = modified
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    Some(format!("{nanos}:{}", metadata.len()))
 }
 
 #[cfg(test)]

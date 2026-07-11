@@ -1,19 +1,17 @@
 use crate::core::SessionSummary;
 use crate::hooks::git_meta::GitMeta;
-use crate::hooks::sidecar::{sidecar_path, Sidecar};
+use crate::hooks::sidecar::{sidecar_dir, sidecar_path_in, Sidecar};
+use std::path::Path;
 
 pub fn apply_sidecar(summary: &mut SessionSummary, sidecar: &Sidecar) {
-    if let Some(branch) = sidecar.last_branch() {
-        summary.branch = Some(branch.to_string());
-    }
-    if let Some(repo_url) = sidecar.last_repo_url() {
-        summary.repo_url = Some(repo_url.to_string());
-    }
-    if let Some(cwd) = sidecar.last_cwd() {
-        summary.directory = cwd.to_string();
-    }
-    if let Some(worktree) = sidecar.last_worktree() {
-        summary.worktree = Some(worktree.to_string());
+    let Some(event) = sidecar.last_event() else {
+        return;
+    };
+    summary.branch = event.branch.clone();
+    summary.repo_url = event.repo_url.clone();
+    summary.worktree = event.worktree.clone();
+    if let Some(cwd) = &event.cwd {
+        summary.directory = cwd.clone();
     }
 }
 
@@ -40,11 +38,17 @@ pub fn enrich_from_git_if_needed(summary: &mut SessionSummary) {
 }
 
 pub fn merge_sidecar(summary: &mut SessionSummary) {
-    let path = sidecar_path(summary.agent, &summary.id);
+    merge_sidecar_from_dir(summary, &sidecar_dir());
+}
+
+pub fn merge_sidecar_from_dir(summary: &mut SessionSummary, sidecar_base: &Path) {
+    // Live Git is only a fallback. Apply it before the captured hook snapshot
+    // so an authoritative final `None` is not repopulated from later repo state.
+    enrich_from_git_if_needed(summary);
+    let path = sidecar_path_in(sidecar_base, summary.agent, &summary.id);
     if let Some(sidecar) = Sidecar::read(&path) {
         apply_sidecar(summary, &sidecar);
     }
-    enrich_from_git_if_needed(summary);
 }
 
 #[cfg(test)]
@@ -204,19 +208,74 @@ mod tests {
     }
 
     #[test]
-    fn merge_preserves_vendor_when_sidecar_field_is_none() {
+    fn final_null_git_fields_clear_older_and_vendor_values() {
         let mut summary = base_summary();
+        summary.branch = Some("vendor-branch".into());
         summary.repo_url = Some("vendor-url".into());
+        summary.worktree = Some("/vendor/worktree".into());
+        let sidecar = sidecar_with_events(vec![
+            SidecarEvent {
+                event: HookEvent::Start,
+                timestamp: 100,
+                cwd: Some("/start/path".into()),
+                branch: Some("start-branch".into()),
+                repo_url: Some("start-url".into()),
+                worktree: Some("/start/worktree".into()),
+                permission_mode: None,
+            },
+            SidecarEvent {
+                event: HookEvent::Stop,
+                timestamp: 200,
+                cwd: None,
+                branch: None,
+                repo_url: None,
+                worktree: None,
+                permission_mode: None,
+            },
+        ]);
+        apply_sidecar(&mut summary, &sidecar);
+        assert_eq!(summary.branch, None);
+        assert_eq!(summary.repo_url, None);
+        assert_eq!(summary.worktree, None);
+        assert_eq!(summary.directory, "/vendor/path");
+    }
+
+    #[test]
+    fn empty_sidecar_preserves_vendor_metadata() {
+        let mut summary = base_summary();
+        summary.branch = Some("vendor-branch".into());
+        summary.repo_url = Some("vendor-url".into());
+        summary.worktree = Some("/vendor/worktree".into());
+        apply_sidecar(&mut summary, &sidecar_with_events(vec![]));
+        assert_eq!(summary.branch.as_deref(), Some("vendor-branch"));
+        assert_eq!(summary.repo_url.as_deref(), Some("vendor-url"));
+        assert_eq!(summary.worktree.as_deref(), Some("/vendor/worktree"));
+    }
+
+    #[test]
+    fn final_null_snapshot_wins_over_live_git_fallback() {
+        use crate::hooks::sidecar::sidecar_path_in;
+
+        let sidecars = tempfile::tempdir().unwrap();
+        let mut summary = base_summary();
+        summary.directory = ".".into();
         let sidecar = sidecar_with_events(vec![SidecarEvent {
-            event: HookEvent::Start,
-            timestamp: 100,
+            event: HookEvent::Stop,
+            timestamp: 200,
             cwd: None,
             branch: None,
             repo_url: None,
             worktree: None,
             permission_mode: None,
         }]);
-        apply_sidecar(&mut summary, &sidecar);
-        assert_eq!(summary.repo_url.as_deref(), Some("vendor-url"));
+        sidecar
+            .write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1"))
+            .unwrap();
+
+        merge_sidecar_from_dir(&mut summary, sidecars.path());
+
+        assert_eq!(summary.branch, None);
+        assert_eq!(summary.repo_url, None);
+        assert_eq!(summary.worktree, None);
     }
 }

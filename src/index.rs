@@ -14,7 +14,7 @@ use tantivy::schema::{
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
 const SCORE_BUCKET_SCALE: f32 = 10.0;
@@ -39,6 +39,7 @@ struct Fields {
     archived: Field,
     worktree: Field,
     permission_mode: Field,
+    sidecar_stamp: Field,
 }
 
 pub struct SearchIndex {
@@ -66,6 +67,7 @@ fn build_schema() -> (Schema, Fields) {
         archived: b.add_u64_field("archived", STORED),
         worktree: b.add_text_field("worktree", STRING | STORED),
         permission_mode: b.add_text_field("permission_mode", STRING | STORED),
+        sidecar_stamp: b.add_text_field("sidecar_stamp", STRING | STORED),
     };
     (b.build(), f)
 }
@@ -110,6 +112,15 @@ impl SearchIndex {
     }
 
     pub fn upsert(&self, w: &mut IndexWriter, s: &Session) {
+        self.upsert_with_sidecar_stamp(w, s, None);
+    }
+
+    pub fn upsert_with_sidecar_stamp(
+        &self,
+        w: &mut IndexWriter,
+        s: &Session,
+        sidecar_stamp: Option<&str>,
+    ) {
         let m = &s.meta;
         let doc_key = m.document_key();
         w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
@@ -140,6 +151,9 @@ impl SearchIndex {
         if let Some(pm) = &m.permission_mode {
             doc.add_text(self.f.permission_mode, pm);
         }
+        if let Some(stamp) = sidecar_stamp {
+            doc.add_text(self.f.sidecar_stamp, stamp);
+        }
         let _ = w.add_document(doc);
     }
 
@@ -149,22 +163,35 @@ impl SearchIndex {
 
     /// document_key -> mtime for every indexed session (drives incremental diff).
     pub fn known_mtimes(&self) -> Result<HashMap<DocumentKey, i64>> {
+        Ok(self.known_sync_state()?.0)
+    }
+
+    /// Indexed source mtimes and sidecar file stamps, keyed by document key.
+    /// Keeping these signals separate lets metadata-only hook writes trigger a
+    /// reparse without distorting the source-file mtime.
+    pub fn known_sync_state(
+        &self,
+    ) -> Result<(HashMap<DocumentKey, i64>, HashMap<DocumentKey, String>)> {
         let searcher = self.reader.searcher();
         let n = searcher.num_docs().max(1) as usize;
         let hits = searcher.search(
             &AllQuery,
             &TopDocs::with_limit(n).order_by_u64_field("timestamp", tantivy::Order::Desc),
         )?;
-        let mut map = HashMap::new();
+        let mut mtimes = HashMap::new();
+        let mut sidecars = HashMap::new();
         for (_, addr) in hits {
             let doc: TantivyDocument = searcher.doc(addr)?;
             let doc_key = doc.get_first(self.f.doc_key).and_then(|v| v.as_str());
             let mtime = doc.get_first(self.f.mtime).and_then(|v| v.as_u64());
             if let (Some(doc_key), Some(m)) = (doc_key, mtime) {
-                map.insert(doc_key.to_string(), m as i64);
+                mtimes.insert(doc_key.to_string(), m as i64);
+                if let Some(stamp) = doc.get_first(self.f.sidecar_stamp).and_then(|v| v.as_str()) {
+                    sidecars.insert(doc_key.to_string(), stamp.to_string());
+                }
             }
         }
-        Ok(map)
+        Ok((mtimes, sidecars))
     }
 
     /// Run a parsed query. `now` is unix seconds (for date filtering).
