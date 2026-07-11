@@ -32,6 +32,10 @@ selected session in the original working directory.
   replace the process with the agent CLI.
 - Update documentation when changing architecture, user-visible behavior, or
   agent-facing workflows.
+- Never write absolute local working-directory paths (e.g. `/Users/<name>/...`
+  or a personal `~/workspaces/...` layout) into committed files. Reference repos
+  and files by their repo-relative path, well-known data dirs (`~/.codex`,
+  `~/.claude`), or a neutral description like "a local checkout".
 
 ## Common Commands
 
