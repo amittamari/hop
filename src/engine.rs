@@ -244,7 +244,7 @@ fn sync_index_with_sidecar_dir(
     sidecar_base: &Path,
     mut on_batch_commit: impl FnMut(&SearchIndex),
 ) -> Result<SyncReport> {
-    let (known, known_sidecars) = index.known_sync_state()?;
+    let known = index.known_sync_state()?;
     let mut writer = index.writer()?;
     let mut report = SyncReport::default();
     let mut all_scanned = HashMap::new();
@@ -278,10 +278,16 @@ fn sync_index_with_sidecar_dir(
         }
     }
 
-    let (mut changed, deleted) = diff_authoritative(&known, &all_scanned, &authoritative_agents);
+    let (mut changed, deleted) =
+        diff_authoritative(&known.mtimes, &all_scanned, &authoritative_agents);
     let mut changed_keys: HashSet<_> = changed.iter().map(|(key, _)| key.clone()).collect();
     for (key, entry) in &all_scanned {
-        if sidecar_stamps.get(key) != known_sidecars.get(key) && changed_keys.insert(key.clone()) {
+        if known.source_paths.get(key) != Some(&entry.path) && changed_keys.insert(key.clone()) {
+            changed.push((key.clone(), entry.clone()));
+        }
+        if sidecar_stamps.get(key) != known.sidecar_stamps.get(key)
+            && changed_keys.insert(key.clone())
+        {
             changed.push((key.clone(), entry.clone()));
         }
     }
