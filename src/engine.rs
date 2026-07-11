@@ -211,13 +211,28 @@ impl Engine {
 fn sync_index(
     index: &SearchIndex,
     adapters: &[Box<dyn Adapter>],
+    on_batch_commit: impl FnMut(&SearchIndex),
+) -> Result<SyncReport> {
+    sync_index_with_sidecar_dir(
+        index,
+        adapters,
+        &crate::hooks::sidecar::sidecar_dir(),
+        on_batch_commit,
+    )
+}
+
+fn sync_index_with_sidecar_dir(
+    index: &SearchIndex,
+    adapters: &[Box<dyn Adapter>],
+    sidecar_base: &Path,
     mut on_batch_commit: impl FnMut(&SearchIndex),
 ) -> Result<SyncReport> {
-    let known = index.known_mtimes()?;
+    let (known, known_sidecars) = index.known_sync_state()?;
     let mut writer = index.writer()?;
     let mut report = SyncReport::default();
     let mut all_scanned = HashMap::new();
     let mut owner = HashMap::new();
+    let mut sidecar_stamps = HashMap::new();
     let mut authoritative_agents = HashSet::new();
 
     for (ai, adapter) in adapters.iter().enumerate() {
@@ -231,6 +246,11 @@ fn sync_index(
                 authoritative_agents.insert(adapter.id());
                 for (id, entry) in scanned {
                     let key = document_key(adapter.id(), &id);
+                    if let Some(stamp) =
+                        crate::hooks::sidecar::sidecar_stamp_in(sidecar_base, adapter.id(), &id)
+                    {
+                        sidecar_stamps.insert(key.clone(), stamp);
+                    }
                     owner.insert(key.clone(), ai);
                     all_scanned.insert(key, entry);
                 }
@@ -241,7 +261,13 @@ fn sync_index(
         }
     }
 
-    let (changed, deleted) = diff_authoritative(&known, &all_scanned, &authoritative_agents);
+    let (mut changed, deleted) = diff_authoritative(&known, &all_scanned, &authoritative_agents);
+    let mut changed_keys: HashSet<_> = changed.iter().map(|(key, _)| key.clone()).collect();
+    for (key, entry) in &all_scanned {
+        if sidecar_stamps.get(key) != known_sidecars.get(key) && changed_keys.insert(key.clone()) {
+            changed.push((key.clone(), entry.clone()));
+        }
+    }
     report.deleted = deleted.len();
     for key in &deleted {
         index.delete(&mut writer, key);
@@ -258,13 +284,18 @@ fn sync_index(
                 if s.meta.source_path.is_none() {
                     s.meta.source_path = Some(entry.path.clone());
                 }
+                crate::hooks::merge::merge_sidecar_from_dir(&mut s.meta, sidecar_base);
                 if s.meta.message_count == 0 || s.content.trim().is_empty() {
                     // Nothing to search or resume (e.g. a Cursor subagent spawn
                     // the model blocked before any reply). Don't index it.
                     report.empty_sessions += 1;
                     continue;
                 }
-                index.upsert(&mut writer, &s);
+                index.upsert_with_sidecar_stamp(
+                    &mut writer,
+                    &s,
+                    sidecar_stamps.get(key).map(String::as_str),
+                );
                 report.indexed += 1;
                 since_commit += 1;
             }
@@ -367,6 +398,8 @@ mod tests {
                 repo_url: None,
                 source_path: None,
                 archived: false,
+                worktree: None,
+                permission_mode: None,
             },
             content: title.into(),
             mtime: 10,
@@ -626,5 +659,46 @@ mod tests {
         assert_eq!(report.empty_sessions, 1);
         assert!(report.status_line().contains("parse errors 1"));
         assert!(report.status_line().contains("empty sessions 1"));
+    }
+
+    #[test]
+    fn sidecar_only_change_reindexes_unchanged_session() {
+        use crate::hooks::sidecar::{sidecar_path_in, HookEvent, Sidecar, SidecarEvent};
+
+        let dir = tempfile::tempdir().unwrap();
+        let sidecars = tempfile::tempdir().unwrap();
+        let index = SearchIndex::open_or_create(dir.path()).unwrap();
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![adapter(AgentId::Claude, vec![sess("s1", "auth")])];
+
+        let first =
+            sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
+        assert_eq!(first.indexed, 1);
+        let initial = index.search(&ParsedQuery::default(), 1_000, 10).unwrap();
+        assert_eq!(initial[0].branch, None);
+
+        let sidecar = Sidecar {
+            version: 1,
+            session_id: "s1".into(),
+            agent: AgentId::Claude,
+            events: vec![SidecarEvent {
+                event: HookEvent::Stop,
+                timestamp: 200,
+                cwd: None,
+                branch: Some("feature/hooks".into()),
+                repo_url: None,
+                worktree: None,
+                permission_mode: None,
+            }],
+        };
+        sidecar
+            .write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1"))
+            .unwrap();
+
+        let second =
+            sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
+        assert_eq!(second.indexed, 1);
+        let updated = index.search(&ParsedQuery::default(), 1_000, 10).unwrap();
+        assert_eq!(updated[0].branch.as_deref(), Some("feature/hooks"));
     }
 }

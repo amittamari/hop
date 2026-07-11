@@ -51,7 +51,8 @@ rows and surface as sync status warnings.
 - `src/index.rs`: owns Tantivy schema, upsert/delete, incremental diff helpers,
   and search execution with recency-boosted ranking. Indexed rows use a
   namespaced `agent:id` document key; the raw session id remains on `Session`
-  for agent resume commands.
+  for agent resume commands. Source mtimes and hook-sidecar stamps are tracked
+  separately so either kind of change can trigger an incremental reindex.
 - `src/engine.rs`: UI-agnostic orchestration for query state, search results,
   transcript loading, resume command construction, debouncing, and background
   sync status.

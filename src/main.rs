@@ -44,6 +44,117 @@ fn update_cache_path() -> std::path::PathBuf {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    if let Some(cmd) = &cli.command {
+        return match cmd {
+            hop::cli::Command::Meta { action } => match action {
+                hop::cli::MetaAction::Capture { agent, event } => {
+                    let result: anyhow::Result<()> = (|| {
+                        let agent = hop::core::AgentId::from_slug(agent)
+                            .ok_or_else(|| anyhow::anyhow!("unknown agent: {agent}"))?;
+                        let event = match event.as_str() {
+                            "start" => hop::hooks::sidecar::HookEvent::Start,
+                            "stop" => hop::hooks::sidecar::HookEvent::Stop,
+                            _ => anyhow::bail!("unknown event: {event}"),
+                        };
+                        let mut stdin = String::new();
+                        std::io::Read::read_to_string(&mut std::io::stdin(), &mut stdin)?;
+                        hop::hooks::capture::capture(agent, event, &stdin)
+                    })();
+                    let _ = result;
+                    Ok(())
+                }
+            },
+            hop::cli::Command::Hooks { action } => {
+                let home = hop::hooks::providers::home_dir();
+                match action {
+                    hop::cli::HooksAction::Install { all, provider } => {
+                        let providers = hop::hooks::providers::detect_providers();
+                        let targets: Vec<_> = if let Some(name) = provider {
+                            let agent = hop::core::AgentId::from_slug(name)
+                                .ok_or_else(|| anyhow::anyhow!("unknown provider: {name}"))?;
+                            providers.into_iter().filter(|p| p.agent == agent).collect()
+                        } else if *all {
+                            providers.into_iter().filter(|p| p.detected).collect()
+                        } else {
+                            // Interactive: show detected, ask user
+                            let detected: Vec<_> =
+                                providers.into_iter().filter(|p| p.detected).collect();
+                            if detected.is_empty() {
+                                eprintln!("No providers detected.");
+                                return Ok(());
+                            }
+                            eprintln!("Detected providers:");
+                            for (i, p) in detected.iter().enumerate() {
+                                let effort = if p.best_effort { " [best-effort]" } else { "" };
+                                let status = if p.installed {
+                                    " (already installed)"
+                                } else {
+                                    ""
+                                };
+                                eprintln!("  {}. {}{}{}", i + 1, p.agent.badge(), effort, status);
+                            }
+                            eprint!("Install for all? [Y/n] ");
+                            let mut input = String::new();
+                            std::io::stdin().read_line(&mut input)?;
+                            if input.trim().eq_ignore_ascii_case("n") {
+                                return Ok(());
+                            }
+                            detected
+                        };
+                        for p in &targets {
+                            match hop::hooks::providers::install_provider(p.agent, &home) {
+                                Ok(msg) => eprintln!("{msg}"),
+                                Err(e) => {
+                                    eprintln!("Failed to install for {}: {e}", p.agent.badge())
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+                    hop::cli::HooksAction::Uninstall { all: _, provider } => {
+                        let providers = hop::hooks::providers::detect_providers();
+                        let targets: Vec<_> = if let Some(name) = provider {
+                            let agent = hop::core::AgentId::from_slug(name)
+                                .ok_or_else(|| anyhow::anyhow!("unknown provider: {name}"))?;
+                            providers.into_iter().filter(|p| p.agent == agent).collect()
+                        } else {
+                            providers.into_iter().filter(|p| p.installed).collect()
+                        };
+                        for p in &targets {
+                            match hop::hooks::providers::uninstall_provider(p.agent, &home) {
+                                Ok(msg) => eprintln!("{msg}"),
+                                Err(e) => {
+                                    eprintln!("Failed to uninstall for {}: {e}", p.agent.badge())
+                                }
+                            }
+                        }
+                        Ok(())
+                    }
+                    hop::cli::HooksAction::Status => {
+                        let providers = hop::hooks::providers::detect_providers();
+                        for p in &providers {
+                            let detected = if p.detected { "detected" } else { "not found" };
+                            let installed = if p.installed {
+                                "installed"
+                            } else {
+                                "not installed"
+                            };
+                            let effort = if p.best_effort { " [best-effort]" } else { "" };
+                            eprintln!(
+                                "{}: {} / {}{}",
+                                p.agent.badge(),
+                                detected,
+                                installed,
+                                effort
+                            );
+                        }
+                        Ok(())
+                    }
+                }
+            }
+        };
+    }
+
     if cli.version {
         println!("hop {}", env!("CARGO_PKG_VERSION"));
         match hop::update::check_for_update(&update_cache_path()) {
