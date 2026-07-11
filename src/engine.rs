@@ -1,7 +1,7 @@
 use crate::adapters::Adapter;
 use crate::core::{document_key, ResumeCommand, Session, SessionSummary, Transcript};
 use crate::index::{diff_authoritative, SearchIndex};
-use crate::query::{self, ParsedQuery};
+use crate::query::{self, ParsedQuery, SortOrder};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -57,6 +57,7 @@ pub struct Engine {
     adapters: Vec<Box<dyn Adapter>>,
     query: String,
     parsed: ParsedQuery,
+    sort: SortOrder,
     results: Vec<SessionSummary>,
     limit: usize,
     last_keystroke: Option<Instant>,
@@ -70,6 +71,7 @@ impl Engine {
             adapters,
             query: String::new(),
             parsed: ParsedQuery::default(),
+            sort: SortOrder::default(),
             results: Vec::new(),
             limit: 500,
             last_keystroke: None,
@@ -88,6 +90,19 @@ impl Engine {
         &self.parsed
     }
 
+    pub fn sort(&self) -> SortOrder {
+        self.sort
+    }
+
+    /// Set the result ordering. Marks a search as pending (like a query change)
+    /// so the loop re-runs the search after the debounce interval.
+    pub fn set_sort(&mut self, sort: SortOrder) {
+        if self.sort != sort {
+            self.sort = sort;
+            self.last_keystroke = Some(Instant::now());
+        }
+    }
+
     pub fn set_query(&mut self, q: impl Into<String>) {
         self.query = q.into();
         self.parsed = query::parse(&self.query);
@@ -103,7 +118,9 @@ impl Engine {
 
     pub fn search(&mut self) -> Result<()> {
         let now = jiff::Timestamp::now().as_second();
-        self.results = self.index.search(&self.parsed, now, self.limit)?;
+        self.results = self
+            .index
+            .search(&self.parsed, self.sort, now, self.limit)?;
         self.last_keystroke = None;
         Ok(())
     }
@@ -674,7 +691,9 @@ mod tests {
         let first =
             sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
         assert_eq!(first.indexed, 1);
-        let initial = index.search(&ParsedQuery::default(), 1_000, 10).unwrap();
+        let initial = index
+            .search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10)
+            .unwrap();
         assert_eq!(initial[0].branch, None);
 
         let sidecar = Sidecar {
@@ -698,7 +717,9 @@ mod tests {
         let second =
             sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
         assert_eq!(second.indexed, 1);
-        let updated = index.search(&ParsedQuery::default(), 1_000, 10).unwrap();
+        let updated = index
+            .search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10)
+            .unwrap();
         assert_eq!(updated[0].branch.as_deref(), Some("feature/hooks"));
     }
 }

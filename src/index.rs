@@ -1,5 +1,5 @@
 use crate::core::{AgentId, DocumentKey, ScanEntry, Session, SessionSummary};
-use crate::query::ParsedQuery;
+use crate::query::{ParsedQuery, SortOrder};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
@@ -194,8 +194,15 @@ impl SearchIndex {
         Ok((mtimes, sidecars))
     }
 
-    /// Run a parsed query. `now` is unix seconds (for date filtering).
-    pub fn search(&self, q: &ParsedQuery, now: i64, limit: usize) -> Result<Vec<SessionSummary>> {
+    /// Run a parsed query. `now` is unix seconds (for date filtering). `sort`
+    /// selects result ordering independently of the filter clauses.
+    pub fn search(
+        &self,
+        q: &ParsedQuery,
+        sort: SortOrder,
+        now: i64,
+        limit: usize,
+    ) -> Result<Vec<SessionSummary>> {
         let searcher = self.reader.searcher();
 
         // --- build the text/all query plus agent constraints ---
@@ -275,8 +282,8 @@ impl SearchIndex {
         let mut offset = 0usize;
         while out.len() < limit && offset < total_hits {
             let page_limit = FETCH_PAGE.min(total_hits - offset);
-            let addrs: Vec<tantivy::DocAddress> = if q.free_text.trim().is_empty() {
-                searcher
+            let addrs: Vec<tantivy::DocAddress> = match sort {
+                SortOrder::Recent => searcher
                     .search(
                         &query,
                         &TopDocs::with_limit(page_limit)
@@ -285,31 +292,42 @@ impl SearchIndex {
                     )?
                     .into_iter()
                     .map(|(_, a)| a)
-                    .collect()
-            } else {
-                let now_ts = now.max(0) as u64;
-                searcher
+                    .collect(),
+                SortOrder::Oldest => searcher
                     .search(
                         &query,
                         &TopDocs::with_limit(page_limit)
                             .and_offset(offset)
-                            .tweak_score(move |segment_reader: &tantivy::SegmentReader| {
-                                let timestamps = segment_reader
-                                    .fast_fields()
-                                    .u64("timestamp")
-                                    .unwrap()
-                                    .first_or_default_col(0);
-                                move |doc: tantivy::DocId, score: tantivy::Score| {
-                                    let ts = timestamps.get_val(doc);
-                                    let age = now_ts.saturating_sub(ts);
-                                    let combined = score + recency_boost(age);
-                                    (score_bucket(combined), ts)
-                                }
-                            }),
+                            .order_by_u64_field("timestamp", tantivy::Order::Asc),
                     )?
                     .into_iter()
                     .map(|(_, a)| a)
-                    .collect()
+                    .collect(),
+                SortOrder::Relevance => {
+                    let now_ts = now.max(0) as u64;
+                    searcher
+                        .search(
+                            &query,
+                            &TopDocs::with_limit(page_limit)
+                                .and_offset(offset)
+                                .tweak_score(move |segment_reader: &tantivy::SegmentReader| {
+                                    let timestamps = segment_reader
+                                        .fast_fields()
+                                        .u64("timestamp")
+                                        .unwrap()
+                                        .first_or_default_col(0);
+                                    move |doc: tantivy::DocId, score: tantivy::Score| {
+                                        let ts = timestamps.get_val(doc);
+                                        let age = now_ts.saturating_sub(ts);
+                                        let combined = score + recency_boost(age);
+                                        (score_bucket(combined), ts)
+                                    }
+                                }),
+                        )?
+                        .into_iter()
+                        .map(|(_, a)| a)
+                        .collect()
+                }
             };
             if addrs.is_empty() {
                 break;
