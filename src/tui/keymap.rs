@@ -8,6 +8,7 @@
 //! editing. Cursor movement and deletion within the query use the standard
 //! arrow/Home/End/Backspace/Delete keys, handled directly by `App::handle_key`.
 
+use crate::tui::SearchMode;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use std::collections::{HashMap, HashSet};
 
@@ -20,6 +21,9 @@ pub(super) enum Command {
     ResizePreview(i8),
     /// Open the selected session's associated GitHub PR in the browser.
     OpenPr,
+    /// Switch between simple (guided toolbar) and raw (DSL) search modes. This
+    /// toggles how the query line is interpreted; it is not a keymap/vim mode.
+    ToggleSearchMode,
 }
 
 /// A resolved key chord: the modifier set plus the key code. Char codes are
@@ -83,6 +87,11 @@ fn chord_specs() -> Vec<ChordSpec> {
             name: "open_pr",
             default: (ctrl, KeyCode::Char('o')),
             command: Command::OpenPr,
+        },
+        ChordSpec {
+            name: "toggle_search_mode",
+            default: (ctrl, KeyCode::Char('r')),
+            command: Command::ToggleSearchMode,
         },
     ]
 }
@@ -292,12 +301,13 @@ pub struct Binding {
     pub primary: bool,
 }
 
-/// The canonical keybinding catalog, resolved against `keymap`. Ordered for
-/// display: rows are grouped by `group` in the order they first appear. Rows for
-/// configurable chords derive their key label from the active keymap, so the
-/// help overlay always reflects user overrides. The reachability test in
+/// The canonical keybinding catalog, resolved against `keymap` and the active
+/// `mode`. Ordered for display: rows are grouped by `group` in the order they
+/// first appear. Rows for configurable chords derive their key label from the
+/// active keymap, so the help overlay always reflects user overrides. A few rows
+/// (notably `Tab`) change meaning with the search mode. The reachability test in
 /// `tui::mod` guards against drift between this catalog and `chord_action`.
-pub fn bindings(keymap: &Keymap) -> Vec<Binding> {
+pub fn bindings(keymap: &Keymap, mode: SearchMode) -> Vec<Binding> {
     let chord = |cmd: Command| keymap.chord_for(cmd).map(format_chord).unwrap_or_default();
     let pair = |a: Command, b: Command| format!("{}/{}", chord(a), chord(b));
     let row = |keys: String, group, label, primary| Binding {
@@ -349,7 +359,23 @@ pub fn bindings(keymap: &Keymap) -> Vec<Binding> {
             "open PR in browser",
             false,
         ),
-        row("Tab".into(), "Actions", "autocomplete keyword", false),
+        row(
+            chord(Command::ToggleSearchMode),
+            "Actions",
+            "toggle simple/raw search",
+            false,
+        ),
+        // Tab's action depends on the search mode: it focuses the guided toolbar
+        // in simple mode, and autocompletes query keywords in raw mode.
+        row(
+            "Tab".into(),
+            "Actions",
+            match mode {
+                SearchMode::Simple => "focus toolbar",
+                SearchMode::Raw => "autocomplete keyword",
+            },
+            true,
+        ),
         row("?".into(), "Actions", "toggle help", true),
         row("Esc".into(), "Actions", "clear query / quit", true),
         row(chord(Command::Quit), "Actions", "quit", false),
@@ -490,14 +516,26 @@ mod tests {
         let mut overrides = HashMap::new();
         overrides.insert("toggle_preview".to_string(), "ctrl+t".to_string());
         let (km, _) = Keymap::from_config(&overrides);
-        let table = bindings(&km);
+        let table = bindings(&km, SearchMode::Simple);
         let toggle = table.iter().find(|b| b.label == "toggle preview").unwrap();
         assert_eq!(toggle.keys, "Ctrl+T");
     }
 
     #[test]
+    fn tab_hint_is_mode_aware() {
+        let km = Keymap::defaults();
+        let simple = bindings(&km, SearchMode::Simple);
+        let raw = bindings(&km, SearchMode::Raw);
+        let tab = |t: &[Binding]| t.iter().find(|b| b.keys == "Tab").unwrap().clone();
+        assert_eq!(tab(&simple).label, "focus toolbar");
+        assert_eq!(tab(&raw).label, "autocomplete keyword");
+        // Tab is a footer hint in both modes.
+        assert!(tab(&simple).primary && tab(&raw).primary);
+    }
+
+    #[test]
     fn bindings_table_is_well_formed() {
-        let table = bindings(&Keymap::defaults());
+        let table = bindings(&Keymap::defaults(), SearchMode::Simple);
         assert!(!table.is_empty(), "bindings table must not be empty");
         for b in &table {
             assert!(!b.keys.is_empty(), "binding keys must be non-empty");

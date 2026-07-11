@@ -74,8 +74,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         return;
     }
 
-    let [header_area, body_area, footer_area] = Layout::vertical([
+    let [header_area, toolbar_area, body_area, footer_area] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(app.toolbar_rows()),
         Constraint::Min(0),
         Constraint::Length(1),
     ])
@@ -110,6 +111,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             .saturating_add(crate::tui::columns::display_width(query_prefix) as u16);
         let x = x.min(header_area.right().saturating_sub(1));
         f.set_cursor_position(Position::new(x, header_area.y));
+    }
+
+    // Simple-mode guided toolbar (Scope + Sort). Raw mode reserves zero rows, so
+    // `toolbar_area` is empty and nothing renders.
+    if app.toolbar_rows() > 0 {
+        let toolbar_line = crate::tui::toolbar::line(
+            app.scope(),
+            app.sort(),
+            app.toolbar_focus(),
+            app.has_repo(),
+            &model.theme,
+        );
+        f.render_widget(Paragraph::new(toolbar_line), toolbar_area);
     }
 
     // body: list (| preview). The preview only appears when both requested AND
@@ -243,7 +257,11 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     .flex(Flex::SpaceBetween)
     .areas(footer_area);
     f.render_widget(
-        Paragraph::new(footer_hints_line(app.keymap(), &model.theme)),
+        Paragraph::new(footer_hints_line(
+            app.keymap(),
+            app.search_mode(),
+            &model.theme,
+        )),
         hints_area,
     );
     f.render_widget(
@@ -258,15 +276,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // help overlay (drawn last, on top)
     if app.help_open() {
-        help::render(f, app.keymap(), &model.theme);
+        help::render(f, app.keymap(), app.search_mode(), &model.theme);
     }
 }
 
 /// Static, low-priority hints shown on the left of the footer, built from the
 /// `primary` subset of the canonical bindings table. Dropped first (clipped by
 /// the SpaceBetween layout) when the terminal is too narrow for both halves.
-fn footer_hints_line(keymap: &crate::tui::keymap::Keymap, theme: &Theme) -> Line<'static> {
-    let primary: Vec<String> = crate::tui::keymap::bindings(keymap)
+fn footer_hints_line(
+    keymap: &crate::tui::keymap::Keymap,
+    mode: crate::tui::SearchMode,
+    theme: &Theme,
+) -> Line<'static> {
+    let primary: Vec<String> = crate::tui::keymap::bindings(keymap, mode)
         .iter()
         .filter(|b| b.primary)
         .map(|b| {
@@ -482,9 +504,70 @@ pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Ran
 mod tests {
     use super::*;
     use crate::core::{AgentId, SessionSummary};
-    use crate::tui::App;
+    use crate::tui::toolbar::Scope;
+    use crate::tui::{App, SearchMode};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+
+    /// Render `app` to an 100x12 test terminal and return the flattened text.
+    fn render_to_text(app: &App) -> String {
+        use crate::enrich::Enricher;
+        use std::collections::HashMap;
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
+        let cols = crate::tui::columns::default_columns();
+        let backend = TestBackend::new(100, 12);
+        let mut term = Terminal::new(backend).unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                app,
+                RenderModel {
+                    now: 100,
+                    columns: &cols,
+                    enrichers: &enr,
+                    resolved: &resolved,
+                    query_terms: &[],
+                    preview_lines: &[],
+                    status: &StatusLine::default(),
+                    modal_command: None,
+                    theme: Theme::default(),
+                },
+            )
+        })
+        .unwrap();
+        term.backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    #[test]
+    fn simple_mode_renders_scope_and_sort_toolbar() {
+        let mut app = App::new();
+        app.init_search(
+            SearchMode::Simple,
+            Scope::ThisRepo,
+            Some("me/web".to_string()),
+            String::new(),
+        );
+        let text = render_to_text(&app);
+        assert!(text.contains("Scope"), "toolbar Scope control missing");
+        assert!(text.contains("This repo"), "Scope value missing");
+        assert!(text.contains("Sort"), "toolbar Sort control missing");
+        assert!(text.contains("Relevance"), "default Sort value missing");
+    }
+
+    #[test]
+    fn raw_mode_hides_toolbar() {
+        let mut app = App::new();
+        app.init_search(SearchMode::Raw, Scope::All, None, String::new());
+        let text = render_to_text(&app);
+        assert!(!text.contains("Scope"), "raw mode should hide the toolbar");
+        assert!(!text.contains("Sort"), "raw mode should hide the toolbar");
+    }
 
     #[test]
     fn empty_results_empty_query_shows_prompt() {
@@ -967,8 +1050,23 @@ mod tests {
         // Esc hint derives from the bindings table label ("clear query / quit");
         // assert on a stable substring rather than exact spacing.
         assert!(text.contains("clear"));
+        // Simple mode surfaces the mode-aware Tab hint in the footer.
+        assert!(text.contains("Tab focus toolbar"));
         // No mode indicators remain.
         assert!(!text.contains("NAV"));
+    }
+
+    #[test]
+    fn footer_tab_hint_is_mode_aware() {
+        let mut simple = App::new(); // simple by default
+        simple.init_search(SearchMode::Simple, Scope::All, None, String::new());
+        assert!(render_to_text(&simple).contains("Tab focus toolbar"));
+
+        let mut raw = App::new();
+        raw.init_search(SearchMode::Raw, Scope::All, None, String::new());
+        let raw_text = render_to_text(&raw);
+        assert!(raw_text.contains("Tab autocomplete keyword"));
+        assert!(!raw_text.contains("focus toolbar"));
     }
 
     fn footer_text(width: u16, preview: bool) -> String {

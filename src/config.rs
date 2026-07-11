@@ -90,6 +90,11 @@ pub struct Config {
     pub columns: ColumnsConfig,
     #[serde(default)]
     pub launcher: LauncherConfig,
+    /// Initial search mode: `"simple"` (guided toolbar, the default) or `"raw"`
+    /// (type the query DSL directly). Unknown/empty values resolve to simple.
+    /// Interpreted by `tui::SearchMode::from_config`.
+    #[serde(default)]
+    pub search_mode: String,
 }
 
 impl Config {

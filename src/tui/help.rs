@@ -2,14 +2,15 @@
 
 use crate::tui::keymap::Keymap;
 use crate::tui::theme::Theme;
+use crate::tui::SearchMode;
 use ratatui::layout::Alignment;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Padding, Paragraph};
 use ratatui::Frame;
 
-pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
-    let table = crate::tui::keymap::bindings(keymap);
+pub fn lines(keymap: &Keymap, mode: SearchMode, theme: &Theme) -> Vec<Line<'static>> {
+    let table = crate::tui::keymap::bindings(keymap, mode);
     // Pad the key column to the widest key label (skipping the "type"
     // pseudo-key, which is shown as prose, not a key chord). This replaces the
     // old hand-counted leading spaces.
@@ -47,8 +48,32 @@ pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
             ]));
         }
     }
+
+    // Query keyword reference. These are not key bindings, so they live here as
+    // static help text rather than in the `bindings()` catalog. In simple search
+    // mode the toolbar covers the common cases; the keywords apply when typing a
+    // raw query (see the Query Syntax section of the README for full grammar).
+    out.push(Line::from(""));
+    out.push(section("Query Keywords (raw mode)", theme));
+    for (kw, desc) in QUERY_KEYWORDS {
+        let kw_col = format!("  {kw:<width$}  ", width = key_w);
+        out.push(Line::from(vec![
+            Span::styled(kw_col, Style::default().fg(theme.accent)),
+            Span::raw((*desc).to_string()),
+        ]));
+    }
     out
 }
+
+/// Static query-keyword reference shown in the help overlay. Mirrors the DSL
+/// parsed in `src/query.rs`; keep in sync with the README Query Syntax table.
+const QUERY_KEYWORDS: &[(&str, &str)] = &[
+    ("agent:claude", "filter by agent (! or - excludes)"),
+    ("dir:api", "filter by working directory"),
+    ("repo:hop", "filter by repo (all worktrees)"),
+    ("date:today", "today/yesterday/week/month"),
+    ("date:<2d", "within(<)/older(>) by h/d/w"),
+];
 
 fn section(label: &'static str, theme: &Theme) -> Line<'static> {
     Line::from(Span::styled(
@@ -60,13 +85,13 @@ fn section(label: &'static str, theme: &Theme) -> Line<'static> {
 }
 
 /// Render the overlay centered over the frame.
-pub fn render(f: &mut Frame, keymap: &Keymap, theme: &Theme) {
+pub fn render(f: &mut Frame, keymap: &Keymap, mode: SearchMode, theme: &Theme) {
     let area = f.area();
     if area.width < 8 || area.height < 6 {
         return;
     }
 
-    let body = lines(keymap, theme);
+    let body = lines(keymap, mode, theme);
     let w = 58u16.min(area.width.saturating_sub(4)).max(8);
     let h = (body.len() as u16 + 4)
         .min(area.height.saturating_sub(2))
@@ -99,8 +124,8 @@ pub fn render(f: &mut Frame, keymap: &Keymap, theme: &Theme) {
 mod tests {
     use super::*;
 
-    fn rendered_text() -> String {
-        lines(&Keymap::defaults(), &Theme::default())
+    fn rendered_text(mode: SearchMode) -> String {
+        lines(&Keymap::defaults(), mode, &Theme::default())
             .iter()
             .map(|x| {
                 x.spans
@@ -114,8 +139,8 @@ mod tests {
 
     #[test]
     fn help_lists_every_binding_from_table() {
-        let text = rendered_text();
-        for b in crate::tui::keymap::bindings(&Keymap::defaults()) {
+        let text = rendered_text(SearchMode::Simple);
+        for b in crate::tui::keymap::bindings(&Keymap::defaults(), SearchMode::Simple) {
             assert!(
                 text.contains(b.label),
                 "help overlay missing binding label {:?}",
@@ -141,16 +166,41 @@ mod tests {
     }
 
     #[test]
-    fn help_key_column_is_aligned() {
-        // Every non-heading, non-blank row pads the key column to a constant
-        // width, so the label column starts at the same offset on every line.
-        let key_w = crate::tui::keymap::bindings(&Keymap::defaults())
+    fn help_lists_query_keywords() {
+        let text = rendered_text(SearchMode::Simple);
+        assert!(text.contains("Query Keywords"));
+        for (kw, _) in QUERY_KEYWORDS {
+            assert!(
+                text.contains(kw),
+                "help overlay missing query keyword {kw:?}"
+            );
+        }
+        // Keyword labels must fit the shared key column so alignment holds.
+        let key_w = crate::tui::keymap::bindings(&Keymap::defaults(), SearchMode::Simple)
             .iter()
             .filter(|b| b.keys != "type")
             .map(|b| b.keys.chars().count())
             .max()
             .unwrap();
-        let body = lines(&Keymap::defaults(), &Theme::default());
+        for (kw, _) in QUERY_KEYWORDS {
+            assert!(
+                kw.chars().count() <= key_w,
+                "query keyword {kw:?} wider than key column {key_w}"
+            );
+        }
+    }
+
+    #[test]
+    fn help_key_column_is_aligned() {
+        // Every non-heading, non-blank row pads the key column to a constant
+        // width, so the label column starts at the same offset on every line.
+        let key_w = crate::tui::keymap::bindings(&Keymap::defaults(), SearchMode::Simple)
+            .iter()
+            .filter(|b| b.keys != "type")
+            .map(|b| b.keys.chars().count())
+            .max()
+            .unwrap();
+        let body = lines(&Keymap::defaults(), SearchMode::Simple, &Theme::default());
         let mut checked = 0usize;
         for line in &body {
             // Rows rendered by the table have exactly two spans: key + label.
@@ -175,8 +225,15 @@ mod tests {
 
         let backend = TestBackend::new(64, 40);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| render(f, &Keymap::defaults(), &Theme::default()))
-            .unwrap();
+        term.draw(|f| {
+            render(
+                f,
+                &Keymap::defaults(),
+                SearchMode::Simple,
+                &Theme::default(),
+            )
+        })
+        .unwrap();
         let text: String = term
             .backend()
             .buffer()

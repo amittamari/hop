@@ -9,7 +9,8 @@ use hop::enrich::gh_pr::GhPrEnricher;
 use hop::enrich::service::{EnrichmentService, EnrichmentState};
 use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
-use hop::tui::{preview, view::RenderModel, view::StatusLine, Action, App};
+use hop::tui::toolbar::Scope;
+use hop::tui::{preview, view::RenderModel, view::StatusLine, Action, App, SearchMode};
 use ratatui::crossterm::event::{self, Event};
 use std::time::Duration;
 
@@ -183,7 +184,48 @@ fn main() -> Result<()> {
         .then(|| adapters::git_remote_url("."))
         .flatten()
         .and_then(|url| hop::enrich::repo_slug_from_url(&url));
-    engine.set_query(cli.initial_query(auto_repo.as_deref()));
+
+    // Resolve the initial search mode. Simple (guided toolbar) is the default, but
+    // CLI-typed DSL or filter flags the toolbar can't represent start in raw mode
+    // so nothing is silently dropped.
+    let configured_mode = SearchMode::from_config(&config.search_mode);
+    let mode = if cli.has_unsupported_simple_flags() || cli.query_has_dsl() {
+        SearchMode::Raw
+    } else {
+        configured_mode
+    };
+    // Slug for the simple-mode "This repo" scope: explicit --repo wins, else auto.
+    let scope_slug = cli.repo.clone().or_else(|| auto_repo.clone());
+    let scope = if cli.all || scope_slug.is_none() {
+        Scope::All
+    } else {
+        Scope::ThisRepo
+    };
+    let initial = match mode {
+        SearchMode::Raw => {
+            let q = cli.initial_query(auto_repo.as_deref());
+            engine.set_query(q.clone());
+            InitialSearch {
+                mode,
+                scope,
+                repo_slug: scope_slug,
+                input: q,
+            }
+        }
+        SearchMode::Simple => {
+            let free = cli.query.clone().unwrap_or_default();
+            let repo = matches!(scope, Scope::ThisRepo)
+                .then(|| scope_slug.as_deref())
+                .flatten();
+            engine.set_query(hop::query::compose_simple(&free, repo));
+            InitialSearch {
+                mode,
+                scope,
+                repo_slug: scope_slug,
+                input: free,
+            }
+        }
+    };
     engine.search()?; // immediate results from whatever is already indexed
 
     // background sync streams new sessions in
@@ -223,6 +265,7 @@ fn main() -> Result<()> {
         service.as_ref(),
         &config,
         init_preview,
+        initial,
         ui_path,
     )?;
 
@@ -248,7 +291,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Resolved initial search state handed to the TUI: how the query line is
+/// interpreted plus the toolbar scope and the launch repo slug.
+struct InitialSearch {
+    mode: SearchMode,
+    scope: Scope,
+    repo_slug: Option<String>,
+    input: String,
+}
+
 /// Runs the event loop. Returns Some((session, yolo)) if the user chose to resume.
+#[allow(clippy::too_many_arguments)]
 fn run_tui(
     engine: &mut Engine,
     updates: std::sync::mpsc::Receiver<Update>,
@@ -256,6 +309,7 @@ fn run_tui(
     service: Option<&EnrichmentService>,
     config: &Config,
     init_preview: (bool, u16),
+    initial: InitialSearch,
     ui_path: std::path::PathBuf,
 ) -> Result<Option<(SessionSummary, bool)>> {
     // Resolve keybindings before entering the alternate screen so any config
@@ -268,7 +322,12 @@ fn run_tui(
     let mut terminal = ratatui::init();
     let mut app = App::new();
     app.set_keymap(keymap);
-    app.set_query(engine.query().to_string());
+    app.init_search(
+        initial.mode,
+        initial.scope,
+        initial.repo_slug,
+        initial.input,
+    );
     app.set_preview(init_preview.0, init_preview.1);
     app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);
@@ -354,7 +413,10 @@ fn run_tui(
                 if let Event::Key(key) = event::read()? {
                     match app.handle_key(key) {
                         Action::Quit => return Ok(None),
-                        Action::Search => engine.set_query(app.query().to_string()),
+                        Action::Search => {
+                            engine.set_query(app.effective_query());
+                            engine.set_sort(app.sort());
+                        }
                         Action::Resume { index, yolo } => {
                             if let Some(s) = app.results().get(index).cloned() {
                                 return Ok(Some((s, yolo)));

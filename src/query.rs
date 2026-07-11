@@ -103,6 +103,50 @@ pub struct ParsedQuery {
     pub date: Option<DateFilter>,
 }
 
+/// User-selectable result ordering. This is a display/ranking control, not part
+/// of the parsed DSL: the TUI sets it (via the search toolbar) and
+/// `SearchIndex::search` consumes it alongside `ParsedQuery`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum SortOrder {
+    /// Blend text relevance with a recency boost (the historical default). With
+    /// an empty free-text query this degrades to newest-first.
+    #[default]
+    Relevance,
+    /// Strict newest-first by session timestamp.
+    Recent,
+    /// Strict oldest-first by session timestamp.
+    Oldest,
+}
+
+impl SortOrder {
+    /// Stable label for the toolbar and status line.
+    pub fn label(self) -> &'static str {
+        match self {
+            SortOrder::Relevance => "Relevance",
+            SortOrder::Recent => "Recent",
+            SortOrder::Oldest => "Oldest",
+        }
+    }
+
+    /// Cycle to the next order, for a single-key toolbar toggle.
+    pub fn next(self) -> SortOrder {
+        match self {
+            SortOrder::Relevance => SortOrder::Recent,
+            SortOrder::Recent => SortOrder::Oldest,
+            SortOrder::Oldest => SortOrder::Relevance,
+        }
+    }
+
+    /// Cycle to the previous order.
+    pub fn prev(self) -> SortOrder {
+        match self {
+            SortOrder::Relevance => SortOrder::Oldest,
+            SortOrder::Recent => SortOrder::Relevance,
+            SortOrder::Oldest => SortOrder::Recent,
+        }
+    }
+}
+
 impl ParsedQuery {
     pub fn free_terms(&self) -> Vec<String> {
         let mut terms = Vec::new();
@@ -160,6 +204,27 @@ impl ParsedQuery {
             Some(filters.join(","))
         }
     }
+}
+
+/// Compose the effective query string for simple search mode: the guided repo
+/// scope token (if any) followed by the user's free text. Mirrors how
+/// `cli::initial_query` prepends filter tokens, so the existing `parse` pipeline
+/// is reused unchanged rather than building a `ParsedQuery` by hand.
+pub fn compose_simple(free_text: &str, repo_scope: Option<&str>) -> String {
+    let mut out = String::new();
+    if let Some(slug) = repo_scope {
+        if !slug.is_empty() {
+            out.push_str("repo:");
+            out.push_str(slug);
+        }
+    }
+    if !free_text.is_empty() {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(free_text);
+    }
+    out
 }
 
 pub fn parse(input: &str) -> ParsedQuery {

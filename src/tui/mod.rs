@@ -5,10 +5,32 @@ pub mod modal;
 pub mod preview;
 pub mod results_list;
 pub mod theme;
+pub mod toolbar;
 pub mod view;
 
 use crate::core::SessionSummary;
+use crate::query::SortOrder;
+use crate::tui::toolbar::{Focus, Scope};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+
+/// How the query line is interpreted. `Simple` shows a guided Scope/Sort toolbar
+/// and treats the input as plain free text; `Raw` accepts the full query DSL.
+/// This is a search-input mode, not a keymap/vim mode (see architecture I-011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchMode {
+    Simple,
+    Raw,
+}
+
+impl SearchMode {
+    /// Resolve the configured `search_mode` string; unknown/empty => simple.
+    pub fn from_config(s: &str) -> SearchMode {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "raw" => SearchMode::Raw,
+            _ => SearchMode::Simple,
+        }
+    }
+}
 
 /// What the run loop should do after the app handles a key event.
 #[derive(Debug, PartialEq, Eq)]
@@ -44,6 +66,16 @@ enum Mode {
 pub struct App {
     query: String,
     query_cursor: usize,
+    /// Simple (guided toolbar) vs raw (DSL) interpretation of `query`.
+    search_mode: SearchMode,
+    /// Result ordering, driven by the toolbar Sort control.
+    sort: SortOrder,
+    /// Simple-mode repo scope (`repo:` injection on/off).
+    scope: Scope,
+    /// The launch repo slug used by `Scope::ThisRepo`; `None` outside a repo.
+    repo_slug: Option<String>,
+    /// Which control Left/Right act on in simple mode (Tab cycles it).
+    toolbar_focus: Focus,
     results: Vec<SessionSummary>,
     selected: usize,
     mode: Mode,
@@ -69,6 +101,11 @@ impl App {
         Self {
             query: String::new(),
             query_cursor: 0,
+            search_mode: SearchMode::Simple,
+            sort: SortOrder::default(),
+            scope: Scope::All,
+            repo_slug: None,
+            toolbar_focus: Focus::Query,
             results: Vec::new(),
             selected: 0,
             mode: Mode::Main,
@@ -99,6 +136,68 @@ impl App {
         self.query = q;
         self.query_cursor = self.query.len();
     }
+
+    pub fn search_mode(&self) -> SearchMode {
+        self.search_mode
+    }
+    pub fn sort(&self) -> SortOrder {
+        self.sort
+    }
+    pub fn scope(&self) -> Scope {
+        self.scope
+    }
+    pub fn toolbar_focus(&self) -> Focus {
+        self.toolbar_focus
+    }
+    /// Whether the launch directory resolved to a repo, i.e. whether the Scope
+    /// control is meaningful/shown.
+    pub fn has_repo(&self) -> bool {
+        self.repo_slug.is_some()
+    }
+    /// Extra body rows the simple-mode toolbar occupies (1 in simple, 0 in raw).
+    /// The run loop subtracts this from the list/preview heights it computes.
+    pub fn toolbar_rows(&self) -> u16 {
+        match self.search_mode {
+            SearchMode::Simple => 1,
+            SearchMode::Raw => 0,
+        }
+    }
+
+    /// Initialize the search state from CLI/config resolution. `input` is what the
+    /// query line shows (free text in simple mode, full DSL in raw mode).
+    pub fn init_search(
+        &mut self,
+        mode: SearchMode,
+        scope: Scope,
+        repo_slug: Option<String>,
+        input: String,
+    ) {
+        self.search_mode = mode;
+        self.scope = scope;
+        self.repo_slug = repo_slug;
+        self.toolbar_focus = Focus::Query;
+        self.set_query(input);
+    }
+
+    /// The repo slug that `Scope::ThisRepo` injects, or `None` when scoped to All.
+    fn active_repo_scope(&self) -> Option<&str> {
+        match self.scope {
+            Scope::ThisRepo => self.repo_slug.as_deref(),
+            Scope::All => None,
+        }
+    }
+
+    /// The query string handed to the engine: raw mode passes the input through;
+    /// simple mode composes the scope token with the free text.
+    pub fn effective_query(&self) -> String {
+        match self.search_mode {
+            SearchMode::Raw => self.query.clone(),
+            SearchMode::Simple => {
+                crate::query::compose_simple(&self.query, self.active_repo_scope())
+            }
+        }
+    }
+
     pub fn results(&self) -> &[SessionSummary] {
         &self.results
     }
@@ -293,6 +392,17 @@ impl App {
                 Action::None
             }
             KeyCode::Enter => self.activate(),
+            // Tab focuses the toolbar in simple mode; in raw mode it autocompletes
+            // query keywords (the toolbar hides the keyword grammar simple mode
+            // would otherwise complete).
+            KeyCode::Tab if self.search_mode == SearchMode::Simple => {
+                self.toolbar_focus = self.toolbar_focus.next(self.has_repo());
+                Action::None
+            }
+            KeyCode::BackTab if self.search_mode == SearchMode::Simple => {
+                self.toolbar_focus = self.toolbar_focus.prev(self.has_repo());
+                Action::None
+            }
             KeyCode::Tab => {
                 if let Some(completed) = crate::query::autocomplete(&self.query) {
                     self.query = completed;
@@ -303,6 +413,10 @@ impl App {
                     Action::None
                 }
             }
+            // Left/Right adjust the focused toolbar control in simple mode;
+            // otherwise they move the query cursor.
+            KeyCode::Left if self.toolbar_control_focused() => self.adjust_toolbar(-1),
+            KeyCode::Right if self.toolbar_control_focused() => self.adjust_toolbar(1),
             KeyCode::Left => {
                 self.move_query_cursor_left();
                 Action::None
@@ -364,7 +478,63 @@ impl App {
                     }
                 }
             }
+            keymap::Command::ToggleSearchMode => self.toggle_search_mode(),
         }
+    }
+
+    /// True when a toolbar control (not the query cursor) currently has focus, so
+    /// Left/Right adjust it. Only ever true in simple mode.
+    fn toolbar_control_focused(&self) -> bool {
+        self.search_mode == SearchMode::Simple && self.toolbar_focus != Focus::Query
+    }
+
+    /// Adjust the focused toolbar control. `dir` is -1 for Left, +1 for Right.
+    fn adjust_toolbar(&mut self, dir: i8) -> Action {
+        match self.toolbar_focus {
+            Focus::Scope => self.scope = self.scope.toggled(),
+            Focus::Sort => {
+                self.sort = if dir < 0 {
+                    self.sort.prev()
+                } else {
+                    self.sort.next()
+                };
+            }
+            Focus::Query => return Action::None,
+        }
+        self.preview_scroll = 0;
+        Action::Search
+    }
+
+    /// Switch between simple and raw search modes, preserving as much intent as
+    /// each mode can express. Simple->raw expands the toolbar scope into an
+    /// editable DSL string; raw->simple lifts a `repo:` token into the Scope
+    /// control and keeps the free text (other DSL filters are dropped, since the
+    /// simple toolbar cannot yet represent them).
+    fn toggle_search_mode(&mut self) -> Action {
+        match self.search_mode {
+            SearchMode::Simple => {
+                self.query = self.effective_query();
+                self.query_cursor = self.query.len();
+                self.search_mode = SearchMode::Raw;
+            }
+            SearchMode::Raw => {
+                let parsed = crate::query::parse(&self.query);
+                if let Some(first) = parsed.repos.include.first() {
+                    self.repo_slug = Some(first.clone());
+                }
+                self.scope = if self.repo_slug.is_some() && !parsed.repos.include.is_empty() {
+                    Scope::ThisRepo
+                } else {
+                    Scope::All
+                };
+                self.query = parsed.free_text;
+                self.query_cursor = self.query.len();
+                self.search_mode = SearchMode::Simple;
+            }
+        }
+        self.toolbar_focus = Focus::Query;
+        self.preview_scroll = 0;
+        Action::Search
     }
 
     fn insert_query_char(&mut self, c: char) -> Action {
@@ -489,6 +659,14 @@ mod tests {
         let mut app = App::new();
         app.set_results((0..n).map(|i| sess(&format!("s{i}"))).collect());
         app.set_yolo_supported((0..n).map(|_| true).collect());
+        app
+    }
+
+    /// App forced into raw search mode, for exercising DSL/autocomplete behavior
+    /// that the simple-mode toolbar otherwise replaces.
+    fn raw_app_with(n: usize) -> App {
+        let mut app = app_with(n);
+        app.init_search(SearchMode::Raw, Scope::All, None, String::new());
         app
     }
 
@@ -649,12 +827,115 @@ mod tests {
 
     #[test]
     fn tab_autocompletes_keyword_value() {
-        let mut app = app_with(1);
+        // Autocomplete is a raw-mode feature; simple mode uses Tab for the toolbar.
+        let mut app = raw_app_with(1);
         for c in "agent:cl".chars() {
             app.handle_key(key(KeyCode::Char(c)));
         }
         assert_eq!(app.handle_key(key(KeyCode::Tab)), Action::Search);
         assert_eq!(app.query(), "agent:claude");
+    }
+
+    #[test]
+    fn search_mode_from_config_defaults_to_simple() {
+        assert_eq!(SearchMode::from_config("raw"), SearchMode::Raw);
+        assert_eq!(SearchMode::from_config("RAW"), SearchMode::Raw);
+        assert_eq!(SearchMode::from_config("simple"), SearchMode::Simple);
+        assert_eq!(SearchMode::from_config(""), SearchMode::Simple);
+        assert_eq!(SearchMode::from_config("nonsense"), SearchMode::Simple);
+    }
+
+    /// App in simple mode scoped to a known repo, for toolbar tests.
+    fn simple_app_with_repo(n: usize) -> App {
+        let mut app = app_with(n);
+        app.init_search(
+            SearchMode::Simple,
+            Scope::ThisRepo,
+            Some("me/web".to_string()),
+            String::new(),
+        );
+        app
+    }
+
+    #[test]
+    fn simple_mode_tab_cycles_toolbar_focus() {
+        let mut app = simple_app_with_repo(3);
+        assert_eq!(app.toolbar_focus(), Focus::Query);
+        // Tab does not autocomplete or search in simple mode; it moves focus.
+        assert_eq!(app.handle_key(key(KeyCode::Tab)), Action::None);
+        assert_eq!(app.toolbar_focus(), Focus::Scope);
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.toolbar_focus(), Focus::Sort);
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.toolbar_focus(), Focus::Query);
+        // BackTab walks backwards.
+        app.handle_key(key(KeyCode::BackTab));
+        assert_eq!(app.toolbar_focus(), Focus::Sort);
+    }
+
+    #[test]
+    fn simple_mode_arrows_adjust_focused_control() {
+        let mut app = simple_app_with_repo(3);
+        // Focus Scope, then Left toggles it and requests a re-search.
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.scope(), Scope::ThisRepo);
+        assert_eq!(app.handle_key(key(KeyCode::Left)), Action::Search);
+        assert_eq!(app.scope(), Scope::All);
+        // Focus Sort, Right cycles ordering.
+        app.handle_key(key(KeyCode::Tab));
+        assert_eq!(app.toolbar_focus(), Focus::Sort);
+        let before = app.sort();
+        assert_eq!(app.handle_key(key(KeyCode::Right)), Action::Search);
+        assert_ne!(app.sort(), before);
+    }
+
+    #[test]
+    fn simple_mode_left_right_move_cursor_when_query_focused() {
+        let mut app = simple_app_with_repo(1);
+        for c in "ab".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        assert_eq!(app.query_cursor(), 2);
+        // Focus is on the query, so Left moves the text cursor, not a control.
+        assert_eq!(app.handle_key(key(KeyCode::Left)), Action::None);
+        assert_eq!(app.query_cursor(), 1);
+        assert_eq!(app.scope(), Scope::ThisRepo);
+    }
+
+    #[test]
+    fn effective_query_composes_scope_in_simple_mode() {
+        let mut app = simple_app_with_repo(1);
+        for c in "auth".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        // ThisRepo injects the repo token ahead of the free text.
+        assert_eq!(app.effective_query(), "repo:me/web auth");
+        // Switching scope to All drops the token.
+        app.handle_key(key(KeyCode::Tab)); // focus Scope
+        app.handle_key(key(KeyCode::Left)); // toggle to All
+        assert_eq!(app.effective_query(), "auth");
+    }
+
+    #[test]
+    fn toggle_search_mode_expands_then_collapses() {
+        let mut app = simple_app_with_repo(1);
+        for c in "auth".chars() {
+            app.handle_key(key(KeyCode::Char(c)));
+        }
+        // Simple -> raw expands the scope token into an editable DSL string.
+        assert_eq!(
+            app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)),
+            Action::Search
+        );
+        assert_eq!(app.search_mode(), SearchMode::Raw);
+        assert_eq!(app.query(), "repo:me/web auth");
+        // Raw -> simple lifts the repo token back into the Scope control and keeps
+        // the free text in the input.
+        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+        assert_eq!(app.search_mode(), SearchMode::Simple);
+        assert_eq!(app.query(), "auth");
+        assert_eq!(app.scope(), Scope::ThisRepo);
+        assert_eq!(app.effective_query(), "repo:me/web auth");
     }
 
     #[test]
@@ -766,6 +1047,7 @@ mod tests {
             "Ctrl+P" => ev(Char('p'), ctrl),
             "Ctrl+←/Ctrl+→" => ev(Left, ctrl),
             "Ctrl+O" => ev(Char('o'), ctrl),
+            "Ctrl+R" => ev(Char('r'), ctrl),
             "←/→" => ev(Left, none),
             "Home/End" => ev(Home, none),
             "Backspace" => ev(Backspace, none),
@@ -781,7 +1063,10 @@ mod tests {
     }
 
     /// Snapshot of all observable App state a binding could plausibly change.
-    fn state_snapshot(app: &App) -> (usize, String, usize, bool, u16, u16, bool, bool) {
+    /// Includes `toolbar_focus` so simple-mode Tab (which focuses a control and
+    /// returns no `Action`) still registers as "did something".
+    #[allow(clippy::type_complexity)]
+    fn state_snapshot(app: &App) -> (usize, String, usize, bool, u16, u16, bool, bool, Focus) {
         (
             app.selected(),
             app.query().to_string(),
@@ -791,33 +1076,40 @@ mod tests {
             app.preview_scroll(),
             app.help_open(),
             app.modal_open(),
+            app.toolbar_focus(),
         )
     }
 
     #[test]
     fn every_binding_is_handled() {
-        for b in crate::tui::keymap::bindings(&crate::tui::keymap::Keymap::defaults()) {
-            let Some(ev) = binding_event(&b.keys) else {
-                continue; // "type" tested in `typing_updates_query_and_requests_search`
-            };
-            // Fresh app per binding; populated + yolo-supported so Enter has work.
-            let mut app = app_with(3);
-            // Give some query + preview matches so editing/match-nav chords act.
-            for c in "agent:cl".chars() {
-                app.handle_key(key(KeyCode::Char(c)));
+        // The catalog is mode-aware (Tab in particular), so exercise each mode's
+        // bindings in that mode; every row must map to an Action or a state change.
+        for mode in [SearchMode::Simple, SearchMode::Raw] {
+            for b in crate::tui::keymap::bindings(&crate::tui::keymap::Keymap::defaults(), mode) {
+                let Some(ev) = binding_event(&b.keys) else {
+                    continue; // "type" tested in `typing_updates_query_and_requests_search`
+                };
+                // Fresh app per binding; populated + yolo-supported so Enter has work.
+                let mut app = app_with(3);
+                app.init_search(mode, Scope::All, None, String::new());
+                // Give some query + preview matches so editing/match-nav chords act.
+                for c in "agent:cl".chars() {
+                    app.handle_key(key(KeyCode::Char(c)));
+                }
+                app.set_preview_matches(vec![1, 5]);
+                app.handle_key(key(KeyCode::Down)); // ensure Up/PageUp have room to move
+                app.handle_key(key(KeyCode::Left)); // cursor off the end so Delete/End act
+                let before = state_snapshot(&app);
+                let action = app.handle_key(ev);
+                let after = state_snapshot(&app);
+                let did_something = action != Action::None || before != after;
+                assert!(
+                    did_something,
+                    "binding {:?} ({:?}) in {mode:?} fell into the no-op arm: \
+                     no Action and no state change",
+                    b.keys, b.label
+                );
             }
-            app.set_preview_matches(vec![1, 5]);
-            app.handle_key(key(KeyCode::Down)); // ensure Up/PageUp have room to move
-            app.handle_key(key(KeyCode::Left)); // cursor off the end so Delete/End act
-            let before = state_snapshot(&app);
-            let action = app.handle_key(ev);
-            let after = state_snapshot(&app);
-            let did_something = action != Action::None || before != after;
-            assert!(
-                did_something,
-                "binding {:?} ({:?}) fell into the no-op arm: no Action and no state change",
-                b.keys, b.label
-            );
         }
     }
 

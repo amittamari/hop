@@ -58,7 +58,9 @@ fn build_search_and_reconstruct() {
     idx.reload().unwrap();
 
     let q = query::parse("auth");
-    let results = idx.search(&q, 1000, 50).unwrap();
+    let results = idx
+        .search(&q, query::SortOrder::Relevance, 1000, 50)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "a");
     assert_eq!(results[0].title, "auth refresh");
@@ -82,7 +84,9 @@ fn exact_ranks_above_fuzzy() {
     idx.reload().unwrap();
 
     let q = query::parse("refactor");
-    let results = idx.search(&q, 1000, 50).unwrap();
+    let results = idx
+        .search(&q, query::SortOrder::Relevance, 1000, 50)
+        .unwrap();
     assert_eq!(results[0].id, "exact"); // exact boosted above edit-distance-1
 }
 
@@ -117,7 +121,9 @@ fn text_search_breaks_equal_scores_by_recency() {
     idx.reload().unwrap();
 
     let q = query::parse("shared");
-    let results = idx.search(&q, 1000, 50).unwrap();
+    let results = idx
+        .search(&q, query::SortOrder::Relevance, 1000, 50)
+        .unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, "new");
     assert_eq!(results[1].id, "old");
@@ -140,7 +146,9 @@ fn agent_filter_applies() {
     idx.reload().unwrap();
 
     let q = query::parse("deploy agent:codex");
-    let results = idx.search(&q, 1000, 50).unwrap();
+    let results = idx
+        .search(&q, query::SortOrder::Relevance, 1000, 50)
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].agent, AgentId::Codex);
 }
@@ -210,9 +218,27 @@ fn empty_query_returns_all_sorted_by_recency() {
     idx.reload().unwrap();
 
     let q = query::parse("");
-    let results = idx.search(&q, 1000, 50).unwrap();
+    let results = idx.search(&q, query::SortOrder::Recent, 1000, 50).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, "new"); // newest first
+}
+
+#[test]
+fn sort_oldest_reverses_recent_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    let mut w = idx.writer().unwrap();
+    idx.upsert(&mut w, &sess("old", "a", "x", AgentId::Claude, 100, 1));
+    idx.upsert(&mut w, &sess("new", "b", "y", AgentId::Claude, 200, 1));
+    w.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("");
+    let recent = idx.search(&q, query::SortOrder::Recent, 1000, 50).unwrap();
+    let oldest = idx.search(&q, query::SortOrder::Oldest, 1000, 50).unwrap();
+    assert_eq!(recent[0].id, "new");
+    assert_eq!(oldest[0].id, "old"); // Oldest flips the order
+    assert_eq!(oldest[1].id, "new");
 }
 
 #[test]
@@ -248,7 +274,14 @@ fn raw_session_id_can_overlap_between_agents() {
     drop(w);
     idx.reload().unwrap();
 
-    let results = idx.search(&query::parse("shared"), 1_000, 10).unwrap();
+    let results = idx
+        .search(
+            &query::parse("shared"),
+            query::SortOrder::Relevance,
+            1_000,
+            10,
+        )
+        .unwrap();
     assert_eq!(results.len(), 2);
     assert!(results
         .iter()
@@ -262,7 +295,14 @@ fn raw_session_id_can_overlap_between_agents() {
     w.commit().unwrap();
     idx.reload().unwrap();
 
-    let results = idx.search(&query::parse("shared"), 1_000, 10).unwrap();
+    let results = idx
+        .search(
+            &query::parse("shared"),
+            query::SortOrder::Relevance,
+            1_000,
+            10,
+        )
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].agent, AgentId::Codex);
 }
@@ -301,7 +341,14 @@ fn dir_filter_pages_past_many_filtered_out_hits() {
     w.commit().unwrap();
     idx.reload().unwrap();
 
-    let results = idx.search(&query::parse("dir:target"), 20_000, 1).unwrap();
+    let results = idx
+        .search(
+            &query::parse("dir:target"),
+            query::SortOrder::Recent,
+            20_000,
+            1,
+        )
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "target");
 }
@@ -336,7 +383,9 @@ fn branch_roundtrips_through_index() {
     idx.upsert(&mut w, &s);
     w.commit().unwrap();
     idx.reload().unwrap();
-    let out = idx.search(&ParsedQuery::default(), 100, 10).unwrap();
+    let out = idx
+        .search(&ParsedQuery::default(), query::SortOrder::Recent, 100, 10)
+        .unwrap();
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].branch.as_deref(), Some("feat/x"));
     assert_eq!(
@@ -375,7 +424,9 @@ fn recency_boosts_recent_over_old_with_similar_text() {
     idx.reload().unwrap();
 
     let q = query::parse("deploy");
-    let results = idx.search(&q, now, 50).unwrap();
+    let results = idx
+        .search(&q, query::SortOrder::Relevance, now, 50)
+        .unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, "new");
     assert_eq!(results[1].id, "old");

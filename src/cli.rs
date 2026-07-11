@@ -133,6 +133,29 @@ impl Cli {
             });
         !has_repo_token
     }
+
+    /// Whether the positional query contains a filter keyword token
+    /// (`agent:`/`dir:`/`repo:`/`date:`). Used to start in raw search mode when
+    /// the user typed DSL on the command line, so the simple toolbar does not
+    /// silently drop it.
+    pub fn query_has_dsl(&self) -> bool {
+        self.query
+            .as_deref()
+            .unwrap_or("")
+            .split_whitespace()
+            .any(|t| {
+                let body = t.strip_prefix(['-', '!']).unwrap_or(t);
+                body.split_once(':')
+                    .map(|(k, _)| matches!(k, "agent" | "dir" | "repo" | "date"))
+                    .unwrap_or(false)
+            })
+    }
+
+    /// Filter flags the simple toolbar cannot yet represent (`--agent`/`--dir`).
+    /// Their presence forces raw mode so the filters survive.
+    pub fn has_unsupported_simple_flags(&self) -> bool {
+        self.agent.is_some() || self.dir.is_some()
+    }
 }
 
 #[cfg(test)]

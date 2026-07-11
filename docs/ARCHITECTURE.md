@@ -57,7 +57,11 @@ rows and surface as sync status warnings.
   transcript loading, resume command construction, debouncing, and background
   sync status.
 - `src/tui/`: terminal state and rendering. `App` owns interaction state;
-  `view`, `results_list`, `preview`, `help`, and `keymap` split display concerns.
+  `view`, `results_list`, `preview`, `help`, `toolbar`, and `keymap` split display
+  concerns. `App` also owns the `SearchMode` (simple vs raw): simple mode treats
+  the query line as free text and exposes a `toolbar` of Scope/Sort controls that
+  compose into the same search the raw DSL drives (`query::compose_simple` +
+  `engine.set_sort`), so the Tantivy layer is unaware of the mode.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
   synchronous; slow enrichers run through `EnrichmentService`.
 - `src/columns.rs`: column definitions and responsive width solving.
@@ -130,6 +134,16 @@ rows and surface as sync status warnings.
   mode.
 - **I-010 Display Width:** Column, row, modal, and fixed-width terminal fitting
   should use terminal display width rather than Unicode scalar counts.
+- **I-011 Modeless Ctrl-Chord Keymap:** The keymap is modeless — typing always
+  edits the query, navigation lives on the arrows, and every configurable action
+  chord must include Ctrl (`keymap::parse_chord`), so no key does double duty.
+  Vim-style modal navigation was considered and declined (issue #32): a persistent
+  query field makes bare `j/k/h/l` navigation impossible without a mode; the closest
+  peer, Codex's `/resume` picker, is likewise modeless and explicitly suppresses
+  bare-key navigation while typing; and `hop` already collapsed an earlier
+  `Search`/`Modal` preset system to this single model (commit `5bfa443`). Search
+  *complexity* is instead handled by the simple/raw search-mode toggle (which
+  chooses how the query line is interpreted), not by adding key modes.
 
 ## Application Pattern
 
