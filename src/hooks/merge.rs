@@ -162,12 +162,13 @@ mod tests {
 
     #[test]
     fn cursor_enrichment_fills_branch_at_index_time() {
+        let repo = crate::hooks::git_meta::init_test_repo();
         let mut summary = base_summary();
         summary.agent = AgentId::Cursor;
         summary.branch = None;
-        summary.directory = ".".into(); // current dir is a git repo
+        summary.directory = repo.path().to_str().unwrap().into();
         enrich_from_git_if_needed(&mut summary);
-        assert!(summary.branch.is_some());
+        assert_eq!(summary.branch.as_deref(), Some("test-branch"));
     }
 
     #[test]

@@ -53,16 +53,45 @@ fn detect_worktree(dir: &str) -> Option<String> {
     }
 }
 
+/// Build a hermetic git repo in a fresh tempdir with a known branch and origin
+/// remote. Used by tests instead of the ambient repo, whose checkout state is
+/// non-deterministic (e.g. CI checks out pull requests in detached HEAD).
+#[cfg(test)]
+pub(crate) fn init_test_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path();
+    let run = |args: &[&str]| {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(path)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    };
+    run(&["init"]);
+    run(&["config", "user.email", "test@example.com"]);
+    run(&["config", "user.name", "Test"]);
+    run(&["checkout", "-b", "test-branch"]);
+    run(&["commit", "--allow-empty", "-m", "init"]);
+    run(&[
+        "remote",
+        "add",
+        "origin",
+        "https://example.com/test/repo.git",
+    ]);
+    dir
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn collect_from_valid_git_repo() {
-        // Use the hop repo itself as the test subject
-        let meta = GitMeta::collect(".");
-        // We're in a git repo, so branch and repo_url should be present
-        assert!(meta.branch.is_some());
+        let repo = init_test_repo();
+        let meta = GitMeta::collect(repo.path().to_str().unwrap());
+        assert_eq!(meta.branch.as_deref(), Some("test-branch"));
         assert!(meta.repo_url.is_some());
     }
 
