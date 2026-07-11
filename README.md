@@ -67,8 +67,18 @@ hop hooks uninstall      # Remove installed hop metadata hooks
 ```
 
 Metadata hooks capture the final working directory and Git state at session
-start and stop. Codex hooks are installed as a local Codex plugin; Claude and
-Cursor hooks are merged into their existing hook configuration.
+start and stop, writing them to sidecar files that `hop` merges in at index
+time. How each agent's hooks are installed varies:
+
+| Agent | Events | Install mechanism |
+| --- | --- | --- |
+| **Claude Code** | `SessionStart` + `SessionEnd` | Local plugin (`hop-session-metadata@hop-local`) registered via `claude plugin`, kept out of your `~/.claude/settings.json` |
+| **Codex** | `SessionStart` + `Stop` | Local plugin (`hop-session-metadata@hop-local`) registered via `codex plugin` |
+| **Cursor** | `stop` only | Merged into `~/.cursor/hooks.json` (best-effort; Cursor provides no session id or cwd to the hook) |
+
+`hop hooks uninstall` removes exactly what was installed — the plugins and their
+marketplace registrations for Claude/Codex, and hop's entries from Cursor's
+`hooks.json`.
 
 ---
 
@@ -86,19 +96,25 @@ varies by column:
 | Session title | ✅ | ✅ | ✅ |
 | Working directory + `dir:` filter | ✅ | ✅ | ✅ <sup>†</sup> |
 | Repo column + `repo:` filter | ✅ | ✅ | ✅ |
-| Branch column | ✅ | ✅ | ❌ |
-| PR column | ✅ | ✅ | ❌ <sup>‡</sup> |
+| Branch column | ✅ | ✅ | ✅ <sup>‡</sup> |
+| PR column | ✅ | ✅ | ✅ <sup>‡</sup> |
 
 <sup>†</sup> Cursor doesn't store the working directory in its transcript; `hop`
 recovers it from the session's `worker.log`, so it's unavailable when that log is
 missing.
-<sup>‡</sup> The PR column is keyed off the branch, so it's empty wherever the
-branch is unknown.
+<sup>‡</sup> Cursor records no branch of its own. `hop` derives it — and, in
+turn, the PR — from the working directory's Git state at index time, so it's
+available only while that directory still exists on disk and reflects its current
+checkout (unless metadata hooks captured the branch at session time).
 
 **Repo** is resolved from the git remote (`git remote get-url origin`) once per
 directory at index time, so it's identical across every worktree of a repo.
-**Branch** comes straight from agent metadata (Claude's `gitBranch`, Codex's
-`git.branch`); Cursor records none, so it's left blank rather than guessed.
+**Branch** comes straight from agent metadata where the agent records it (Claude's
+`gitBranch`, Codex's `git.branch`). Cursor records none, so `hop` fills it from
+live Git at index time when the working directory still exists — or captures it
+exactly when metadata hooks are installed. Installing metadata hooks (see
+`hop hooks install`) also captures worktree paths and the session's Git state at
+start and stop for every agent.
 
 ### Not yet supported
 

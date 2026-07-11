@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const HOP_HOOK_ID: &str = "hop-meta";
+const CLAUDE_MARKETPLACE_NAME: &str = "hop-local";
+const CLAUDE_PLUGIN_NAME: &str = "hop-session-metadata";
+const CLAUDE_PLUGIN_SELECTOR: &str = "hop-session-metadata@hop-local";
 const CODEX_MARKETPLACE_NAME: &str = "hop-local";
 const CODEX_PLUGIN_NAME: &str = "hop-session-metadata";
 const CODEX_PLUGIN_SELECTOR: &str = "hop-session-metadata@hop-local";
@@ -33,9 +36,10 @@ pub fn detect_providers() -> Vec<ProviderStatus> {
 }
 
 fn detect_claude(home: &Path) -> ProviderStatus {
-    let config_path = home.join(".claude").join("settings.json");
+    let plugin_dir = claude_plugin_dir(home);
+    let config_path = plugin_dir.join("hooks").join("hooks.json");
     let detected = home.join(".claude").exists();
-    let installed = detected && is_claude_installed(&config_path);
+    let installed = detected && is_claude_plugin_installed();
     ProviderStatus {
         agent: AgentId::Claude,
         detected,
@@ -72,14 +76,6 @@ fn detect_cursor(home: &Path) -> ProviderStatus {
     }
 }
 
-fn is_claude_installed(path: &Path) -> bool {
-    let text = match std::fs::read_to_string(path) {
-        Ok(t) => t,
-        Err(_) => return false,
-    };
-    text.contains(HOP_HOOK_ID)
-}
-
 fn is_cursor_installed(path: &Path) -> bool {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
@@ -90,89 +86,178 @@ fn is_cursor_installed(path: &Path) -> bool {
 
 // --- Claude ---
 
-pub fn claude_hook_entry(event: &str) -> String {
-    let cli_event = match event {
-        "SessionStart" => "start",
-        "SessionEnd" => "stop",
-        _ => event,
-    };
-    format!(
-        r#"{{"id":"{HOP_HOOK_ID}","hooks":[{{"type":"command","command":"hop meta capture --agent claude --event {cli_event}"}}]}}"#
-    )
+pub fn claude_hooks_json() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "hooks": {
+            "SessionStart": [{"hooks": [{"type": "command", "command": "hop meta capture --agent claude --event start"}]}],
+            "SessionEnd": [{"hooks": [{"type": "command", "command": "hop meta capture --agent claude --event stop"}]}]
+        }
+    }))
+    .unwrap()
 }
 
-pub fn merge_claude_hooks(existing_json: &str) -> Result<String> {
-    let mut v: serde_json::Value =
-        serde_json::from_str(existing_json).context("parsing settings.json")?;
-    let hooks = v
-        .as_object_mut()
-        .context("settings.json is not an object")?
-        .entry("hooks")
-        .or_insert_with(|| serde_json::json!({}));
-    let hooks_obj = hooks.as_object_mut().context("hooks is not an object")?;
-
-    let start_entry: serde_json::Value = serde_json::from_str(&claude_hook_entry("SessionStart"))?;
-    let end_entry: serde_json::Value = serde_json::from_str(&claude_hook_entry("SessionEnd"))?;
-
-    for (event_name, entry) in [("SessionStart", start_entry), ("SessionEnd", end_entry)] {
-        let arr = hooks_obj
-            .entry(event_name)
-            .or_insert_with(|| serde_json::json!([]));
-        let arr = arr.as_array_mut().context("hook event is not an array")?;
-        arr.retain(|e| e.get("id").and_then(|i| i.as_str()) != Some(HOP_HOOK_ID));
-        arr.push(entry);
-    }
-    serde_json::to_string_pretty(&v).context("serializing settings.json")
+fn claude_marketplace_root(home: &Path) -> PathBuf {
+    home.join(".hop").join("claude-plugin-marketplace")
 }
 
-pub fn unmerge_claude_hooks(existing_json: &str) -> Result<String> {
-    let mut v: serde_json::Value = serde_json::from_str(existing_json).context("parsing")?;
-    if let Some(hooks) = v.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-        for (_event, arr) in hooks.iter_mut() {
-            if let Some(a) = arr.as_array_mut() {
-                a.retain(|e| e.get("id").and_then(|i| i.as_str()) != Some(HOP_HOOK_ID));
-            }
-        }
-        // Remove empty arrays
-        let empty_keys: Vec<String> = hooks
-            .iter()
-            .filter(|(_, v)| v.as_array().is_some_and(|a| a.is_empty()))
-            .map(|(k, _)| k.clone())
-            .collect();
-        for k in empty_keys {
-            hooks.remove(&k);
-        }
+fn claude_plugin_dir(home: &Path) -> PathBuf {
+    claude_marketplace_root(home)
+        .join("plugins")
+        .join(CLAUDE_PLUGIN_NAME)
+}
+
+fn claude_plugin_manifest() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "name": CLAUDE_PLUGIN_NAME,
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Capture Claude Code session metadata for hop.",
+        "author": { "name": "hop" },
+        "license": "MIT",
+        "keywords": ["hop", "session-metadata"]
+    }))
+    .unwrap()
+}
+
+fn claude_marketplace_json() -> String {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "name": CLAUDE_MARKETPLACE_NAME,
+        "owner": { "name": "hop" },
+        "metadata": { "description": "hop session metadata plugins." },
+        "plugins": [{
+            "name": CLAUDE_PLUGIN_NAME,
+            "source": format!("./plugins/{CLAUDE_PLUGIN_NAME}"),
+            "description": "Capture Claude Code session metadata for hop."
+        }]
+    }))
+    .unwrap()
+}
+
+fn write_claude_plugin(home: &Path) -> Result<PathBuf> {
+    let root = claude_marketplace_root(home);
+    let plugin_dir = claude_plugin_dir(home);
+    let manifest_dir = plugin_dir.join(".claude-plugin");
+    let hooks_dir = plugin_dir.join("hooks");
+    std::fs::create_dir_all(&manifest_dir)
+        .with_context(|| format!("creating {}", manifest_dir.display()))?;
+    std::fs::create_dir_all(&hooks_dir)?;
+    std::fs::create_dir_all(root.join(".claude-plugin"))?;
+    std::fs::write(manifest_dir.join("plugin.json"), claude_plugin_manifest())?;
+    std::fs::write(hooks_dir.join("hooks.json"), claude_hooks_json())?;
+    std::fs::write(
+        root.join(".claude-plugin").join("marketplace.json"),
+        claude_marketplace_json(),
+    )?;
+    Ok(root)
+}
+
+fn claude_json(args: &[&str]) -> Result<serde_json::Value> {
+    let output = Command::new("claude")
+        .args(args)
+        .output()
+        .with_context(|| format!("running claude {}", args.join(" ")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("claude {} failed: {}", args.join(" "), stderr.trim());
     }
-    serde_json::to_string_pretty(&v).context("serializing")
+    serde_json::from_slice(&output.stdout)
+        .with_context(|| format!("parsing claude {} output", args.join(" ")))
+}
+
+fn claude_run(args: &[&str]) -> Result<()> {
+    let output = Command::new("claude")
+        .args(args)
+        .output()
+        .with_context(|| format!("running claude {}", args.join(" ")))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("claude {} failed: {}", args.join(" "), stderr.trim());
+    }
+    Ok(())
+}
+
+fn is_claude_plugin_installed() -> bool {
+    claude_json(&["plugin", "list", "--json"])
+        .ok()
+        .is_some_and(|value| claude_plugin_is_enabled(&value))
+}
+
+fn claude_plugin_is_enabled(value: &serde_json::Value) -> bool {
+    value.as_array().is_some_and(|plugins| {
+        plugins.iter().any(|plugin| {
+            plugin.get("id").and_then(|id| id.as_str()) == Some(CLAUDE_PLUGIN_SELECTOR)
+                && plugin.get("enabled").and_then(|e| e.as_bool()) == Some(true)
+        })
+    })
+}
+
+fn registered_claude_marketplace_root() -> Result<Option<PathBuf>> {
+    let value = claude_json(&["plugin", "marketplace", "list", "--json"])?;
+    Ok(claude_marketplace_root_from_json(&value))
+}
+
+fn claude_marketplace_root_from_json(value: &serde_json::Value) -> Option<PathBuf> {
+    value.as_array().and_then(|marketplaces| {
+        marketplaces.iter().find_map(|marketplace| {
+            (marketplace.get("name").and_then(|n| n.as_str()) == Some(CLAUDE_MARKETPLACE_NAME))
+                .then(|| {
+                    marketplace
+                        .get("path")
+                        .and_then(|p| p.as_str())
+                        .or_else(|| marketplace.get("installLocation").and_then(|p| p.as_str()))
+                })
+                .flatten()
+                .map(PathBuf::from)
+        })
+    })
 }
 
 pub fn install_claude(home: &Path) -> Result<String> {
-    let path = home.join(".claude").join("settings.json");
-    let existing = if path.exists() {
-        std::fs::read_to_string(&path).context("reading settings.json")?
-    } else {
-        "{}".to_string()
-    };
-    let merged = merge_claude_hooks(&existing)?;
-    std::fs::write(&path, &merged).context("writing settings.json")?;
+    let root = write_claude_plugin(home)?;
+    match registered_claude_marketplace_root()? {
+        Some(existing) if existing != root => anyhow::bail!(
+            "Claude marketplace {CLAUDE_MARKETPLACE_NAME} already points to {}",
+            existing.display()
+        ),
+        Some(_) => {}
+        None => {
+            let root_arg = root.to_string_lossy();
+            claude_run(&["plugin", "marketplace", "add", root_arg.as_ref()])?;
+        }
+    }
+    claude_run(&["plugin", "install", CLAUDE_PLUGIN_SELECTOR, "--scope", "user"])?;
     Ok(format!(
-        "Claude Code: added SessionStart and SessionEnd hooks to {}",
-        path.display()
+        "Claude Code: installed {CLAUDE_PLUGIN_SELECTOR} from {}",
+        root.display()
     ))
 }
 
 pub fn uninstall_claude(home: &Path) -> Result<String> {
-    let path = home.join(".claude").join("settings.json");
-    if !path.exists() {
-        return Ok("Claude Code: no settings.json found, nothing to remove".into());
+    let root = claude_marketplace_root(home);
+    let installed = is_claude_plugin_installed();
+    let registered = registered_claude_marketplace_root()?;
+    if let Some(existing) = &registered {
+        if existing != &root {
+            anyhow::bail!(
+                "Claude marketplace {CLAUDE_MARKETPLACE_NAME} points to {}, not hop's {}",
+                existing.display(),
+                root.display()
+            );
+        }
     }
-    let existing = std::fs::read_to_string(&path)?;
-    let cleaned = unmerge_claude_hooks(&existing)?;
-    std::fs::write(&path, &cleaned)?;
-    Ok(format!(
-        "Claude Code: removed hop hooks from {}",
-        path.display()
-    ))
+    if installed {
+        claude_run(&["plugin", "uninstall", CLAUDE_PLUGIN_SELECTOR])?;
+    }
+    if registered.is_some() {
+        claude_run(&["plugin", "marketplace", "remove", CLAUDE_MARKETPLACE_NAME])?;
+    }
+    if root.exists() {
+        std::fs::remove_dir_all(&root)?;
+    }
+    if installed {
+        Ok(format!("Claude Code: removed {CLAUDE_PLUGIN_SELECTOR}"))
+    } else {
+        Ok("Claude Code: no hop plugin found, nothing to remove".into())
+    }
 }
 
 // --- Codex ---
@@ -443,47 +528,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn claude_hook_json_generation() {
-        let json = claude_hook_entry("start");
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["id"], "hop-meta");
-        assert!(parsed["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .contains("hop meta capture"));
-    }
-
-    #[test]
-    fn claude_settings_merge_preserves_existing() {
-        let existing = r#"{
-            "hooks": {
-                "PreToolUse": [{"hooks": [{"type": "command", "command": "echo hi"}]}]
-            }
-        }"#;
-        let merged = merge_claude_hooks(existing).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&merged).unwrap();
-        // Existing hooks preserved
-        assert!(!v["hooks"]["PreToolUse"].is_null());
-        // Hop hooks added
+    fn claude_plugin_hooks_json() {
+        let json = claude_hooks_json();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(!v["hooks"]["SessionStart"].is_null());
         assert!(!v["hooks"]["SessionEnd"].is_null());
+        assert!(v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("hop meta capture --agent claude"));
     }
 
     #[test]
-    fn claude_settings_unmerge_removes_only_hop() {
-        let with_hop = r#"{
-            "hooks": {
-                "PreToolUse": [{"hooks": [{"type": "command", "command": "echo hi"}]}],
-                "SessionStart": [{"id": "hop-meta", "hooks": [{"type": "command", "command": "hop meta capture --agent claude --event start"}]}],
-                "SessionEnd": [{"id": "hop-meta", "hooks": [{"type": "command", "command": "hop meta capture --agent claude --event stop"}]}]
-            }
-        }"#;
-        let cleaned = unmerge_claude_hooks(with_hop).unwrap();
-        let v: serde_json::Value = serde_json::from_str(&cleaned).unwrap();
-        assert!(!v["hooks"]["PreToolUse"].is_null());
-        assert!(
-            v["hooks"]["SessionStart"].is_null()
-                || v["hooks"]["SessionStart"].as_array().unwrap().is_empty()
+    fn claude_plugin_files_have_manifest_and_marketplace_entry() {
+        let home = tempfile::tempdir().unwrap();
+        let root = write_claude_plugin(home.path()).unwrap();
+        let plugin_dir = root.join("plugins").join(CLAUDE_PLUGIN_NAME);
+
+        let manifest: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(plugin_dir.join(".claude-plugin/plugin.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["name"], CLAUDE_PLUGIN_NAME);
+        assert_eq!(manifest["version"], env!("CARGO_PKG_VERSION"));
+
+        let marketplace: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(".claude-plugin/marketplace.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(marketplace["name"], CLAUDE_MARKETPLACE_NAME);
+        assert_eq!(marketplace["plugins"][0]["name"], CLAUDE_PLUGIN_NAME);
+        assert_eq!(
+            marketplace["plugins"][0]["source"],
+            format!("./plugins/{CLAUDE_PLUGIN_NAME}")
+        );
+        assert!(plugin_dir.join("hooks/hooks.json").is_file());
+    }
+
+    #[test]
+    fn claude_status_requires_enabled_installed_plugin() {
+        let enabled = serde_json::json!([{
+            "id": CLAUDE_PLUGIN_SELECTOR,
+            "enabled": true
+        }]);
+        assert!(claude_plugin_is_enabled(&enabled));
+
+        let disabled = serde_json::json!([{
+            "id": CLAUDE_PLUGIN_SELECTOR,
+            "enabled": false
+        }]);
+        assert!(!claude_plugin_is_enabled(&disabled));
+    }
+
+    #[test]
+    fn claude_marketplace_lookup_uses_registered_name() {
+        let value = serde_json::json!([{
+            "name": CLAUDE_MARKETPLACE_NAME,
+            "source": "directory",
+            "path": "/tmp/hop-marketplace",
+            "installLocation": "/tmp/cache/hop-marketplace"
+        }]);
+        assert_eq!(
+            claude_marketplace_root_from_json(&value),
+            Some(PathBuf::from("/tmp/hop-marketplace"))
         );
     }
 

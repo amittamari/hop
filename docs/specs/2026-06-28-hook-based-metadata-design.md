@@ -115,7 +115,11 @@ Behavior:
 **Hook input (stdin JSON)**: `session_id`, `cwd`, `transcript_path`,
 `hook_event_name`
 
-**Install**: Merge into `~/.claude/settings.json` under `hooks`:
+**Install**: Create a manifest-backed local marketplace under
+`~/.hop/claude-plugin-marketplace/`, register it with
+`claude plugin marketplace add`, and install
+`hop-session-metadata@hop-local` with `claude plugin install --scope user`.
+The plugin has `.claude-plugin/plugin.json` plus this `hooks/hooks.json`:
 
 ```json
 {
@@ -136,24 +140,16 @@ Behavior:
 }
 ```
 
-**Merge strategy**: Read existing settings, append hop entries alongside
-existing hooks. Each hop hook group carries an `"id": "hop-meta"` field
-so it can be identified for removal:
+Installing as a plugin (rather than merging into `~/.claude/settings.json`)
+keeps hop's hooks isolated from the user's own settings and makes removal
+exact.
 
-```json
-{
-  "id": "hop-meta",
-  "hooks": [{
-    "type": "command",
-    "command": "hop meta capture --agent claude --event start"
-  }]
-}
-```
+**Uninstall**: Use `claude plugin uninstall` to remove the installed plugin,
+remove the `hop-local` marketplace registration, then delete hop's marketplace
+source.
 
-**Uninstall**: Scan hook arrays for entries with `"id": "hop-meta"` and
-remove them. If a hook array becomes empty, remove the key.
-
-**Detection**: `~/.claude` directory exists with `settings.json`.
+**Detection**: `~/.claude` directory exists, and `claude plugin list --json`
+reports `hop-session-metadata@hop-local` as installed and enabled.
 
 #### Codex (full support)
 
