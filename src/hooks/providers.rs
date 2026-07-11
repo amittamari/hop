@@ -224,7 +224,13 @@ pub fn install_claude(home: &Path) -> Result<String> {
             claude_run(&["plugin", "marketplace", "add", root_arg.as_ref()])?;
         }
     }
-    claude_run(&["plugin", "install", CLAUDE_PLUGIN_SELECTOR, "--scope", "user"])?;
+    claude_run(&[
+        "plugin",
+        "install",
+        CLAUDE_PLUGIN_SELECTOR,
+        "--scope",
+        "user",
+    ])?;
     Ok(format!(
         "Claude Code: installed {CLAUDE_PLUGIN_SELECTOR} from {}",
         root.display()
