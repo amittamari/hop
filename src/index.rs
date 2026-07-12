@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, RangeQuery,
@@ -54,6 +55,23 @@ pub struct SearchIndex {
     index: Index,
     reader: IndexReader,
     f: Fields,
+    /// The single `IndexWriter` for this handle, created on first write and
+    /// reused for the handle's lifetime. Tantivy allows only one writer per
+    /// directory at a time, so we never reopen one mid-life; reopening would race
+    /// the previous writer's not-yet-released `.tantivy-writer.lock`. `None` until
+    /// the first write, so read-only handles never take the writer lock.
+    writer: Mutex<Option<IndexWriter>>,
+}
+
+impl Drop for SearchIndex {
+    fn drop(&mut self) {
+        // Wind the writer's merge threads down so the directory lock is released
+        // deterministically before any other handle opens a writer on this dir.
+        // Merely dropping an `IndexWriter` only *detaches* those threads.
+        if let Some(writer) = self.writer.get_mut().ok().and_then(Option::take) {
+            let _ = writer.wait_merging_threads();
+        }
+    }
 }
 
 fn build_schema() -> (Schema, Fields) {
@@ -108,11 +126,26 @@ impl SearchIndex {
         std::fs::write(&marker, SCHEMA_VERSION.to_string())?;
 
         let reader = index.reader()?;
-        Ok(Self { index, reader, f })
+        Ok(Self { index, reader, f, writer: Mutex::new(None) })
     }
 
-    pub fn writer(&self) -> Result<IndexWriter> {
-        Ok(self.index.writer(WRITER_HEAP)?)
+    /// Run `f` against this handle's single long-lived writer, creating it on
+    /// first use. See the `writer` field docs for why we keep one writer rather
+    /// than reopening per operation.
+    fn with_writer<R>(&self, f: impl FnOnce(&mut IndexWriter) -> Result<R>) -> Result<R> {
+        let mut guard = self.writer.lock().expect("index writer mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.index.writer(WRITER_HEAP)?);
+        }
+        f(guard.as_mut().expect("writer initialized above"))
+    }
+
+    /// Commit the pending writes. No-op if nothing has been written yet.
+    pub fn commit(&self) -> Result<()> {
+        self.with_writer(|w| {
+            w.commit()?;
+            Ok(())
+        })
     }
 
     pub fn reload(&self) -> Result<()> {
@@ -120,19 +153,17 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn upsert(&self, w: &mut IndexWriter, s: &Session) {
-        self.upsert_with_sidecar_stamp(w, s, None);
+    pub fn upsert(&self, s: &Session) -> Result<()> {
+        self.upsert_with_sidecar_stamp(s, None)
     }
 
     pub fn upsert_with_sidecar_stamp(
         &self,
-        w: &mut IndexWriter,
         s: &Session,
         sidecar_stamp: Option<&str>,
-    ) {
+    ) -> Result<()> {
         let m = &s.meta;
         let doc_key = m.document_key();
-        w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
         let mut doc = TantivyDocument::default();
         doc.add_text(self.f.doc_key, &doc_key);
         doc.add_text(self.f.id, &m.id);
@@ -169,11 +200,19 @@ impl SearchIndex {
         if let Some(stamp) = sidecar_stamp {
             doc.add_text(self.f.sidecar_stamp, stamp);
         }
-        let _ = w.add_document(doc);
+        self.with_writer(|w| {
+            // Replace any existing row for this key, then add the fresh document.
+            w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
+            let _ = w.add_document(doc);
+            Ok(())
+        })
     }
 
-    pub fn delete(&self, w: &mut IndexWriter, doc_key: &str) {
-        w.delete_term(Term::from_field_text(self.f.doc_key, doc_key));
+    pub fn delete(&self, doc_key: &str) -> Result<()> {
+        self.with_writer(|w| {
+            w.delete_term(Term::from_field_text(self.f.doc_key, doc_key));
+            Ok(())
+        })
     }
 
     /// document_key -> mtime for every indexed session (drives incremental diff).

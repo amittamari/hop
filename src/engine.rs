@@ -230,7 +230,6 @@ fn sync_index_with_sidecar_dir(
     mut on_batch_commit: impl FnMut(&SearchIndex),
 ) -> Result<SyncReport> {
     let known = index.known_sync_state()?;
-    let mut writer = index.writer()?;
     let mut report = SyncReport::default();
     let mut all_scanned = HashMap::new();
     let mut owner = HashMap::new();
@@ -280,7 +279,7 @@ fn sync_index_with_sidecar_dir(
     }
     report.deleted = deleted.len();
     for key in &deleted {
-        index.delete(&mut writer, key);
+        index.delete(key)?;
     }
 
     let mut since_commit = 0usize;
@@ -308,25 +307,20 @@ fn sync_index_with_sidecar_dir(
                     report.non_interactive_sessions += 1;
                     continue;
                 }
-                index.upsert_with_sidecar_stamp(
-                    &mut writer,
-                    &s,
-                    sidecar_stamps.get(key).map(String::as_str),
-                );
+                index.upsert_with_sidecar_stamp(&s, sidecar_stamps.get(key).map(String::as_str))?;
                 report.indexed += 1;
                 since_commit += 1;
             }
             Err(_) => report.parse_errors += 1,
         }
         if since_commit >= 200 {
-            writer.commit()?;
+            index.commit()?;
             index.reload()?;
             on_batch_commit(index);
-            writer = index.writer()?;
             since_commit = 0;
         }
     }
-    writer.commit()?;
+    index.commit()?;
     index.reload()?;
     Ok(report)
 }
