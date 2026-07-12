@@ -119,8 +119,13 @@ impl ClaudeAdapter {
             if !is_user && !is_assistant {
                 continue;
             }
-            // Keep the last real model an assistant line reports. Skip synthetic
-            // sentinels like "<synthetic>" that Claude writes for injected turns.
+            if parsed.is_meta == Some(true) || parsed.tool_use_result.is_some() {
+                continue;
+            }
+            // Keep the last real model a genuine assistant turn reports. Skip
+            // synthetic sentinels like "<synthetic>" that Claude writes for
+            // injected turns. Runs after the meta/tool-result skip so an injected
+            // assistant line can't overwrite the model the user conversed with.
             if is_assistant {
                 if let Some(m) = parsed.message.as_ref().and_then(|m| m.model.as_deref()) {
                     let m = m.trim();
@@ -128,9 +133,6 @@ impl ClaudeAdapter {
                         model = Some(m.to_string());
                     }
                 }
-            }
-            if parsed.is_meta == Some(true) || parsed.tool_use_result.is_some() {
-                continue;
             }
             let text = parsed
                 .message

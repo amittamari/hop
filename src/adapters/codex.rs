@@ -76,14 +76,9 @@ impl CodexAdapter {
                     // A non-interactive thread classification (subagent /
                     // memory_consolidation) also means the session isn't
                     // user-resumable; let it drive the filter signal.
-                    if let Some(ts) = p
-                        .thread_source
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                    {
-                        if is_non_interactive_source(Some(ts)) {
-                            source = Some(ts.to_string());
+                    if let Some(ts) = normalize_source(p.thread_source) {
+                        if is_non_interactive_source(Some(&ts)) {
+                            source = Some(ts);
                         }
                     }
                 }
@@ -330,11 +325,12 @@ struct Payload {
     git: Option<Git>,
     #[serde(default)]
     history_mode: Option<HistoryMode>,
-    // `source` is a bare string for interactive origins ("cli", "vscode") but an
-    // object for nested variants ("{\"subagent\":{…}}"), so parse it loosely to
-    // avoid failing the whole session_meta line.
+    // `source`/`thread_source` are a bare string for interactive origins ("cli",
+    // "vscode") but an object for nested variants ("{\"subagent\":{…}}"), so parse
+    // them loosely (via `normalize_source`) to avoid failing the whole
+    // session_meta line on a variant we don't model.
     source: Option<serde_json::Value>,
-    thread_source: Option<String>,
+    thread_source: Option<serde_json::Value>,
     // turn_context
     approval_policy: Option<String>,
     sandbox_policy: Option<SandboxPolicy>,

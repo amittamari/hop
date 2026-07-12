@@ -87,6 +87,31 @@ fn object_form_source_reduces_to_variant_key() {
 }
 
 #[test]
+fn object_form_thread_source_does_not_fail_line_and_drives_filter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let day = tmp.path().join("sessions/2026/06/04");
+    std::fs::create_dir_all(&day).unwrap();
+    let file = day.join("rollout-2026-06-04T10-00-00-threadsrc.jsonl");
+    // `thread_source` is parsed loosely like `source`: an object variant must not
+    // fail the session_meta line (cwd/git still parse), and a non-interactive
+    // thread_source marks the session non-interactive even when `source` is a
+    // benign interactive origin.
+    let lines = concat!(
+        r#"{"type":"session_meta","timestamp":"2026-06-04T10:00:00.000Z","payload":{"id":"threadsrc","cwd":"/repo","source":"cli","thread_source":{"subagent":{"parent":"root"}}}}"#,
+        "\n",
+        r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:02.000Z","payload":{"type":"user_message","message":"do the thing"}}"#,
+        "\n",
+    );
+    std::fs::write(&file, lines).unwrap();
+    let adapter = CodexAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.meta.directory, "/repo");
+    // The non-interactive thread_source wins over the interactive `source`.
+    assert_eq!(s.meta.source.as_deref(), Some("subagent"));
+    assert!(!adapter.is_interactive(&s));
+}
+
+#[test]
 fn flags_archived_sessions_by_directory() {
     let tmp = tempfile::tempdir().unwrap();
     let active = tmp.path().join("sessions/2026/06/04");
