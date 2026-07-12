@@ -36,6 +36,10 @@ fn cell(
             Style::default().fg(theme.muted),
         ),
         "time" => (rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
+        "model" => (
+            s.model.clone().unwrap_or_else(|| "-".into()),
+            Style::default().fg(theme.muted),
+        ),
         other => enrichment_cell(other, s, enrichers, resolved, frame, theme),
     }
 }
@@ -228,13 +232,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 12,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }
     }
 
@@ -279,7 +278,7 @@ mod tests {
         let cols = default_columns();
         let layout = solve_layout(&cols, 120);
         let _row = header_row(&layout, &cols, &Theme::default());
-        assert_eq!(layout.len(), 7);
+        assert_eq!(layout.len(), 8);
     }
 
     #[test]

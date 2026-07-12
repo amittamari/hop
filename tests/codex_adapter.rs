@@ -33,6 +33,82 @@ fn parses_meta_clean_text_and_detects_yolo() {
     assert_eq!(s.meta.message_count, 2);
     // any turn_context with never + danger-full-access => yolo
     assert!(s.meta.yolo);
+
+    // enrichment metadata (M1/M2/M3)
+    assert_eq!(s.meta.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(s.meta.commit.as_deref(), Some("abc1234def"));
+    assert_eq!(s.meta.source.as_deref(), Some("cli"));
+}
+
+#[test]
+fn first_non_empty_model_wins_over_trailing_review_turn() {
+    let tmp = tempfile::tempdir().unwrap();
+    let day = tmp.path().join("sessions/2026/06/04");
+    std::fs::create_dir_all(&day).unwrap();
+    let file = day.join("rollout-2026-06-04T10-00-00-modelpick.jsonl");
+    let lines = concat!(
+        r#"{"type":"session_meta","timestamp":"2026-06-04T10:00:00.000Z","payload":{"id":"modelpick","cwd":"/x"}}"#,
+        "\n",
+        r#"{"type":"turn_context","timestamp":"2026-06-04T10:00:01.000Z","payload":{"model":"gpt-5.5"}}"#,
+        "\n",
+        r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:02.000Z","payload":{"type":"user_message","message":"hi"}}"#,
+        "\n",
+        r#"{"type":"turn_context","timestamp":"2026-06-04T10:00:03.000Z","payload":{"model":"codex-auto-review"}}"#,
+        "\n",
+    );
+    std::fs::write(&file, lines).unwrap();
+    let adapter = CodexAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.meta.model.as_deref(), Some("gpt-5.5"));
+}
+
+#[test]
+fn object_form_source_reduces_to_variant_key() {
+    let tmp = tempfile::tempdir().unwrap();
+    let day = tmp.path().join("sessions/2026/06/04");
+    std::fs::create_dir_all(&day).unwrap();
+    let file = day.join("rollout-2026-06-04T10-00-00-subagent.jsonl");
+    // A nested SubAgent source must not fail the session_meta line: cwd and the
+    // message still parse, and `source` reduces to the "subagent" marker.
+    let lines = concat!(
+        r#"{"type":"session_meta","timestamp":"2026-06-04T10:00:00.000Z","payload":{"id":"subagent","cwd":"/repo","source":{"subagent":{"other":"guardian"}}}}"#,
+        "\n",
+        r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:02.000Z","payload":{"type":"user_message","message":"do the thing"}}"#,
+        "\n",
+    );
+    std::fs::write(&file, lines).unwrap();
+    let adapter = CodexAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.meta.directory, "/repo");
+    assert_eq!(s.meta.source.as_deref(), Some("subagent"));
+    // The adapter owns the interactivity judgment: a sub-agent thread is not
+    // interactive, so the engine will skip it.
+    assert!(!adapter.is_interactive(&s));
+}
+
+#[test]
+fn object_form_thread_source_does_not_fail_line_and_drives_filter() {
+    let tmp = tempfile::tempdir().unwrap();
+    let day = tmp.path().join("sessions/2026/06/04");
+    std::fs::create_dir_all(&day).unwrap();
+    let file = day.join("rollout-2026-06-04T10-00-00-threadsrc.jsonl");
+    // `thread_source` is parsed loosely like `source`: an object variant must not
+    // fail the session_meta line (cwd/git still parse), and a non-interactive
+    // thread_source marks the session non-interactive even when `source` is a
+    // benign interactive origin.
+    let lines = concat!(
+        r#"{"type":"session_meta","timestamp":"2026-06-04T10:00:00.000Z","payload":{"id":"threadsrc","cwd":"/repo","source":"cli","thread_source":{"subagent":{"parent":"root"}}}}"#,
+        "\n",
+        r#"{"type":"event_msg","timestamp":"2026-06-04T10:00:02.000Z","payload":{"type":"user_message","message":"do the thing"}}"#,
+        "\n",
+    );
+    std::fs::write(&file, lines).unwrap();
+    let adapter = CodexAdapter::new(tmp.path().to_path_buf());
+    let s = adapter.parse(&file).unwrap();
+    assert_eq!(s.meta.directory, "/repo");
+    // The non-interactive thread_source wins over the interactive `source`.
+    assert_eq!(s.meta.source.as_deref(), Some("subagent"));
+    assert!(!adapter.is_interactive(&s));
 }
 
 #[test]

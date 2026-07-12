@@ -607,13 +607,7 @@ mod tests {
             directory: "/tmp".into(),
             timestamp: 1000,
             message_count: 2,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         };
         let transcript = crate::core::Transcript { messages: msgs() };
 

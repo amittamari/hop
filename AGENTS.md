@@ -26,6 +26,12 @@ selected session in the original working directory.
   in library modules.
 - Parse external data at adapter boundaries into `core` types before indexing or
   rendering.
+- Keep agent-specific knowledge inside its adapter (`B-011`): format quirks, magic
+  field values, and per-agent judgments belong in `adapters/<agent>.rs`. Generic
+  layers (`engine`, `core`, `index`, `tui`) must not name an agent-specific literal
+  or `adapters::<agent>::…` symbol — reach adapters only through the `Adapter` trait.
+  When a generic layer needs a per-agent decision, add an agent-agnostic trait
+  method with a safe default and override it in the adapter.
 - Keep the TUI responsive: no network calls, large scans, or broad filesystem
   work in the render path.
 - Preserve resume behavior: restore the terminal before `exec`, then `chdir` and

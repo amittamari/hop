@@ -25,6 +25,7 @@ pub struct SyncReport {
     pub scan_errors: usize,
     pub parse_errors: usize,
     pub empty_sessions: usize,
+    pub non_interactive_sessions: usize,
     pub indexed: usize,
     pub deleted: usize,
     pub fatal_errors: usize,
@@ -47,6 +48,9 @@ impl SyncReport {
         }
         if self.empty_sessions > 0 {
             parts.push(format!("empty sessions {}", self.empty_sessions));
+        }
+        if self.non_interactive_sessions > 0 {
+            parts.push(format!("non-interactive {}", self.non_interactive_sessions));
         }
         parts.join("; ")
     }
@@ -316,6 +320,13 @@ fn sync_index_with_sidecar_dir(
                     report.empty_sessions += 1;
                     continue;
                 }
+                if !adapters[ai].is_interactive(&s) {
+                    // Non-interactive threads (e.g. Codex sub-agent /
+                    // memory-consolidation) a user would never resume. The
+                    // adapter owns that judgment; don't index them.
+                    report.non_interactive_sessions += 1;
+                    continue;
+                }
                 index.upsert_with_sidecar_stamp(
                     &mut writer,
                     &s,
@@ -403,6 +414,11 @@ mod tests {
         fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
             Some(vec!["unarchive".into(), s.meta.id.clone()])
         }
+        // Stand-in for an adapter with a non-interactive notion: a neutral marker
+        // so the engine test exercises the mechanism, not Codex's vocabulary.
+        fn is_interactive(&self, s: &Session) -> bool {
+            s.meta.source.as_deref() != Some("non-interactive")
+        }
     }
 
     fn sess(id: &str, title: &str) -> Session {
@@ -418,13 +434,7 @@ mod tests {
                 directory: "/d".into(),
                 timestamp: 100,
                 message_count: 1,
-                yolo: false,
-                branch: None,
-                repo_url: None,
-                source_path: None,
-                archived: false,
-                worktree: None,
-                permission_mode: None,
+                ..Default::default()
             },
             content: title.into(),
             mtime: 10,
@@ -657,6 +667,24 @@ mod tests {
         engine.search().unwrap();
 
         // The empty session is skipped; only the real one is searchable.
+        assert_eq!(engine.results().len(), 1);
+        assert_eq!(engine.results()[0].id, "real");
+    }
+
+    #[test]
+    fn non_interactive_sessions_are_not_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut sub = sess_for(AgentId::Codex, "subagent", "helper thread output");
+        sub.meta.source = Some("non-interactive".into());
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![adapter(AgentId::Codex, vec![sub, sess("real", "auth bug")])];
+        let mut engine = Engine::new(dir.path(), adapters).unwrap();
+        let report = engine.sync_once().unwrap();
+        assert_eq!(report.non_interactive_sessions, 1);
+        engine.set_query("");
+        engine.search().unwrap();
+
+        // The non-interactive session is skipped; only the real one is searchable.
         assert_eq!(engine.results().len(), 1);
         assert_eq!(engine.results()[0].id, "real");
     }

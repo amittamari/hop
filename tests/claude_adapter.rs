@@ -35,6 +35,58 @@ fn parses_id_cwd_and_excludes_noise() {
     assert_eq!(s.meta.title, "fix the auth refresh token bug");
     assert_eq!(s.meta.message_count, 2);
     assert!(!s.meta.yolo);
+
+    // model captured from the assistant message (M1); no commit/source for Claude
+    assert_eq!(s.meta.model.as_deref(), Some("claude-opus-4-8"));
+    assert_eq!(s.meta.commit, None);
+    assert_eq!(s.meta.source, None);
+}
+
+#[test]
+fn claude_skips_synthetic_model_sentinel() {
+    use std::fs;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("s.jsonl");
+    fs::write(
+        &file,
+        concat!(
+            r#"{"type":"user","cwd":"/w","timestamp":"2026-06-04T13:20:16.361Z","message":{"role":"user","content":"hi"}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-06-04T13:20:17.000Z","message":{"role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"hello"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-06-04T13:20:18.000Z","message":{"role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"more"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let adapter = ClaudeAdapter::new(PathBuf::from("/unused"));
+    let s = adapter.parse(&file).unwrap();
+    // First real model wins; the "<synthetic>" sentinel is ignored.
+    assert_eq!(s.meta.model.as_deref(), Some("claude-opus-4-8"));
+}
+
+#[test]
+fn claude_meta_assistant_line_does_not_override_model() {
+    use std::fs;
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("s.jsonl");
+    fs::write(
+        &file,
+        concat!(
+            r#"{"type":"user","cwd":"/w","timestamp":"2026-06-04T13:20:16.361Z","message":{"role":"user","content":"hi"}}"#,
+            "\n",
+            r#"{"type":"assistant","timestamp":"2026-06-04T13:20:17.000Z","message":{"role":"assistant","model":"claude-opus-4-8","content":[{"type":"text","text":"hello"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","isMeta":true,"timestamp":"2026-06-04T13:20:18.000Z","message":{"role":"assistant","model":"claude-injected-9","content":[{"type":"text","text":"injected"}]}}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    let adapter = ClaudeAdapter::new(PathBuf::from("/unused"));
+    let s = adapter.parse(&file).unwrap();
+    // The trailing meta line is skipped before model capture, so the real
+    // assistant turn's model is preserved.
+    assert_eq!(s.meta.model.as_deref(), Some("claude-opus-4-8"));
 }
 
 #[test]

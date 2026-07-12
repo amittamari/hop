@@ -65,13 +65,7 @@ mod tests {
             directory: "/vendor/path".into(),
             timestamp: 100,
             message_count: 5,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }
     }
 

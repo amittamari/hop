@@ -14,7 +14,7 @@ use tantivy::schema::{
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
 const SCORE_BUCKET_SCALE: f32 = 10.0;
@@ -39,6 +39,8 @@ struct Fields {
     archived: Field,
     worktree: Field,
     permission_mode: Field,
+    model: Field,
+    commit: Field,
     sidecar_stamp: Field,
 }
 
@@ -73,6 +75,8 @@ fn build_schema() -> (Schema, Fields) {
         archived: b.add_u64_field("archived", STORED),
         worktree: b.add_text_field("worktree", STRING | STORED),
         permission_mode: b.add_text_field("permission_mode", STRING | STORED),
+        model: b.add_text_field("model", STRING | STORED),
+        commit: b.add_text_field("commit", STRING | STORED),
         sidecar_stamp: b.add_text_field("sidecar_stamp", STRING | STORED),
     };
     (b.build(), f)
@@ -156,6 +160,12 @@ impl SearchIndex {
         }
         if let Some(pm) = &m.permission_mode {
             doc.add_text(self.f.permission_mode, pm);
+        }
+        if let Some(model) = &m.model {
+            doc.add_text(self.f.model, model);
+        }
+        if let Some(commit) = &m.commit {
+            doc.add_text(self.f.commit, commit);
         }
         if let Some(stamp) = sidecar_stamp {
             doc.add_text(self.f.sidecar_stamp, stamp);
@@ -399,6 +409,8 @@ impl SearchIndex {
                 .unwrap_or("")
                 .to_string()
         };
+        // Stored text fields treat the empty string as absent.
+        let get_opt_str = |f: Field| Some(get_str(f)).filter(|s| !s.is_empty());
         let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
         SessionSummary {
             id: get_str(self.f.id),
@@ -408,47 +420,17 @@ impl SearchIndex {
             timestamp: get_u64(self.f.timestamp) as i64,
             message_count: get_u64(self.f.message_count) as u32,
             yolo: get_u64(self.f.yolo) != 0,
-            branch: {
-                let b = get_str(self.f.branch);
-                if b.is_empty() {
-                    None
-                } else {
-                    Some(b)
-                }
-            },
-            repo_url: {
-                let r = get_str(self.f.repo_url);
-                if r.is_empty() {
-                    None
-                } else {
-                    Some(r)
-                }
-            },
-            source_path: {
-                let p = get_str(self.f.source_path);
-                if p.is_empty() {
-                    None
-                } else {
-                    Some(p.into())
-                }
-            },
+            branch: get_opt_str(self.f.branch),
+            repo_url: get_opt_str(self.f.repo_url),
+            source_path: get_opt_str(self.f.source_path).map(Into::into),
             archived: get_u64(self.f.archived) != 0,
-            worktree: {
-                let w = get_str(self.f.worktree);
-                if w.is_empty() {
-                    None
-                } else {
-                    Some(w)
-                }
-            },
-            permission_mode: {
-                let pm = get_str(self.f.permission_mode);
-                if pm.is_empty() {
-                    None
-                } else {
-                    Some(pm)
-                }
-            },
+            worktree: get_opt_str(self.f.worktree),
+            permission_mode: get_opt_str(self.f.permission_mode),
+            model: get_opt_str(self.f.model),
+            commit: get_opt_str(self.f.commit),
+            // `source` is a pre-index filter signal only; indexed sessions are
+            // all interactive, so it is never persisted or read back.
+            source: None,
         }
     }
 }
