@@ -1,0 +1,6 @@
+# Formatting config, mirroring the discipline of larger Rust projects (e.g. oxc).
+# Kept minimal: only stable options plus the 2024 style edition.
+style_edition = "2024"
+# Wider layouts read better on modern screens and match rustc's own config.
+use_small_heuristics = "Max"
+use_field_init_shorthand = true

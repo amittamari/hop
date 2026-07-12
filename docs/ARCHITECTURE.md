@@ -68,7 +68,7 @@ rows and surface as sync status warnings.
   `engine.set_sort`), so the Tantivy layer is unaware of the mode.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
   synchronous; slow enrichers run through `EnrichmentService`.
-- `src/columns.rs`: column definitions and responsive width solving.
+- `src/tui/columns.rs`: column definitions and responsive width solving.
 - `src/resume.rs`: terminal-safe process handoff through `exec`, plus an
   optional run-and-wait prepare step (e.g. `codex unarchive <id>` for archived
   sessions) executed after terminal restore and before the resume `exec`.

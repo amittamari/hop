@@ -44,10 +44,7 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
             // any other line — including indented backtick examples — is captured verbatim.
             let trimmed = t.trim();
             if trimmed.len() >= 3 && trimmed.chars().all(|c| c == '`') {
-                out.push(Block::Code {
-                    lang: lang.take(),
-                    text: code.join("\n"),
-                });
+                out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
                 code.clear();
                 in_code = false;
             } else {
@@ -58,11 +55,7 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
         if let Some(rest) = t.trim_start().strip_prefix("```") {
             flush_prose(&mut prose, &mut out);
             let l = rest.trim();
-            lang = if l.is_empty() {
-                None
-            } else {
-                Some(l.to_string())
-            };
+            lang = if l.is_empty() { None } else { Some(l.to_string()) };
             in_code = true;
             continue;
         }
@@ -70,10 +63,7 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
     }
     if in_code {
         // unterminated fence: keep what we have as code
-        out.push(Block::Code {
-            lang: lang.take(),
-            text: code.join("\n"),
-        });
+        out.push(Block::Code { lang: lang.take(), text: code.join("\n") });
     } else {
         flush_prose(&mut prose, &mut out);
     }
@@ -119,9 +109,7 @@ const COMMAND_TAG_PREFIXES: [&str; 10] = [
 
 pub fn is_command_tag_line(text: &str) -> bool {
     let trimmed = text.trim_start();
-    COMMAND_TAG_PREFIXES
-        .iter()
-        .any(|prefix| trimmed.starts_with(prefix))
+    COMMAND_TAG_PREFIXES.iter().any(|prefix| trimmed.starts_with(prefix))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -289,15 +277,12 @@ pub fn truncate_title(raw: &str, max: usize) -> String {
 /// the first user prose message. Width truncation is a rendering concern.
 pub fn derive_session_title(explicit: Option<&str>, messages: &[Message]) -> String {
     let raw = explicit.or_else(|| {
-        messages
-            .iter()
-            .find(|m| m.role == Role::User)
-            .and_then(|m| {
-                m.blocks.iter().find_map(|b| match b {
-                    Block::Prose(s) => Some(s.as_str()),
-                    _ => None,
-                })
+        messages.iter().find(|m| m.role == Role::User).and_then(|m| {
+            m.blocks.iter().find_map(|b| match b {
+                Block::Prose(s) => Some(s.as_str()),
+                _ => None,
             })
+        })
     });
 
     raw.map(normalize_title)
@@ -343,18 +328,12 @@ mod tests {
         let messages = vec![Message {
             role: Role::User,
             blocks: vec![
-                Block::Code {
-                    lang: None,
-                    text: "ignored".into(),
-                },
+                Block::Code { lang: None, text: "ignored".into() },
                 Block::Prose("first\nuser\tprompt".into()),
             ],
         }];
 
-        assert_eq!(
-            derive_session_title(Some("explicit  title"), &messages),
-            "explicit title"
-        );
+        assert_eq!(derive_session_title(Some("explicit  title"), &messages), "explicit title");
         assert_eq!(derive_session_title(None, &messages), "first user prompt");
         assert_eq!(derive_session_title(None, &[]), "(untitled)");
     }
@@ -367,10 +346,7 @@ mod tests {
             blocks,
             vec![
                 Block::Prose("before".into()),
-                Block::Code {
-                    lang: Some("rust".into()),
-                    text: "fn x() {}".into()
-                },
+                Block::Code { lang: Some("rust".into()), text: "fn x() {}".into() },
                 Block::Prose("after".into()),
             ]
         );
@@ -378,22 +354,13 @@ mod tests {
 
     #[test]
     fn split_blocks_plain_prose_is_single_block() {
-        assert_eq!(
-            split_blocks("just text"),
-            vec![Block::Prose("just text".into())]
-        );
+        assert_eq!(split_blocks("just text"), vec![Block::Prose("just text".into())]);
     }
 
     #[test]
     fn split_blocks_unlabeled_fence_has_no_lang() {
         let blocks = split_blocks("```\nraw\n```");
-        assert_eq!(
-            blocks,
-            vec![Block::Code {
-                lang: None,
-                text: "raw".into()
-            }]
-        );
+        assert_eq!(blocks, vec![Block::Code { lang: None, text: "raw".into() }]);
     }
 
     #[test]
@@ -405,28 +372,19 @@ mod tests {
     fn split_blocks_unterminated_fence_kept_as_code() {
         assert_eq!(
             split_blocks("```rust\nlet x=1;"),
-            vec![Block::Code {
-                lang: Some("rust".into()),
-                text: "let x=1;".into()
-            }]
+            vec![Block::Code { lang: Some("rust".into()), text: "let x=1;".into() }]
         );
     }
 
     #[test]
     fn flatten_messages_joins_prose_and_code() {
         let msgs = vec![
-            Message {
-                role: Role::User,
-                blocks: vec![Block::Prose("hi".into())],
-            },
+            Message { role: Role::User, blocks: vec![Block::Prose("hi".into())] },
             Message {
                 role: Role::Agent,
                 blocks: vec![
                     Block::Prose("fixed".into()),
-                    Block::Code {
-                        lang: Some("rust".into()),
-                        text: "let x=1;".into(),
-                    },
+                    Block::Code { lang: Some("rust".into()), text: "let x=1;".into() },
                 ],
             },
         ];
@@ -442,15 +400,9 @@ mod tests {
         ));
         assert!(is_command_tag_line("<bash-stdout>ok</bash-stdout>"));
         assert!(is_command_tag_line("<bash-stderr></bash-stderr>"));
-        assert!(is_command_tag_line(
-            "<task-notification>done</task-notification>"
-        ));
-        assert!(is_command_tag_line(
-            "<persisted-output>...</persisted-output>"
-        ));
-        assert!(!is_command_tag_line(
-            "<context>keep this user context</context>"
-        ));
+        assert!(is_command_tag_line("<task-notification>done</task-notification>"));
+        assert!(is_command_tag_line("<persisted-output>...</persisted-output>"));
+        assert!(!is_command_tag_line("<context>keep this user context</context>"));
         assert!(!is_command_tag_line("regular command discussion"));
     }
 }

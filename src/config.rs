@@ -23,11 +23,7 @@ fn default_width_pct() -> u16 {
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        PreviewConfig {
-            visible: true,
-            width_pct: 50,
-            metadata_header: true,
-        }
+        PreviewConfig { visible: true, width_pct: 50, metadata_header: true }
     }
 }
 
@@ -58,11 +54,11 @@ impl LauncherConfig {
 
 fn rewrite_argv_inner(tmpl: &str, agent: AgentId, argv: &[String]) -> anyhow::Result<Vec<String>> {
     let expanded = tmpl.replace("{agent}", agent.slug());
-    if let Some(pos) = expanded.find('{') {
-        if let Some(end) = expanded[pos..].find('}') {
-            let unknown = &expanded[pos..pos + end + 1];
-            anyhow::bail!("unknown launcher template variable: {unknown}");
-        }
+    if let Some(pos) = expanded.find('{')
+        && let Some(end) = expanded[pos..].find('}')
+    {
+        let unknown = &expanded[pos..pos + end + 1];
+        anyhow::bail!("unknown launcher template variable: {unknown}");
     }
     let mut prefix = shlex::split(&expanded)
         .ok_or_else(|| anyhow::anyhow!("unterminated quote in launcher command"))?;
@@ -164,10 +160,7 @@ mod tests {
         let cfg = Config::default();
         // Claude default ends in .claude/projects, Codex default ends in .codex
         assert!(cfg.data_dir(AgentId::Claude).ends_with("projects"));
-        assert!(cfg
-            .data_dir(AgentId::Codex)
-            .to_string_lossy()
-            .contains(".codex"));
+        assert!(cfg.data_dir(AgentId::Codex).to_string_lossy().contains(".codex"));
     }
 
     #[test]
@@ -177,15 +170,9 @@ mod tests {
             claude = "/custom/claude"
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
-        assert_eq!(
-            cfg.data_dir(AgentId::Claude),
-            std::path::PathBuf::from("/custom/claude")
-        );
+        assert_eq!(cfg.data_dir(AgentId::Claude), std::path::PathBuf::from("/custom/claude"));
         // unset agent falls back to default
-        assert!(cfg
-            .data_dir(AgentId::Codex)
-            .to_string_lossy()
-            .contains(".codex"));
+        assert!(cfg.data_dir(AgentId::Codex).to_string_lossy().contains(".codex"));
     }
 
     #[test]
@@ -228,21 +215,13 @@ mod tests {
             quit = "ctrl+q"
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
-        assert_eq!(
-            cfg.keybindings.get("toggle_preview").map(String::as_str),
-            Some("ctrl+t")
-        );
-        assert_eq!(
-            cfg.keybindings.get("quit").map(String::as_str),
-            Some("ctrl+q")
-        );
+        assert_eq!(cfg.keybindings.get("toggle_preview").map(String::as_str), Some("ctrl+t"));
+        assert_eq!(cfg.keybindings.get("quit").map(String::as_str), Some("ctrl+q"));
     }
 
     #[test]
     fn launcher_rewrites_argv() {
-        let cfg = LauncherConfig {
-            command: Some("kv --ai {agent}".into()),
-        };
+        let cfg = LauncherConfig { command: Some("kv --ai {agent}".into()) };
         let argv: Vec<String> = vec!["claude".into(), "--resume".into(), "abc-123".into()];
         let result = cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().unwrap();
         assert_eq!(result, vec!["kv", "--ai", "claude", "--resume", "abc-123"]);
@@ -250,9 +229,7 @@ mod tests {
 
     #[test]
     fn launcher_preserves_yolo_flags() {
-        let cfg = LauncherConfig {
-            command: Some("kv --ai {agent}".into()),
-        };
+        let cfg = LauncherConfig { command: Some("kv --ai {agent}".into()) };
         let argv: Vec<String> = vec![
             "claude".into(),
             "--dangerously-skip-permissions".into(),
@@ -262,14 +239,7 @@ mod tests {
         let result = cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().unwrap();
         assert_eq!(
             result,
-            vec![
-                "kv",
-                "--ai",
-                "claude",
-                "--dangerously-skip-permissions",
-                "--resume",
-                "id"
-            ]
+            vec!["kv", "--ai", "claude", "--dangerously-skip-permissions", "--resume", "id"]
         );
     }
 
@@ -282,9 +252,7 @@ mod tests {
 
     #[test]
     fn launcher_unknown_variable_is_error() {
-        let cfg = LauncherConfig {
-            command: Some("kv {unknown}".into()),
-        };
+        let cfg = LauncherConfig { command: Some("kv {unknown}".into()) };
         let argv: Vec<String> = vec!["claude".into()];
         assert!(cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().is_err());
     }
@@ -303,12 +271,7 @@ mod tests {
     fn ui_state_roundtrips() {
         let tmp = tempfile::tempdir().unwrap();
         let p = tmp.path().join("ui_state.toml");
-        UiState {
-            preview_visible: false,
-            preview_width_pct: 35,
-        }
-        .save(&p)
-        .unwrap();
+        UiState { preview_visible: false, preview_width_pct: 35 }.save(&p).unwrap();
         let loaded = UiState::load(&p).unwrap();
         assert!(!loaded.preview_visible);
         assert_eq!(loaded.preview_width_pct, 35);

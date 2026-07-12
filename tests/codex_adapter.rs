@@ -1,20 +1,16 @@
-use hop::adapters::codex::CodexAdapter;
 use hop::adapters::Adapter;
+use hop::adapters::codex::CodexAdapter;
 use hop::core::AgentId;
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/codex")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/codex").join(name)
 }
 
 #[test]
 fn parses_meta_clean_text_and_detects_yolo() {
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));
-    let s = adapter
-        .parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl"))
-        .unwrap();
+    let s = adapter.parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl")).unwrap();
 
     assert_eq!(s.meta.agent, AgentId::Codex);
     assert_eq!(s.meta.id, "codexsample"); // from session_meta.payload.id
@@ -138,9 +134,7 @@ fn flags_archived_sessions_by_directory() {
 #[test]
 fn codex_unarchive_command_wraps_session_id() {
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));
-    let s = adapter
-        .parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl"))
-        .unwrap();
+    let s = adapter.parse(&fixture("rollout-2026-06-04T10-00-00-codexsample.jsonl")).unwrap();
     assert_eq!(
         adapter.unarchive_command(&s),
         Some(vec!["codex".into(), "unarchive".into(), s.meta.id.clone()])
@@ -171,23 +165,20 @@ fn scan_keys_by_full_uuid() {
 
 #[test]
 fn codex_captures_branch_and_repo_url() {
-    use hop::adapters::codex::CodexAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::codex::CodexAdapter;
     let path =
         std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
     let a = CodexAdapter::new(std::path::PathBuf::from("/unused"));
     let s = a.parse(path).unwrap();
     assert_eq!(s.meta.branch.as_deref(), Some("main"));
-    assert_eq!(
-        s.meta.repo_url.as_deref(),
-        Some("git@github.com:me/web.git")
-    );
+    assert_eq!(s.meta.repo_url.as_deref(), Some("git@github.com:me/web.git"));
 }
 
 #[test]
 fn codex_transcript_roles_and_filters_internals() {
-    use hop::adapters::codex::CodexAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::codex::CodexAdapter;
     use hop::core::Role;
     let path =
         std::path::Path::new("tests/fixtures/codex/rollout-2026-06-04T10-00-00-codexsample.jsonl");
@@ -202,9 +193,7 @@ fn codex_transcript_roles_and_filters_internals() {
 #[test]
 fn codex_preserves_long_normalized_title() {
     let tmp = tempfile::tempdir().unwrap();
-    let file = tmp
-        .path()
-        .join("rollout-2026-06-04T10-00-00-longtitle.jsonl");
+    let file = tmp.path().join("rollout-2026-06-04T10-00-00-longtitle.jsonl");
     let long_title = "please review the terminal result table and make the repository and branch columns fit their visible content before the title column receives leftover width";
     let meta = serde_json::json!({
         "type": "session_meta",
@@ -232,9 +221,7 @@ fn codex_filters_event_message_tags_and_external_tool_blocks() {
     use hop::core::{Block, Role};
 
     let tmp = tempfile::tempdir().unwrap();
-    let file = tmp
-        .path()
-        .join("rollout-2026-06-04T10-00-00-tagsample.jsonl");
+    let file = tmp.path().join("rollout-2026-06-04T10-00-00-tagsample.jsonl");
     std::fs::write(
         &file,
         concat!(
@@ -276,9 +263,7 @@ fn paginated_history_uses_response_items_without_duplicates() {
     use hop::core::Role;
 
     let tmp = tempfile::tempdir().unwrap();
-    let file = tmp
-        .path()
-        .join("rollout-2026-07-11T10-00-00-paginated.jsonl");
+    let file = tmp.path().join("rollout-2026-07-11T10-00-00-paginated.jsonl");
     let lines = [
         serde_json::json!({
             "type": "session_meta",
@@ -333,11 +318,7 @@ fn paginated_history_uses_response_items_without_duplicates() {
     ];
     std::fs::write(
         &file,
-        lines
-            .iter()
-            .map(serde_json::Value::to_string)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        lines.iter().map(serde_json::Value::to_string).collect::<Vec<_>>().join("\n"),
     )
     .unwrap();
 
@@ -361,9 +342,8 @@ fn paginated_history_uses_response_items_without_duplicates() {
 #[test]
 fn history_mode_defaults_and_empty_preferred_source_falls_back() {
     fn write_session(path: &std::path::Path, history_mode: Option<&str>, records: &str) {
-        let mode = history_mode
-            .map(|value| format!(r#", "history_mode": "{value}""#))
-            .unwrap_or_default();
+        let mode =
+            history_mode.map(|value| format!(r#", "history_mode": "{value}""#)).unwrap_or_default();
         std::fs::write(
             path,
             format!(
@@ -387,18 +367,15 @@ fn history_mode_defaults_and_empty_preferred_source_falls_back() {
         ),
     );
 
-    let paginated_fallback = tmp
-        .path()
-        .join("rollout-2026-07-11T10-00-00-paginated-fallback.jsonl");
+    let paginated_fallback =
+        tmp.path().join("rollout-2026-07-11T10-00-00-paginated-fallback.jsonl");
     write_session(
         &paginated_fallback,
         Some("paginated"),
         r#"{"type":"event_msg","payload":{"type":"user_message","message":"event fallback"}}"#,
     );
 
-    let legacy_fallback = tmp
-        .path()
-        .join("rollout-2026-07-11T10-00-00-legacy-fallback.jsonl");
+    let legacy_fallback = tmp.path().join("rollout-2026-07-11T10-00-00-legacy-fallback.jsonl");
     write_session(
         &legacy_fallback,
         Some("future-mode"),
@@ -407,14 +384,8 @@ fn history_mode_defaults_and_empty_preferred_source_falls_back() {
 
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));
     assert_eq!(adapter.parse(&legacy).unwrap().meta.title, "legacy wins");
-    assert_eq!(
-        adapter.parse(&paginated_fallback).unwrap().meta.title,
-        "event fallback"
-    );
-    assert_eq!(
-        adapter.parse(&legacy_fallback).unwrap().meta.title,
-        "response fallback"
-    );
+    assert_eq!(adapter.parse(&paginated_fallback).unwrap().meta.title, "event fallback");
+    assert_eq!(adapter.parse(&legacy_fallback).unwrap().meta.title, "response fallback");
 }
 
 #[test]
@@ -434,7 +405,8 @@ fn codex_filters_all_injected_context_blocks_and_request_prefix() {
     ];
     let mut message = String::new();
     for tag in tags {
-        message.push_str(&format!("<{tag}>hidden {tag}</{tag}>\n"));
+        use std::fmt::Write as _;
+        writeln!(message, "<{tag}>hidden {tag}</{tag}>").unwrap();
     }
     message.push_str("## My request for Codex:\nkeep this request");
 
@@ -485,11 +457,7 @@ fn codex_title_skips_review_mode_boilerplate() {
     ];
     std::fs::write(
         &file,
-        records
-            .iter()
-            .map(serde_json::Value::to_string)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        records.iter().map(serde_json::Value::to_string).collect::<Vec<_>>().join("\n"),
     )
     .unwrap();
 
@@ -537,21 +505,13 @@ fn scans_and_parses_compressed_rollouts_and_prefers_plain_siblings() {
     assert_eq!(session.meta.id, "compressed");
     assert_eq!(session.meta.title, "from compressed");
     assert!(session.meta.archived);
-    assert_eq!(
-        adapter
-            .transcript(&scanned["compressed"].path)
-            .unwrap()
-            .len(),
-        1
-    );
+    assert_eq!(adapter.transcript(&scanned["compressed"].path).unwrap().len(), 1);
 }
 
 #[test]
 fn corrupt_compressed_rollout_is_a_parse_error() {
     let tmp = tempfile::tempdir().unwrap();
-    let file = tmp
-        .path()
-        .join("rollout-2026-07-11T10-00-00-corrupt.jsonl.zst");
+    let file = tmp.path().join("rollout-2026-07-11T10-00-00-corrupt.jsonl.zst");
     std::fs::write(&file, b"not a zstd stream").unwrap();
 
     let adapter = CodexAdapter::new(PathBuf::from("/unused"));

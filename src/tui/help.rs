@@ -1,13 +1,13 @@
 //! Centered help overlay listing the keymap.
 
+use crate::tui::SearchMode;
 use crate::tui::keymap::Keymap;
 use crate::tui::theme::Theme;
-use crate::tui::SearchMode;
+use ratatui::Frame;
 use ratatui::layout::Alignment;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Padding, Paragraph};
-use ratatui::Frame;
 
 pub fn lines(keymap: &Keymap, mode: SearchMode, theme: &Theme) -> Vec<Line<'static>> {
     let table = crate::tui::keymap::bindings(keymap, mode);
@@ -76,12 +76,7 @@ const QUERY_KEYWORDS: &[(&str, &str)] = &[
 ];
 
 fn section(label: &'static str, theme: &Theme) -> Line<'static> {
-    Line::from(Span::styled(
-        label,
-        Style::default()
-            .fg(theme.accent)
-            .add_modifier(Modifier::BOLD),
-    ))
+    Line::from(Span::styled(label, Style::default().fg(theme.accent).add_modifier(Modifier::BOLD)))
 }
 
 /// Render the overlay centered over the frame.
@@ -93,29 +88,17 @@ pub fn render(f: &mut Frame, keymap: &Keymap, mode: SearchMode, theme: &Theme) {
 
     let body = lines(keymap, mode, theme);
     let w = 58u16.min(area.width.saturating_sub(4)).max(8);
-    let h = (body.len() as u16 + 4)
-        .min(area.height.saturating_sub(2))
-        .max(4);
+    let h = (body.len() as u16 + 4).min(area.height.saturating_sub(2)).max(4);
     let rect = crate::tui::modal::center(area, w, h);
-    f.buffer_mut().set_style(
-        area,
-        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
-    );
+    f.buffer_mut().set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
     f.render_widget(Clear, rect);
     let block = Block::bordered()
         .border_style(Style::default().fg(theme.accent))
         .title(" help ")
-        .title_style(
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )
+        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
         .padding(Padding::symmetric(2, 1));
     f.render_widget(
-        Paragraph::new(body)
-            .block(block)
-            .alignment(Alignment::Left)
-            .style(Style::default()),
+        Paragraph::new(body).block(block).alignment(Alignment::Left).style(Style::default()),
         rect,
     );
 }
@@ -127,12 +110,7 @@ mod tests {
     fn rendered_text(mode: SearchMode) -> String {
         lines(&Keymap::defaults(), mode, &Theme::default())
             .iter()
-            .map(|x| {
-                x.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
+            .map(|x| x.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -141,18 +119,10 @@ mod tests {
     fn help_lists_every_binding_from_table() {
         let text = rendered_text(SearchMode::Simple);
         for b in crate::tui::keymap::bindings(&Keymap::defaults(), SearchMode::Simple) {
-            assert!(
-                text.contains(b.label),
-                "help overlay missing binding label {:?}",
-                b.label
-            );
+            assert!(text.contains(b.label), "help overlay missing binding label {:?}", b.label);
             // The "type" pseudo-key has no literal key column in help.
             if b.keys != "type" {
-                assert!(
-                    text.contains(&b.keys),
-                    "help overlay missing binding keys {:?}",
-                    b.keys
-                );
+                assert!(text.contains(&b.keys), "help overlay missing binding keys {:?}", b.keys);
             }
         }
         // Group headings still render.
@@ -170,10 +140,7 @@ mod tests {
         let text = rendered_text(SearchMode::Simple);
         assert!(text.contains("Query Keywords"));
         for (kw, _) in QUERY_KEYWORDS {
-            assert!(
-                text.contains(kw),
-                "help overlay missing query keyword {kw:?}"
-            );
+            assert!(text.contains(kw), "help overlay missing query keyword {kw:?}");
         }
         // Keyword labels must fit the shared key column so alignment holds.
         let key_w = crate::tui::keymap::bindings(&Keymap::defaults(), SearchMode::Simple)
@@ -220,27 +187,14 @@ mod tests {
 
     #[test]
     fn overlay_renders_labels_into_buffer() {
-        use ratatui::backend::TestBackend;
         use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
 
         let backend = TestBackend::new(64, 40);
         let mut term = Terminal::new(backend).unwrap();
-        term.draw(|f| {
-            render(
-                f,
-                &Keymap::defaults(),
-                SearchMode::Simple,
-                &Theme::default(),
-            )
-        })
-        .unwrap();
-        let text: String = term
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
+        term.draw(|f| render(f, &Keymap::defaults(), SearchMode::Simple, &Theme::default()))
+            .unwrap();
+        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("toggle preview"));
         assert!(text.contains("resume"));
         assert!(text.contains("help"));

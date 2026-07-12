@@ -4,13 +4,14 @@ use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, RangeQuery,
     TermQuery,
 };
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, Value, FAST, INDEXED, STORED, STRING, TEXT,
+    FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, Value,
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
@@ -54,6 +55,23 @@ pub struct SearchIndex {
     index: Index,
     reader: IndexReader,
     f: Fields,
+    /// The single `IndexWriter` for this handle, created on first write and
+    /// reused for the handle's lifetime. Tantivy allows only one writer per
+    /// directory at a time, so we never reopen one mid-life; reopening would race
+    /// the previous writer's not-yet-released `.tantivy-writer.lock`. `None` until
+    /// the first write, so read-only handles never take the writer lock.
+    writer: Mutex<Option<IndexWriter>>,
+}
+
+impl Drop for SearchIndex {
+    fn drop(&mut self) {
+        // Wind the writer's merge threads down so the directory lock is released
+        // deterministically before any other handle opens a writer on this dir.
+        // Merely dropping an `IndexWriter` only *detaches* those threads.
+        if let Some(writer) = self.writer.get_mut().ok().and_then(Option::take) {
+            let _ = writer.wait_merging_threads();
+        }
+    }
 }
 
 fn build_schema() -> (Schema, Fields) {
@@ -88,10 +106,9 @@ impl SearchIndex {
     pub fn open_or_create(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         let marker = dir.join(".schema_version");
-        let version_ok = std::fs::read_to_string(&marker)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            == Some(SCHEMA_VERSION);
+        let version_ok =
+            std::fs::read_to_string(&marker).ok().and_then(|s| s.trim().parse::<u32>().ok())
+                == Some(SCHEMA_VERSION);
 
         if !version_ok && dir.join("meta.json").exists() {
             // schema changed: drop the whole index dir and recreate it empty
@@ -109,11 +126,26 @@ impl SearchIndex {
         std::fs::write(&marker, SCHEMA_VERSION.to_string())?;
 
         let reader = index.reader()?;
-        Ok(Self { index, reader, f })
+        Ok(Self { index, reader, f, writer: Mutex::new(None) })
     }
 
-    pub fn writer(&self) -> Result<IndexWriter> {
-        Ok(self.index.writer(WRITER_HEAP)?)
+    /// Run `f` against this handle's single long-lived writer, creating it on
+    /// first use. See the `writer` field docs for why we keep one writer rather
+    /// than reopening per operation.
+    fn with_writer<R>(&self, f: impl FnOnce(&mut IndexWriter) -> Result<R>) -> Result<R> {
+        let mut guard = self.writer.lock().expect("index writer mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.index.writer(WRITER_HEAP)?);
+        }
+        f(guard.as_mut().expect("writer initialized above"))
+    }
+
+    /// Commit the pending writes. No-op if nothing has been written yet.
+    pub fn commit(&self) -> Result<()> {
+        self.with_writer(|w| {
+            w.commit()?;
+            Ok(())
+        })
     }
 
     pub fn reload(&self) -> Result<()> {
@@ -121,19 +153,17 @@ impl SearchIndex {
         Ok(())
     }
 
-    pub fn upsert(&self, w: &mut IndexWriter, s: &Session) {
-        self.upsert_with_sidecar_stamp(w, s, None);
+    pub fn upsert(&self, s: &Session) -> Result<()> {
+        self.upsert_with_sidecar_stamp(s, None)
     }
 
     pub fn upsert_with_sidecar_stamp(
         &self,
-        w: &mut IndexWriter,
         s: &Session,
         sidecar_stamp: Option<&str>,
-    ) {
+    ) -> Result<()> {
         let m = &s.meta;
         let doc_key = m.document_key();
-        w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
         let mut doc = TantivyDocument::default();
         doc.add_text(self.f.doc_key, &doc_key);
         doc.add_text(self.f.id, &m.id);
@@ -170,11 +200,19 @@ impl SearchIndex {
         if let Some(stamp) = sidecar_stamp {
             doc.add_text(self.f.sidecar_stamp, stamp);
         }
-        let _ = w.add_document(doc);
+        self.with_writer(|w| {
+            // Replace any existing row for this key, then add the fresh document.
+            w.delete_term(Term::from_field_text(self.f.doc_key, &doc_key));
+            let _ = w.add_document(doc);
+            Ok(())
+        })
     }
 
-    pub fn delete(&self, w: &mut IndexWriter, doc_key: &str) {
-        w.delete_term(Term::from_field_text(self.f.doc_key, doc_key));
+    pub fn delete(&self, doc_key: &str) -> Result<()> {
+        self.with_writer(|w| {
+            w.delete_term(Term::from_field_text(self.f.doc_key, doc_key));
+            Ok(())
+        })
     }
 
     /// document_key -> mtime for every indexed session (drives incremental diff).
@@ -208,11 +246,7 @@ impl SearchIndex {
                 }
             }
         }
-        Ok(KnownSyncState {
-            mtimes,
-            sidecar_stamps: sidecars,
-            source_paths,
-        })
+        Ok(KnownSyncState { mtimes, sidecar_stamps: sidecars, source_paths })
     }
 
     /// Run a parsed query. `now` is unix seconds (for date filtering). `sort`
@@ -233,9 +267,8 @@ impl SearchIndex {
             clauses.push((Occur::Must, Box::new(AllQuery)));
         } else {
             let qp = QueryParser::for_index(&self.index, vec![self.f.title, self.f.content]);
-            let exact = qp
-                .parse_query(&sanitize(&q.free_text))
-                .unwrap_or_else(|_| Box::new(AllQuery));
+            let exact =
+                qp.parse_query(&sanitize(&q.free_text)).unwrap_or_else(|_| Box::new(AllQuery));
             let mut should: Vec<(Occur, Box<dyn Query>)> =
                 vec![(Occur::Should, Box::new(BoostQuery::new(exact, EXACT_BOOST)))];
             for word in q.free_text.split_whitespace() {
@@ -281,10 +314,10 @@ impl SearchIndex {
             if hi.is_some_and(|hi| hi < 0) {
                 return Ok(Vec::new());
             }
-            if let (Some(lo), Some(hi)) = (lo, hi) {
-                if lo > hi {
-                    return Ok(Vec::new());
-                }
+            if let (Some(lo), Some(hi)) = (lo, hi)
+                && lo > hi
+            {
+                return Ok(Vec::new());
             }
             let lower = lo
                 .map(|lo| Bound::Included(Term::from_field_u64(self.f.timestamp, lo.max(0) as u64)))
@@ -329,9 +362,8 @@ impl SearchIndex {
                     searcher
                         .search(
                             &query,
-                            &TopDocs::with_limit(page_limit)
-                                .and_offset(offset)
-                                .tweak_score(move |segment_reader: &tantivy::SegmentReader| {
+                            &TopDocs::with_limit(page_limit).and_offset(offset).tweak_score(
+                                move |segment_reader: &tantivy::SegmentReader| {
                                     let timestamps = segment_reader
                                         .fast_fields()
                                         .u64("timestamp")
@@ -343,7 +375,8 @@ impl SearchIndex {
                                         let combined = score + recency_boost(age);
                                         (score_bucket(combined), ts)
                                     }
-                                }),
+                                },
+                            ),
                         )?
                         .into_iter()
                         .map(|(_, a)| a)
@@ -386,29 +419,15 @@ impl SearchIndex {
 
     fn to_session(&self, doc: &TantivyDocument) -> Session {
         let meta = self.to_summary(doc);
-        let content = doc
-            .get_first(self.f.content)
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let mtime = doc
-            .get_first(self.f.mtime)
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as i64;
-        Session {
-            meta,
-            content,
-            mtime,
-        }
+        let content =
+            doc.get_first(self.f.content).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mtime = doc.get_first(self.f.mtime).and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+        Session { meta, content, mtime }
     }
 
     fn to_summary(&self, doc: &TantivyDocument) -> SessionSummary {
-        let get_str = |f: Field| {
-            doc.get_first(f)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
+        let get_str =
+            |f: Field| doc.get_first(f).and_then(|v| v.as_str()).unwrap_or("").to_string();
         // Stored text fields treat the empty string as absent.
         let get_opt_str = |f: Field| Some(get_str(f)).filter(|s| !s.is_empty());
         let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
@@ -446,15 +465,8 @@ fn dir_ok(directory: &str, q: &ParsedQuery) -> bool {
 /// (non-git directories correctly drop out of any `repo:` query).
 fn repo_ok(repo_url: Option<&str>, q: &ParsedQuery) -> bool {
     let r = repo_url.unwrap_or_default().to_lowercase();
-    q.repos
-        .include
-        .iter()
-        .all(|i| r.contains(&i.to_lowercase()))
-        && !q
-            .repos
-            .exclude
-            .iter()
-            .any(|e| r.contains(&e.to_lowercase()))
+    q.repos.include.iter().all(|i| r.contains(&i.to_lowercase()))
+        && !q.repos.exclude.iter().any(|e| r.contains(&e.to_lowercase()))
 }
 
 fn score_bucket(score: tantivy::Score) -> i64 {
@@ -471,12 +483,7 @@ fn recency_boost(age_secs: u64) -> f32 {
 
 /// Escape characters that would make tantivy's QueryParser error out.
 fn sanitize(s: &str) -> String {
-    s.replace(
-        [
-            '+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"',
-        ],
-        " ",
-    )
+    s.replace(['+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"'], " ")
 }
 
 /// Pure incremental diff. Returns (changed[(id, entry)], deleted[id]).

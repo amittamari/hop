@@ -10,7 +10,7 @@ use hop::enrich::service::{EnrichmentService, EnrichmentState};
 use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
 use hop::tui::toolbar::Scope;
-use hop::tui::{preview, view::RenderModel, view::StatusLine, Action, App, SearchMode};
+use hop::tui::{Action, App, SearchMode, preview, view::RenderModel, view::StatusLine};
 use ratatui::crossterm::event::{self, Event};
 use std::time::Duration;
 
@@ -87,11 +87,7 @@ fn main() -> Result<()> {
                             eprintln!("Detected providers:");
                             for (i, p) in detected.iter().enumerate() {
                                 let effort = if p.best_effort { " [best-effort]" } else { "" };
-                                let status = if p.installed {
-                                    " (already installed)"
-                                } else {
-                                    ""
-                                };
+                                let status = if p.installed { " (already installed)" } else { "" };
                                 eprintln!("  {}. {}{}{}", i + 1, p.agent.badge(), effort, status);
                             }
                             eprint!("Install for all? [Y/n] ");
@@ -135,11 +131,7 @@ fn main() -> Result<()> {
                         let providers = hop::hooks::providers::detect_providers();
                         for p in &providers {
                             let detected = if p.detected { "detected" } else { "not found" };
-                            let installed = if p.installed {
-                                "installed"
-                            } else {
-                                "not installed"
-                            };
+                            let installed = if p.installed { "installed" } else { "not installed" };
                             let effort = if p.best_effort { " [best-effort]" } else { "" };
                             eprintln!(
                                 "{}: {} / {}{}",
@@ -196,34 +188,18 @@ fn main() -> Result<()> {
     };
     // Slug for the simple-mode "This repo" scope: explicit --repo wins, else auto.
     let scope_slug = cli.repo.clone().or_else(|| auto_repo.clone());
-    let scope = if cli.all || scope_slug.is_none() {
-        Scope::All
-    } else {
-        Scope::ThisRepo
-    };
+    let scope = if cli.all || scope_slug.is_none() { Scope::All } else { Scope::ThisRepo };
     let initial = match mode {
         SearchMode::Raw => {
             let q = cli.initial_query(auto_repo.as_deref());
             engine.set_query(q.clone());
-            InitialSearch {
-                mode,
-                scope,
-                repo_slug: scope_slug,
-                input: q,
-            }
+            InitialSearch { mode, scope, repo_slug: scope_slug, input: q }
         }
         SearchMode::Simple => {
             let free = cli.query.clone().unwrap_or_default();
-            let repo = matches!(scope, Scope::ThisRepo)
-                .then(|| scope_slug.as_deref())
-                .flatten();
+            let repo = matches!(scope, Scope::ThisRepo).then(|| scope_slug.as_deref()).flatten();
             engine.set_query(hop::query::compose_simple(&free, repo));
-            InitialSearch {
-                mode,
-                scope,
-                repo_slug: scope_slug,
-                input: free,
-            }
+            InitialSearch { mode, scope, repo_slug: scope_slug, input: free }
         }
     };
     engine.search()?; // immediate results from whatever is already indexed
@@ -241,10 +217,7 @@ fn main() -> Result<()> {
         render_enrichers.push(Box::new(GhPrEnricher));
     }
     let service = if pr_enabled {
-        Some(EnrichmentService::spawn(
-            vec![Box::new(GhPrEnricher)],
-            enrich_cache_path(),
-        ))
+        Some(EnrichmentService::spawn(vec![Box::new(GhPrEnricher)], enrich_cache_path()))
     } else {
         None
     };
@@ -322,12 +295,7 @@ fn run_tui(
     let mut terminal = ratatui::init();
     let mut app = App::new();
     app.set_keymap(keymap);
-    app.init_search(
-        initial.mode,
-        initial.scope,
-        initial.repo_slug,
-        initial.input,
-    );
+    app.init_search(initial.mode, initial.scope, initial.repo_slug, initial.input);
     app.set_preview(init_preview.0, init_preview.1);
     app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);
@@ -374,11 +342,7 @@ fn run_tui(
                     .and_then(|s| engine.resume_command_for(s, yolo, &config.launcher))
                     .map(|command| command.argv)
             });
-            app.set_indexing(if state.sync_done {
-                None
-            } else {
-                Some(app.results().len())
-            });
+            app.set_indexing(if state.sync_done { None } else { Some(app.results().len()) });
             terminal.draw(|f| {
                 hop::tui::view::render(
                     f,
@@ -409,34 +373,33 @@ fn run_tui(
                 state.process_sync(&updates, engine, &mut app)?;
             }
 
-            if event::poll(Duration::from_millis(50))? {
-                if let Event::Key(key) = event::read()? {
-                    match app.handle_key(key) {
-                        Action::Quit => return Ok(None),
-                        Action::Search => {
-                            engine.set_query(app.effective_query());
-                            engine.set_sort(app.sort());
-                        }
-                        Action::Resume { index, yolo } => {
-                            if let Some(s) = app.results().get(index).cloned() {
-                                return Ok(Some((s, yolo)));
-                            }
-                        }
-                        Action::OpenPr { index } => {
-                            if let Some(s) = app.results().get(index) {
-                                if let Some(Some(pr)) =
-                                    state.enrichment.resolved.get(&(s.document_key(), "pr"))
-                                {
-                                    hop::enrich::gh_pr::open_pr_in_browser(
-                                        pr,
-                                        s.repo_url.as_deref(),
-                                        &s.directory,
-                                    );
-                                }
-                            }
-                        }
-                        _ => {}
+            if event::poll(Duration::from_millis(50))?
+                && let Event::Key(key) = event::read()?
+            {
+                match app.handle_key(key) {
+                    Action::Quit => return Ok(None),
+                    Action::Search => {
+                        engine.set_query(app.effective_query());
+                        engine.set_sort(app.sort());
                     }
+                    Action::Resume { index, yolo } => {
+                        if let Some(s) = app.results().get(index).cloned() {
+                            return Ok(Some((s, yolo)));
+                        }
+                    }
+                    Action::OpenPr { index } => {
+                        if let Some(s) = app.results().get(index)
+                            && let Some(Some(pr)) =
+                                state.enrichment.resolved.get(&(s.document_key(), "pr"))
+                        {
+                            hop::enrich::gh_pr::open_pr_in_browser(
+                                pr,
+                                s.repo_url.as_deref(),
+                                &s.directory,
+                            );
+                        }
+                    }
+                    _ => {}
                 }
             }
 

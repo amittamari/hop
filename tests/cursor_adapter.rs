@@ -1,14 +1,12 @@
-use hop::adapters::cursor::CursorAdapter;
 use hop::adapters::Adapter;
+use hop::adapters::cursor::CursorAdapter;
 use hop::core::AgentId;
 use std::path::PathBuf;
 
 const UUID: &str = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/cursor")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/cursor").join(name)
 }
 
 /// Build the standard tree under `root`:
@@ -21,11 +19,7 @@ fn setup_tree(root: &std::path::Path) -> PathBuf {
 
     let canonical = conv_dir.join(format!("{UUID}.jsonl"));
     std::fs::copy(fixture("sample.jsonl"), &canonical).unwrap();
-    std::fs::copy(
-        fixture("hook-sidecar.jsonl"),
-        conv_dir.join("hook-sidecar.jsonl"),
-    )
-    .unwrap();
+    std::fs::copy(fixture("hook-sidecar.jsonl"), conv_dir.join("hook-sidecar.jsonl")).unwrap();
 
     canonical
 }
@@ -129,14 +123,9 @@ fn enriches_from_store_db() {
     std::fs::create_dir_all(&db_dir).unwrap();
 
     let conn = rusqlite::Connection::open(db_dir.join("store.db")).unwrap();
-    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)", [])
-        .unwrap();
+    conn.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)", []).unwrap();
     let json = r#"{"name":"My Chat","createdAt":1700000000000,"isRunEverything":true}"#;
-    conn.execute(
-        "INSERT INTO meta VALUES ('0', ?1)",
-        [&hex::encode(json.as_bytes())],
-    )
-    .unwrap();
+    conn.execute("INSERT INTO meta VALUES ('0', ?1)", [&hex::encode(json.as_bytes())]).unwrap();
     drop(conn);
 
     let adapter = CursorAdapter::new(projects_dir);
@@ -160,11 +149,8 @@ fn reads_cwd_from_worker_log() {
 
     // Write worker.log with a path that contains a space
     let project_dir = tmp.path().join(slug);
-    std::fs::write(
-        project_dir.join("worker.log"),
-        "info workspacePath=/tmp/my workspace\n",
-    )
-    .unwrap();
+    std::fs::write(project_dir.join("worker.log"), "info workspacePath=/tmp/my workspace\n")
+        .unwrap();
 
     let adapter = CursorAdapter::new(tmp.path().to_path_buf());
     let s = adapter.parse(&canonical).unwrap();

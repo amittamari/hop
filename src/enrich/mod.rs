@@ -62,20 +62,13 @@ impl Enricher for RepoEnricher {
         EnrichKind::Fast
     }
     fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
-        if let Some(url) = &s.repo_url {
-            if let Some(name) = repo_name_from_url(url) {
-                return Some(EnrichValue { text: name });
-            }
+        if let Some(url) = &s.repo_url
+            && let Some(name) = repo_name_from_url(url)
+        {
+            return Some(EnrichValue { text: name });
         }
-        let base = Path::new(&s.directory)
-            .file_name()?
-            .to_string_lossy()
-            .to_string();
-        if base.is_empty() {
-            None
-        } else {
-            Some(EnrichValue { text: base })
-        }
+        let base = Path::new(&s.directory).file_name()?.to_string_lossy().to_string();
+        if base.is_empty() { None } else { Some(EnrichValue { text: base }) }
     }
 }
 
@@ -83,11 +76,7 @@ impl Enricher for RepoEnricher {
 pub fn repo_name_from_url(url: &str) -> Option<String> {
     let trimmed = url.trim().trim_end_matches(".git");
     let last = trimmed.rsplit(['/', ':']).next()?;
-    if last.is_empty() {
-        None
-    } else {
-        Some(last.to_string())
-    }
+    if last.is_empty() { None } else { Some(last.to_string()) }
 }
 
 /// `git@github.com:owner/repo.git` or `https://host/owner/repo(.git)` -> `owner/repo`.
@@ -95,10 +84,7 @@ pub fn repo_name_from_url(url: &str) -> Option<String> {
 /// repos that share a basename. Used to auto-scope `hop` to the current repo.
 pub fn repo_slug_from_url(url: &str) -> Option<String> {
     let trimmed = url.trim().trim_end_matches(".git");
-    let parts: Vec<&str> = trimmed
-        .split(['/', ':'])
-        .filter(|s| !s.is_empty())
-        .collect();
+    let parts: Vec<&str> = trimmed.split(['/', ':']).filter(|s| !s.is_empty()).collect();
     match parts.as_slice() {
         [.., owner, name] => Some(format!("{owner}/{name}")),
         _ => None,
@@ -126,24 +112,15 @@ mod tests {
     #[test]
     fn branch_from_data() {
         assert_eq!(
-            BranchEnricher
-                .resolve(&sess(Some("feat/x"), None, "/w"))
-                .unwrap()
-                .text,
+            BranchEnricher.resolve(&sess(Some("feat/x"), None, "/w")).unwrap().text,
             "feat/x"
         );
     }
 
     #[test]
     fn repo_from_url_then_dir() {
-        assert_eq!(
-            repo_name_from_url("git@github.com:me/web.git").as_deref(),
-            Some("web")
-        );
-        assert_eq!(
-            repo_name_from_url("https://github.com/me/web").as_deref(),
-            Some("web")
-        );
+        assert_eq!(repo_name_from_url("git@github.com:me/web.git").as_deref(), Some("web"));
+        assert_eq!(repo_name_from_url("https://github.com/me/web").as_deref(), Some("web"));
         assert_eq!(
             RepoEnricher
                 .resolve(&sess(None, Some("git@github.com:me/web.git"), "/a/b"))
@@ -151,29 +128,14 @@ mod tests {
                 .text,
             "web"
         );
-        assert_eq!(
-            RepoEnricher
-                .resolve(&sess(None, None, "/a/myproj"))
-                .unwrap()
-                .text,
-            "myproj"
-        );
+        assert_eq!(RepoEnricher.resolve(&sess(None, None, "/a/myproj")).unwrap().text, "myproj");
     }
 
     #[test]
     fn slug_keeps_owner() {
-        assert_eq!(
-            repo_slug_from_url("git@github.com:me/web.git").as_deref(),
-            Some("me/web")
-        );
-        assert_eq!(
-            repo_slug_from_url("https://github.com/me/web.git").as_deref(),
-            Some("me/web")
-        );
-        assert_eq!(
-            repo_slug_from_url("https://github.com/me/web").as_deref(),
-            Some("me/web")
-        );
+        assert_eq!(repo_slug_from_url("git@github.com:me/web.git").as_deref(), Some("me/web"));
+        assert_eq!(repo_slug_from_url("https://github.com/me/web.git").as_deref(), Some("me/web"));
+        assert_eq!(repo_slug_from_url("https://github.com/me/web").as_deref(), Some("me/web"));
         assert_eq!(repo_slug_from_url("").as_deref(), None);
     }
 }

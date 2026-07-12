@@ -3,12 +3,12 @@ use crate::enrich::{BranchEnricher, Enricher};
 use crate::tui::columns::Column;
 use crate::tui::modal;
 use crate::tui::theme::Theme;
-use crate::tui::{help, results_list, App};
+use crate::tui::{App, help, results_list};
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Padding, Paragraph, Row, Table, TableState, Wrap};
-use ratatui::Frame;
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -90,10 +90,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // the caret is shown whenever no overlay is covering the input.
     let mut header = Line::from(vec![
         Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
-        Span::styled(
-            app.query().to_string(),
-            Style::default().fg(model.theme.selection_fg),
-        ),
+        Span::styled(app.query().to_string(), Style::default().fg(model.theme.selection_fg)),
         Span::raw(format!("   {}/{}", pos, total)).fg(model.theme.muted),
     ]);
     if let Some(count) = app.indexing() {
@@ -161,12 +158,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             .alignment(Alignment::Center);
         // Vertically center the single line within the list area.
         let y = list_area.y.saturating_add(list_area.height / 2);
-        let centered = Rect {
-            x: list_area.x,
-            y,
-            width: list_area.width,
-            height: 1.min(list_area.height),
-        };
+        let centered =
+            Rect { x: list_area.x, y, width: list_area.width, height: 1.min(list_area.height) };
         f.render_widget(para, centered);
     } else {
         let layout = results_list::layout_for_rows(
@@ -257,11 +250,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     .flex(Flex::SpaceBetween)
     .areas(footer_area);
     f.render_widget(
-        Paragraph::new(footer_hints_line(
-            app.keymap(),
-            app.search_mode(),
-            &model.theme,
-        )),
+        Paragraph::new(footer_hints_line(app.keymap(), app.search_mode(), &model.theme)),
         hints_area,
     );
     f.render_widget(
@@ -305,15 +294,10 @@ fn footer_hints_line(
         if i == 0 {
             spans.push(Span::styled(
                 hint.clone(),
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
             ));
         } else {
-            spans.push(Span::styled(
-                format!(" · {hint}"),
-                Style::default().fg(theme.muted),
-            ));
+            spans.push(Span::styled(format!(" · {hint}"), Style::default().fg(theme.muted)));
         }
     }
     Line::from(spans)
@@ -325,18 +309,12 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let push_sep = |spans: &mut Vec<Span<'static>>| {
         if !spans.is_empty() {
-            spans.push(Span::styled(
-                " · ".to_string(),
-                Style::default().fg(theme.muted),
-            ));
+            spans.push(Span::styled(" · ".to_string(), Style::default().fg(theme.muted)));
         }
     };
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
-        spans.push(Span::styled(
-            sync.to_string(),
-            Style::default().fg(theme.muted),
-        ));
+        spans.push(Span::styled(sync.to_string(), Style::default().fg(theme.muted)));
     }
     if status.pr_pending > 0 {
         push_sep(&mut spans);
@@ -347,17 +325,11 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     }
     if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
-        spans.push(Span::styled(
-            format!("filters {filters}"),
-            Style::default().fg(theme.muted),
-        ));
+        spans.push(Span::styled(format!("filters {filters}"), Style::default().fg(theme.muted)));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
-        spans.push(Span::styled(
-            warning.to_string(),
-            Style::default().fg(theme.warning),
-        ));
+        spans.push(Span::styled(warning.to_string(), Style::default().fg(theme.warning)));
     }
     Line::from(spans)
 }
@@ -365,11 +337,8 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
 /// Display width of the rendered status line, used to size the right footer
 /// region so the status is never clipped.
 fn footer_status_width(status: &StatusLine, theme: &Theme) -> u16 {
-    let text: String = footer_status_line(status, theme)
-        .spans
-        .iter()
-        .map(|s| s.content.as_ref())
-        .collect();
+    let text: String =
+        footer_status_line(status, theme).spans.iter().map(|s| s.content.as_ref()).collect();
     crate::tui::columns::display_width(&text).min(u16::MAX as usize) as u16
 }
 
@@ -402,14 +371,8 @@ fn preview_header_lines(
 
     let badge = s.agent.badge();
     let branch = BranchEnricher.resolve(s).map(|v| v.text);
-    let pr = resolved
-        .get(&(s.document_key(), "pr"))
-        .and_then(|v| v.as_deref());
-    let msgs = if s.message_count > 0 {
-        Some(format!("{} msgs", s.message_count))
-    } else {
-        None
-    };
+    let pr = resolved.get(&(s.document_key(), "pr")).and_then(|v| v.as_deref());
+    let msgs = if s.message_count > 0 { Some(format!("{} msgs", s.message_count)) } else { None };
     let time = rel_time(s.timestamp, now);
 
     let dw = crate::tui::columns::display_width;
@@ -439,9 +402,7 @@ fn preview_header_lines(
     };
 
     let dir_text = crate::tui::columns::fit_end(&s.directory, dir_budget as u16);
-    let branch_text = branch
-        .as_ref()
-        .map(|b| modal::fit_for_modal(b, branch_budget));
+    let branch_text = branch.as_ref().map(|b| modal::fit_for_modal(b, branch_budget));
 
     let push_sep = |spans: &mut Vec<Span<'static>>| {
         spans.push(Span::styled(SEP, sep_style));
@@ -450,9 +411,7 @@ fn preview_header_lines(
 
     meta.push(Span::styled(
         badge,
-        Style::default()
-            .fg(theme.agent_color(s.agent))
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(theme.agent_color(s.agent)).add_modifier(Modifier::BOLD),
     ));
 
     if !dir_text.is_empty() {
@@ -467,10 +426,7 @@ fn preview_header_lines(
 
     if let Some(pr) = pr {
         push_sep(&mut meta);
-        meta.push(Span::styled(
-            pr.to_string(),
-            Style::default().fg(theme.accent),
-        ));
+        meta.push(Span::styled(pr.to_string(), Style::default().fg(theme.accent)));
     }
 
     if let Some(msgs) = msgs {
@@ -493,10 +449,7 @@ pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Ran
     }
     let len = height.min(total);
     let max_start = total - len;
-    let start = selected
-        .saturating_add(1)
-        .saturating_sub(len)
-        .min(max_start);
+    let start = selected.saturating_add(1).saturating_sub(len).min(max_start);
     start..start + len
 }
 
@@ -506,8 +459,8 @@ mod tests {
     use crate::core::{AgentId, SessionSummary};
     use crate::tui::toolbar::Scope;
     use crate::tui::{App, SearchMode};
-    use ratatui::backend::TestBackend;
     use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
 
     /// Render `app` to an 100x12 test terminal and return the flattened text.
     fn render_to_text(app: &App) -> String {
@@ -536,12 +489,7 @@ mod tests {
             )
         })
         .unwrap();
-        term.backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect()
+        term.backend().buffer().content().iter().map(|c| c.symbol()).collect()
     }
 
     #[test]
@@ -678,13 +626,7 @@ mod tests {
             )
         })
         .unwrap();
-        let text: String = term
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
+        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("fix auth"));
         assert!(!text.contains("Type to search"));
         assert!(!text.contains("No sessions match"));
@@ -732,10 +674,7 @@ mod tests {
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(
-            text.contains("arch fix auth"),
-            "archived marker prefixes title"
-        );
+        assert!(text.contains("arch fix auth"), "archived marker prefixes title");
         // The title cell on the archived row must carry the DIM modifier.
         let dimmed = buf
             .content()
@@ -808,10 +747,8 @@ mod tests {
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
-        let transcript = vec![Message {
-            role: Role::User,
-            blocks: vec![Block::Prose("fix auth".into())],
-        }];
+        let transcript =
+            vec![Message { role: Role::User, blocks: vec![Block::Prose("fix auth".into())] }];
 
         let lines = crate::tui::preview::render_transcript(
             &transcript,
@@ -966,22 +903,14 @@ mod tests {
         let marker = SELECTION_MARKER.trim();
         let has_marker = buf.content().iter().any(|c| c.symbol() == marker);
         assert!(has_marker, "selection marker should be rendered");
-        let has_sel_bg = buf
-            .content()
-            .iter()
-            .any(|c| c.bg == crate::tui::theme::Theme::default().selection_bg);
-        assert!(
-            has_sel_bg,
-            "selected row should carry the selection background"
-        );
+        let has_sel_bg =
+            buf.content().iter().any(|c| c.bg == crate::tui::theme::Theme::default().selection_bg);
+        assert!(has_sel_bg, "selected row should carry the selection background");
         let has_sel_fg = buf.content().iter().any(|c| {
             c.fg == crate::tui::theme::Theme::default().selection_fg
                 && c.bg == crate::tui::theme::Theme::default().selection_bg
         });
-        assert!(
-            has_sel_fg,
-            "selected row text should use the selection fg over selection bg"
-        );
+        assert!(has_sel_fg, "selected row text should use the selection fg over selection bg");
     }
 
     #[test]
@@ -1014,13 +943,7 @@ mod tests {
             )
         })
         .unwrap();
-        let text: String = term
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
+        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
         assert!(text.contains("type to search"));
         // Esc hint derives from the bindings table label ("clear query / quit");
         // assert on a stable substring rather than exact spacing.
@@ -1073,12 +996,7 @@ mod tests {
             )
         })
         .unwrap();
-        term.backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect()
+        term.backend().buffer().content().iter().map(|c| c.symbol()).collect()
     }
 
     #[test]
@@ -1192,22 +1110,10 @@ mod tests {
             )
         })
         .unwrap();
-        let text: String = term
-            .backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect();
-        assert!(
-            text.contains("TITLE"),
-            "TITLE header must survive narrow width"
-        );
+        let text: String = term.backend().buffer().content().iter().map(|c| c.symbol()).collect();
+        assert!(text.contains("TITLE"), "TITLE header must survive narrow width");
         assert!(text.contains("fix auth"), "title value must survive");
-        assert!(
-            !text.contains("PR"),
-            "lowest-priority PR column should be dropped"
-        );
+        assert!(!text.contains("PR"), "lowest-priority PR column should be dropped");
     }
 
     #[test]
@@ -1253,14 +1159,8 @@ mod tests {
         })
         .unwrap();
         let buf = term.backend().buffer();
-        let any_reversed = buf
-            .content()
-            .iter()
-            .any(|c| c.modifier.contains(Modifier::REVERSED));
-        assert!(
-            any_reversed,
-            "matched query term in title should render reversed"
-        );
+        let any_reversed = buf.content().iter().any(|c| c.modifier.contains(Modifier::REVERSED));
+        assert!(any_reversed, "matched query term in title should render reversed");
     }
 
     #[test]
@@ -1375,11 +1275,7 @@ mod tests {
 
         let buf = term.backend().buffer().clone();
         let overlay_bg = crate::tui::theme::Theme::default().overlay_bg;
-        assert_eq!(
-            buf[(0, 0)].bg,
-            overlay_bg,
-            "backdrop must set bg, not fg-only"
-        );
+        assert_eq!(buf[(0, 0)].bg, overlay_bg, "backdrop must set bg, not fg-only");
     }
 
     #[test]
@@ -1481,10 +1377,7 @@ mod tests {
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(
-            text.contains("too small"),
-            "expected too-small notice, got: {text:?}"
-        );
+        assert!(text.contains("too small"), "expected too-small notice, got: {text:?}");
     }
 
     #[test]
@@ -1656,10 +1549,7 @@ mod tests {
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(
-            text.contains("WARNTOKEN"),
-            "warning must survive narrow footer, got: {text:?}"
-        );
+        assert!(text.contains("WARNTOKEN"), "warning must survive narrow footer, got: {text:?}");
     }
 
     #[test]
@@ -1731,11 +1621,7 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::tui::columns::default_columns();
-        let command = vec![
-            "claude".to_string(),
-            "--resume".to_string(),
-            "a".to_string(),
-        ];
+        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
 
         let backend = TestBackend::new(180, 16);
         let mut term = Terminal::new(backend).unwrap();
@@ -1759,14 +1645,8 @@ mod tests {
         .unwrap();
         let buf = term.backend().buffer().clone();
         let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-        assert!(
-            text.contains("does not exist"),
-            "missing-dir warning should appear: {text:?}"
-        );
-        assert!(
-            text.contains("Missing"),
-            "Missing label should appear: {text:?}"
-        );
+        assert!(text.contains("does not exist"), "missing-dir warning should appear: {text:?}");
+        assert!(text.contains("Missing"), "Missing label should appear: {text:?}");
     }
 
     #[test]
@@ -1789,11 +1669,7 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::tui::columns::default_columns();
-        let command = vec![
-            "claude".to_string(),
-            "--resume".to_string(),
-            "a".to_string(),
-        ];
+        let command = vec!["claude".to_string(), "--resume".to_string(), "a".to_string()];
 
         let backend = TestBackend::new(180, 16);
         let mut term = Terminal::new(backend).unwrap();

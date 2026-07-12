@@ -1,11 +1,11 @@
 use crate::core::SessionSummary;
 use crate::tui::columns;
 use crate::tui::theme::Theme;
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Padding, Paragraph};
-use ratatui::Frame;
 
 /// A `w` x `h` rect centered within `area` on both axes (clamped to `area`).
 pub fn center(area: Rect, w: u16, h: u16) -> Rect {
@@ -61,14 +61,11 @@ pub fn render_yolo_modal(
     let directory = session
         .map(|s| fit_for_modal(&s.directory, value_budget))
         .unwrap_or_else(|| "—".to_string());
-    let command = modal_command
-        .map(shell_join)
-        .unwrap_or_else(|| "resume command unavailable".to_string());
+    let command =
+        modal_command.map(shell_join).unwrap_or_else(|| "resume command unavailable".to_string());
     let command = fit_for_modal(&command, value_budget);
 
-    let label_style = Style::default()
-        .fg(theme.muted)
-        .add_modifier(Modifier::BOLD);
+    let label_style = Style::default().fg(theme.muted).add_modifier(Modifier::BOLD);
 
     let mut body = vec![
         Line::from(vec![
@@ -93,9 +90,7 @@ pub fn render_yolo_modal(
             Span::styled(format!("{:<label_w$}", "Archived"), label_style),
             Span::styled(
                 "session is archived; it will be unarchived first",
-                Style::default()
-                    .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
             ),
         ]));
     }
@@ -104,9 +99,7 @@ pub fn render_yolo_modal(
             Span::styled(format!("{:<label_w$}", "Missing"), label_style),
             Span::styled(
                 "directory does not exist; agent will start in current dir",
-                Style::default()
-                    .fg(theme.warning)
-                    .add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
             ),
         ]));
     }
@@ -118,9 +111,7 @@ pub fn render_yolo_modal(
             "YOLO off: normal resume"
         },
         if yolo {
-            Style::default()
-                .fg(theme.warning)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(theme.muted)
         },
@@ -131,11 +122,7 @@ pub fn render_yolo_modal(
     let sep_style = Style::default().fg(theme.border);
     let hint_style = Style::default().fg(theme.muted);
     let sep = Span::styled(" · ", sep_style);
-    let confirm_label = if archived {
-        "unarchive & resume"
-    } else {
-        "resume"
-    };
+    let confirm_label = if archived { "unarchive & resume" } else { "resume" };
     body.push(Line::from(vec![
         Span::styled("Tab", key_style),
         Span::styled(" toggle yolo", hint_style),
@@ -147,38 +134,21 @@ pub fn render_yolo_modal(
         Span::styled(" cancel", hint_style),
     ]));
 
-    let modal_title = if archived {
-        " unarchive & resume "
-    } else {
-        " confirm resume "
-    };
-    f.buffer_mut().set_style(
-        area,
-        Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg),
-    );
+    let modal_title = if archived { " unarchive & resume " } else { " confirm resume " };
+    f.buffer_mut().set_style(area, Style::default().fg(theme.overlay_fg).bg(theme.overlay_bg));
     f.render_widget(Clear, rect);
     let block = Block::bordered()
         .border_style(Style::default().fg(theme.accent))
         .title(modal_title)
-        .title_style(
-            Style::default()
-                .fg(theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )
+        .title_style(Style::default().fg(theme.accent).add_modifier(Modifier::BOLD))
         .padding(Padding::symmetric(2, 1));
-    f.render_widget(
-        Paragraph::new(body).block(block).alignment(Alignment::Left),
-        rect,
-    );
+    f.render_widget(Paragraph::new(body).block(block).alignment(Alignment::Left), rect);
 }
 
 fn shell_join(argv: &[String]) -> String {
     argv.iter()
         .map(|arg| {
-            if arg
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || "-_./:@".contains(c))
-            {
+            if arg.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:@".contains(c)) {
                 arg.clone()
             } else {
                 format!("'{}'", arg.replace('\'', "'\\''"))

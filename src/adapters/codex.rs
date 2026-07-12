@@ -1,7 +1,7 @@
-use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
+use crate::adapters::{Adapter, GitFieldCache, file_mtime_ms, git_remote_url, parse_ts_secs};
 use crate::core::{
-    derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
-    SessionSummary,
+    AgentId, ScanEntry, Session, SessionId, SessionSummary, derive_session_title,
+    is_command_tag_line,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -18,21 +18,15 @@ pub struct CodexAdapter {
 
 impl CodexAdapter {
     pub fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            repo_cache: GitFieldCache::new(git_remote_url),
-        }
+        Self { root, repo_cache: GitFieldCache::new(git_remote_url) }
     }
 
     fn session_roots(&self) -> Vec<PathBuf> {
-        vec![
-            self.root.join("sessions"),
-            self.root.join("archived_sessions"),
-        ]
+        vec![self.root.join("sessions"), self.root.join("archived_sessions")]
     }
 
     fn extract(&self, path: &Path) -> Result<Extracted> {
-        use crate::core::{split_blocks, Message, Role};
+        use crate::core::{Message, Role, split_blocks};
         let raw = read_rollout(path)?;
         let mut directory = String::new();
         let mut branch = None;
@@ -55,10 +49,10 @@ impl CodexAdapter {
                 Ok(l) => l,
                 Err(_) => continue,
             };
-            if first_ts.is_none() {
-                if let Some(ts) = parsed.timestamp.as_deref() {
-                    first_ts = parse_ts_secs(ts);
-                }
+            if first_ts.is_none()
+                && let Some(ts) = parsed.timestamp.as_deref()
+            {
+                first_ts = parse_ts_secs(ts);
             }
             let Some(p) = parsed.payload else { continue };
             match parsed.kind.as_str() {
@@ -76,10 +70,10 @@ impl CodexAdapter {
                     // A non-interactive thread classification (subagent /
                     // memory_consolidation) also means the session isn't
                     // user-resumable; let it drive the filter signal.
-                    if let Some(ts) = normalize_source(p.thread_source) {
-                        if is_non_interactive_source(Some(&ts)) {
-                            source = Some(ts);
-                        }
+                    if let Some(ts) = normalize_source(p.thread_source)
+                        && is_non_interactive_source(Some(&ts))
+                    {
+                        source = Some(ts);
                     }
                 }
                 "turn_context" => {
@@ -92,10 +86,10 @@ impl CodexAdapter {
                     // First non-empty model wins (matches branch/dir): later
                     // turns may be a trailing "codex-auto-review" turn rather
                     // than the model the user actually ran.
-                    if model.is_none() {
-                        if let Some(m) = p.model.filter(|m| !m.trim().is_empty()) {
-                            model = Some(m);
-                        }
+                    if model.is_none()
+                        && let Some(m) = p.model.filter(|m| !m.trim().is_empty())
+                    {
+                        model = Some(m);
                     }
                 }
                 "event_msg" => {
@@ -134,10 +128,7 @@ impl CodexAdapter {
                     let Some(text) = clean_event_message(&text) else {
                         continue;
                     };
-                    response_messages.push(Message {
-                        role,
-                        blocks: split_blocks(&text),
-                    });
+                    response_messages.push(Message { role, blocks: split_blocks(&text) });
                 }
                 _ => {}
             }
@@ -238,9 +229,7 @@ fn clean_event_message(text: &str) -> Option<String> {
             continue;
         }
 
-        if let Some((_, end)) = DROP_XML_BLOCKS
-            .iter()
-            .find(|(start, _)| trimmed.starts_with(start))
+        if let Some((_, end)) = DROP_XML_BLOCKS.iter().find(|(start, _)| trimmed.starts_with(start))
         {
             if !trimmed.contains(end) {
                 skip_xml_until = Some(*end);
@@ -257,11 +246,7 @@ fn clean_event_message(text: &str) -> Option<String> {
         .map(|idx| &cleaned[idx + USER_MESSAGE_BEGIN.len()..])
         .unwrap_or(&cleaned)
         .trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
 fn strip_codex_wrappers(line: &str) -> String {
@@ -305,9 +290,7 @@ fn read_rollout(path: &Path) -> Result<String> {
 }
 
 fn is_compressed_rollout(path: &Path) -> bool {
-    path.file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.ends_with(".jsonl.zst"))
+    path.file_name().and_then(|name| name.to_str()).is_some_and(|name| name.ends_with(".jsonl.zst"))
 }
 
 #[derive(Deserialize)]
@@ -411,9 +394,7 @@ impl Adapter for CodexAdapter {
         let content = flatten_messages(&ex.messages);
         // Prefer the remote recorded in session_meta; fall back to resolving it
         // from the cwd so older rollouts without git metadata still get a repo.
-        let repo_url = ex
-            .repo_url
-            .or_else(|| self.repo_cache.resolve(&ex.directory));
+        let repo_url = ex.repo_url.or_else(|| self.repo_cache.resolve(&ex.directory));
         Ok(Session {
             meta: SessionSummary {
                 id,
@@ -428,11 +409,7 @@ impl Adapter for CodexAdapter {
                 source_path: Some(path.to_path_buf()),
                 archived: is_archived_path(path),
                 worktree: None,
-                permission_mode: if ex.yolo {
-                    Some("yolo".into())
-                } else {
-                    Some("default".into())
-                },
+                permission_mode: if ex.yolo { Some("yolo".into()) } else { Some("default".into()) },
                 model: ex.model,
                 commit: ex.commit,
                 source: ex.source,
@@ -476,8 +453,7 @@ impl Adapter for CodexAdapter {
 /// Codex archives by moving the rollout file there; the JSONL itself carries no
 /// archive flag, so the directory is the only signal.
 fn is_archived_path(path: &Path) -> bool {
-    path.components()
-        .any(|c| c.as_os_str() == "archived_sessions")
+    path.components().any(|c| c.as_os_str() == "archived_sessions")
 }
 
 /// Extract the session id from a `rollout-<timestamp>-<uuid>` filename stem.

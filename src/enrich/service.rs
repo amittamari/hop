@@ -31,10 +31,7 @@ struct CacheFile {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 /// Pure cache-hit check used by the worker and by tests.
@@ -43,11 +40,7 @@ fn cache_lookup(cache: &CacheFile, key: &str, ttl_secs: u64) -> Option<Option<En
     if now_secs().saturating_sub(*fetched) > ttl_secs {
         return None; // stale
     }
-    if text.is_empty() {
-        Some(None)
-    } else {
-        Some(Some(EnrichValue { text: text.clone() }))
-    }
+    if text.is_empty() { Some(None) } else { Some(Some(EnrichValue { text: text.clone() })) }
 }
 
 pub struct EnrichmentService {
@@ -64,10 +57,7 @@ pub struct EnrichmentState {
 
 impl EnrichmentState {
     pub fn pr_pending(&self) -> usize {
-        self.requested
-            .iter()
-            .filter(|key| !self.resolved.contains_key(*key))
-            .count()
+        self.requested.iter().filter(|key| !self.resolved.contains_key(*key)).count()
     }
 
     pub fn request_visible(
@@ -82,10 +72,8 @@ impl EnrichmentState {
             let key = (session.document_key(), "pr");
             if !self.requested.contains(&key) {
                 self.requested.insert(key.clone());
-                let _ = service.req_tx.send(EnrichRequest {
-                    session: session.clone(),
-                    enricher: "pr",
-                });
+                let _ =
+                    service.req_tx.send(EnrichRequest { session: session.clone(), enricher: "pr" });
             }
         }
         self.drain(service);
@@ -93,8 +81,7 @@ impl EnrichmentState {
 
     pub fn drain(&mut self, service: &EnrichmentService) {
         while let Ok(r) = service.res_rx.try_recv() {
-            self.resolved
-                .insert((r.session_key, r.enricher), r.value.map(|v| v.text));
+            self.resolved.insert((r.session_key, r.enricher), r.value.map(|v| v.text));
         }
     }
 }
@@ -129,10 +116,7 @@ impl EnrichmentService {
                         cache.entries.insert(
                             key.clone(),
                             (
-                                resolved
-                                    .as_ref()
-                                    .map(|v| v.text.clone())
-                                    .unwrap_or_default(),
+                                resolved.as_ref().map(|v| v.text.clone()).unwrap_or_default(),
                                 now_secs(),
                             ),
                         );
@@ -152,11 +136,7 @@ impl EnrichmentService {
                 });
             }
         });
-        EnrichmentService {
-            req_tx,
-            res_rx,
-            _handle: handle,
-        }
+        EnrichmentService { req_tx, res_rx, _handle: handle }
     }
 }
 
@@ -176,9 +156,7 @@ mod tests {
             EnrichKind::Slow
         }
         fn resolve(&self, s: &SessionSummary) -> Option<EnrichValue> {
-            Some(EnrichValue {
-                text: format!("v:{}", s.id),
-            })
+            Some(EnrichValue { text: format!("v:{}", s.id) })
         }
         fn cache_key(&self, s: &SessionSummary) -> String {
             s.id.clone()
@@ -204,12 +182,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let cache = tmp.path().join("gh_pr.json");
         let svc = EnrichmentService::spawn(vec![Box::new(FakeEnricher)], cache.clone());
-        svc.req_tx
-            .send(EnrichRequest {
-                session: sess("a"),
-                enricher: "fake",
-            })
-            .unwrap();
+        svc.req_tx.send(EnrichRequest { session: sess("a"), enricher: "fake" }).unwrap();
         let r = svc.res_rx.recv_timeout(Duration::from_secs(2)).unwrap();
         assert_eq!(r.session_key, "claude:a");
         assert_eq!(r.value.unwrap().text, "v:a");

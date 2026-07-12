@@ -82,22 +82,10 @@ pub fn line(
 ) -> Line<'static> {
     let mut spans: Vec<Span<'static>> = vec![Span::raw("  ")];
     if has_repo {
-        push_control(
-            &mut spans,
-            "Scope",
-            scope.label(),
-            focus == Focus::Scope,
-            theme,
-        );
+        push_control(&mut spans, "Scope", scope.label(), focus == Focus::Scope, theme);
         spans.push(Span::raw("   "));
     }
-    push_control(
-        &mut spans,
-        "Sort",
-        sort.label(),
-        focus == Focus::Sort,
-        theme,
-    );
+    push_control(&mut spans, "Sort", sort.label(), focus == Focus::Sort, theme);
     Line::from(spans)
 }
 
@@ -108,15 +96,9 @@ fn push_control(
     focused: bool,
     theme: &Theme,
 ) {
-    spans.push(Span::styled(
-        format!("{name}: "),
-        Style::default().fg(theme.muted),
-    ));
+    spans.push(Span::styled(format!("{name}: "), Style::default().fg(theme.muted)));
     let value_style = if focused {
-        Style::default()
-            .fg(theme.selection_fg)
-            .bg(theme.accent)
-            .add_modifier(Modifier::BOLD)
+        Style::default().fg(theme.selection_fg).bg(theme.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.accent)
     };
@@ -154,20 +136,10 @@ mod tests {
     #[test]
     fn line_hides_scope_without_repo() {
         let theme = Theme::default();
-        let with = render_text(line(
-            Scope::ThisRepo,
-            SortOrder::Recent,
-            Focus::Query,
-            true,
-            &theme,
-        ));
-        let without = render_text(line(
-            Scope::ThisRepo,
-            SortOrder::Recent,
-            Focus::Query,
-            false,
-            &theme,
-        ));
+        let with =
+            render_text(line(Scope::ThisRepo, SortOrder::Recent, Focus::Query, true, &theme));
+        let without =
+            render_text(line(Scope::ThisRepo, SortOrder::Recent, Focus::Query, false, &theme));
         assert!(with.contains("Scope"));
         assert!(with.contains("This repo"));
         assert!(!without.contains("Scope"));

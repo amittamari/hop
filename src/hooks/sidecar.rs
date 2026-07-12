@@ -41,12 +41,7 @@ fn de_agent<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Agent
 
 impl Sidecar {
     pub fn new(agent: AgentId, session_id: String) -> Self {
-        Self {
-            version: 1,
-            session_id,
-            agent,
-            events: Vec::new(),
-        }
+        Self { version: 1, session_id, agent, events: Vec::new() }
     }
 
     pub fn append_event(&mut self, event: SidecarEvent) {
@@ -98,10 +93,7 @@ pub fn sidecar_path(agent: AgentId, session_id: &str) -> PathBuf {
 pub fn sidecar_stamp_in(base: &Path, agent: AgentId, session_id: &str) -> Option<String> {
     let metadata = std::fs::metadata(sidecar_path_in(base, agent, session_id)).ok()?;
     let modified = metadata.modified().ok()?;
-    let nanos = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let nanos = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
     Some(format!("{nanos}:{}", metadata.len()))
 }
 

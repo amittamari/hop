@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 

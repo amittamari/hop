@@ -32,20 +32,14 @@ pub fn capture_to_dir(
     let se = SidecarEvent {
         event,
         timestamp: ts,
-        cwd: if ctx.cwd.is_empty() {
-            None
-        } else {
-            Some(ctx.cwd)
-        },
+        cwd: if ctx.cwd.is_empty() { None } else { Some(ctx.cwd) },
         branch: git.branch,
         repo_url: git.repo_url,
         worktree: git.worktree,
         permission_mode: None,
     };
 
-    let path = sidecar_base
-        .join(agent.slug())
-        .join(format!("{}.json", ctx.session_id));
+    let path = sidecar_base.join(agent.slug()).join(format!("{}.json", ctx.session_id));
 
     let mut sidecar = Sidecar::read(&path).unwrap_or_else(|| Sidecar::new(agent, ctx.session_id));
     sidecar.append_event(se);
@@ -97,13 +91,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let sidecar_base = dir.path().to_path_buf();
         let start_input = r#"{"session_id":"s1","cwd":".","hook_event_name":"SessionStart"}"#;
-        capture_to_dir(
-            AgentId::Claude,
-            HookEvent::Start,
-            start_input,
-            &sidecar_base,
-        )
-        .unwrap();
+        capture_to_dir(AgentId::Claude, HookEvent::Start, start_input, &sidecar_base).unwrap();
         let stop_input = r#"{"session_id":"s1","cwd":".","hook_event_name":"Stop"}"#;
         capture_to_dir(AgentId::Claude, HookEvent::Stop, stop_input, &sidecar_base).unwrap();
         let path = sidecar_base.join("claude").join("s1.json");

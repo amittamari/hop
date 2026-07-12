@@ -25,10 +25,7 @@ struct UpdateCache {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 fn detect_install_method_from_path(path: &Path) -> InstallMethod {
@@ -70,11 +67,7 @@ fn build_http_agent() -> ureq::Agent {
         .timeout_connect(Some(std::time::Duration::from_secs(5)))
         .timeout_recv_body(Some(std::time::Duration::from_secs(5)))
         .user_agent(concat!("hop/", env!("CARGO_PKG_VERSION")))
-        .tls_config(
-            TlsConfig::builder()
-                .provider(TlsProvider::NativeTls)
-                .build(),
-        )
+        .tls_config(TlsConfig::builder().provider(TlsProvider::NativeTls).build())
         .build();
     ureq::Agent::new_with_config(config)
 }
@@ -107,35 +100,18 @@ pub fn check_for_update(cache_path: &Path) -> Option<UpdateAvailable> {
             let v = fetch_latest_version()?;
             write_cache(
                 cache_path,
-                &UpdateCache {
-                    latest_version: v.clone(),
-                    checked_at: now_secs(),
-                },
+                &UpdateCache { latest_version: v.clone(), checked_at: now_secs() },
             );
             v
         }
     } else {
         let v = fetch_latest_version()?;
-        write_cache(
-            cache_path,
-            &UpdateCache {
-                latest_version: v.clone(),
-                checked_at: now_secs(),
-            },
-        );
+        write_cache(cache_path, &UpdateCache { latest_version: v.clone(), checked_at: now_secs() });
         v
     };
 
     let latest = semver::Version::parse(&latest_str).ok()?;
-    if latest > current {
-        Some(UpdateAvailable {
-            current,
-            latest,
-            install_method,
-        })
-    } else {
-        None
-    }
+    if latest > current { Some(UpdateAvailable { current, latest, install_method }) } else { None }
 }
 
 pub fn upgrade_message(info: &UpdateAvailable) -> String {
@@ -158,46 +134,31 @@ mod tests {
     #[test]
     fn detect_homebrew_cellar() {
         let path = PathBuf::from("/opt/homebrew/Cellar/hop/0.2.3/bin/hop");
-        assert_eq!(
-            detect_install_method_from_path(&path),
-            InstallMethod::Homebrew
-        );
+        assert_eq!(detect_install_method_from_path(&path), InstallMethod::Homebrew);
     }
 
     #[test]
     fn detect_homebrew_prefix() {
         let path = PathBuf::from("/opt/homebrew/bin/hop");
-        assert_eq!(
-            detect_install_method_from_path(&path),
-            InstallMethod::Homebrew
-        );
+        assert_eq!(detect_install_method_from_path(&path), InstallMethod::Homebrew);
     }
 
     #[test]
     fn detect_homebrew_linux_prefix() {
         let path = PathBuf::from("/home/linuxbrew/.linuxbrew/Cellar/hop/0.2.3/bin/hop");
-        assert_eq!(
-            detect_install_method_from_path(&path),
-            InstallMethod::Homebrew
-        );
+        assert_eq!(detect_install_method_from_path(&path), InstallMethod::Homebrew);
     }
 
     #[test]
     fn detect_cargo_install() {
         let path = PathBuf::from("/Users/me/.cargo/bin/hop");
-        assert_eq!(
-            detect_install_method_from_path(&path),
-            InstallMethod::CargoInstall
-        );
+        assert_eq!(detect_install_method_from_path(&path), InstallMethod::CargoInstall);
     }
 
     #[test]
     fn detect_unknown() {
         let path = PathBuf::from("/usr/local/bin/hop");
-        assert_eq!(
-            detect_install_method_from_path(&path),
-            InstallMethod::Unknown
-        );
+        assert_eq!(detect_install_method_from_path(&path), InstallMethod::Unknown);
     }
 
     #[test]
@@ -242,10 +203,7 @@ mod tests {
 
         assert!(read_cache(&path).is_none());
 
-        let cache = UpdateCache {
-            latest_version: "0.3.0".to_string(),
-            checked_at: now_secs(),
-        };
+        let cache = UpdateCache { latest_version: "0.3.0".to_string(), checked_at: now_secs() };
         write_cache(&path, &cache);
 
         let loaded = read_cache(&path).unwrap();
@@ -271,10 +229,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("update_check.json");
 
-        let cache = UpdateCache {
-            latest_version: "0.0.1".to_string(),
-            checked_at: now_secs(),
-        };
+        let cache = UpdateCache { latest_version: "0.0.1".to_string(), checked_at: now_secs() };
         write_cache(&path, &cache);
 
         assert!(check_for_update(&path).is_none());
@@ -285,10 +240,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("update_check.json");
 
-        let cache = UpdateCache {
-            latest_version: "99.0.0".to_string(),
-            checked_at: now_secs(),
-        };
+        let cache = UpdateCache { latest_version: "99.0.0".to_string(), checked_at: now_secs() };
         write_cache(&path, &cache);
 
         let info = check_for_update(&path).unwrap();

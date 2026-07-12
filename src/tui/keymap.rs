@@ -43,11 +43,7 @@ struct ChordSpec {
 fn chord_specs() -> Vec<ChordSpec> {
     let ctrl = KeyModifiers::CONTROL;
     vec![
-        ChordSpec {
-            name: "quit",
-            default: (ctrl, KeyCode::Char('c')),
-            command: Command::Quit,
-        },
+        ChordSpec { name: "quit", default: (ctrl, KeyCode::Char('c')), command: Command::Quit },
         ChordSpec {
             name: "toggle_preview",
             default: (ctrl, KeyCode::Char('p')),
@@ -113,10 +109,7 @@ impl Default for Keymap {
 impl Keymap {
     /// The hardcoded default bindings.
     pub fn defaults() -> Keymap {
-        let chords = chord_specs()
-            .into_iter()
-            .map(|s| (s.default, s.command))
-            .collect();
+        let chords = chord_specs().into_iter().map(|s| (s.default, s.command)).collect();
         Keymap { chords }
     }
 
@@ -185,10 +178,7 @@ impl Keymap {
 
     /// The chord currently bound to `command`, for display in help/footer.
     fn chord_for(&self, command: Command) -> Option<Chord> {
-        self.chords
-            .iter()
-            .find(|(_, c)| *c == command)
-            .map(|(chord, _)| *chord)
+        self.chords.iter().find(|(_, c)| *c == command).map(|(chord, _)| *chord)
     }
 }
 
@@ -203,11 +193,7 @@ fn normalize_code(code: KeyCode) -> KeyCode {
 /// Parse a binding string like `"ctrl+t"` or `"ctrl+left"` into a chord. Only
 /// the Ctrl modifier is supported, and it is required (the chord-only invariant).
 fn parse_chord(s: &str) -> Result<Chord, String> {
-    let parts: Vec<&str> = s
-        .split('+')
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .collect();
+    let parts: Vec<&str> = s.split('+').map(str::trim).filter(|p| !p.is_empty()).collect();
     let Some((key_part, mod_parts)) = parts.split_last() else {
         return Err("empty binding".to_string());
     };
@@ -215,11 +201,7 @@ fn parse_chord(s: &str) -> Result<Chord, String> {
     for m in mod_parts {
         match m.to_ascii_lowercase().as_str() {
             "ctrl" | "control" => mods |= KeyModifiers::CONTROL,
-            other => {
-                return Err(format!(
-                    "unsupported modifier `{other}` (only ctrl is allowed)"
-                ))
-            }
+            other => return Err(format!("unsupported modifier `{other}` (only ctrl is allowed)")),
         }
     }
     if !mods.contains(KeyModifiers::CONTROL) {
@@ -310,12 +292,7 @@ pub struct Binding {
 pub fn bindings(keymap: &Keymap, mode: SearchMode) -> Vec<Binding> {
     let chord = |cmd: Command| keymap.chord_for(cmd).map(format_chord).unwrap_or_default();
     let pair = |a: Command, b: Command| format!("{}/{}", chord(a), chord(b));
-    let row = |keys: String, group, label, primary| Binding {
-        keys,
-        group,
-        label,
-        primary,
-    };
+    let row = |keys: String, group, label, primary| Binding { keys, group, label, primary };
     vec![
         // Navigation
         row("↑/↓".into(), "Navigation", "move selection", false),
@@ -333,12 +310,7 @@ pub fn bindings(keymap: &Keymap, mode: SearchMode) -> Vec<Binding> {
             false,
         ),
         // Preview
-        row(
-            chord(Command::TogglePreview),
-            "Preview",
-            "toggle preview",
-            false,
-        ),
+        row(chord(Command::TogglePreview), "Preview", "toggle preview", false),
         row(
             pair(Command::ResizePreview(-1), Command::ResizePreview(1)),
             "Preview",
@@ -353,18 +325,8 @@ pub fn bindings(keymap: &Keymap, mode: SearchMode) -> Vec<Binding> {
         // Actions
         row("type".into(), "Actions", "search", true),
         row("Enter".into(), "Actions", "resume", true),
-        row(
-            chord(Command::OpenPr),
-            "Actions",
-            "open PR in browser",
-            false,
-        ),
-        row(
-            chord(Command::ToggleSearchMode),
-            "Actions",
-            "toggle simple/raw search",
-            false,
-        ),
+        row(chord(Command::OpenPr), "Actions", "open PR in browser", false),
+        row(chord(Command::ToggleSearchMode), "Actions", "toggle simple/raw search", false),
         // Tab's action depends on the search mode: it focuses the guided toolbar
         // in simple mode, and autocompletes query keywords in raw mode.
         row(
@@ -396,10 +358,7 @@ mod tests {
     #[test]
     fn ctrl_chords_map() {
         let km = Keymap::defaults();
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Char('p'))),
-            Some(Command::TogglePreview)
-        );
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('p'))), Some(Command::TogglePreview));
         assert!(matches!(
             km.chord_action(&ctrl(KeyCode::Char('u'))),
             Some(Command::ScrollPreview(n)) if n < 0
@@ -413,14 +372,8 @@ mod tests {
     #[test]
     fn ctrl_arrows_resize_preview() {
         let km = Keymap::defaults();
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Left)),
-            Some(Command::ResizePreview(-1))
-        );
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Right)),
-            Some(Command::ResizePreview(1))
-        );
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Left)), Some(Command::ResizePreview(-1)));
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Right)), Some(Command::ResizePreview(1)));
     }
 
     #[test]
@@ -428,10 +381,7 @@ mod tests {
         // Some terminals report Ctrl+letter with an uppercase code; the lookup
         // normalizes before matching the lowercase-stored chord.
         let km = Keymap::defaults();
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Char('P'))),
-            Some(Command::TogglePreview)
-        );
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('P'))), Some(Command::TogglePreview));
     }
 
     #[test]
@@ -444,18 +394,9 @@ mod tests {
 
     #[test]
     fn parse_chord_accepts_letters_and_named_keys() {
-        assert_eq!(
-            parse_chord("ctrl+t"),
-            Ok((KeyModifiers::CONTROL, KeyCode::Char('t')))
-        );
-        assert_eq!(
-            parse_chord("Ctrl+Left"),
-            Ok((KeyModifiers::CONTROL, KeyCode::Left))
-        );
-        assert_eq!(
-            parse_chord("ctrl + j"),
-            Ok((KeyModifiers::CONTROL, KeyCode::Char('j')))
-        );
+        assert_eq!(parse_chord("ctrl+t"), Ok((KeyModifiers::CONTROL, KeyCode::Char('t'))));
+        assert_eq!(parse_chord("Ctrl+Left"), Ok((KeyModifiers::CONTROL, KeyCode::Left)));
+        assert_eq!(parse_chord("ctrl + j"), Ok((KeyModifiers::CONTROL, KeyCode::Char('j'))));
     }
 
     #[test]
@@ -471,14 +412,8 @@ mod tests {
         let mut overrides = HashMap::new();
         overrides.insert("toggle_preview".to_string(), "ctrl+t".to_string());
         let (km, warnings) = Keymap::from_config(&overrides);
-        assert!(
-            warnings.is_empty(),
-            "valid override should not warn: {warnings:?}"
-        );
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Char('t'))),
-            Some(Command::TogglePreview)
-        );
+        assert!(warnings.is_empty(), "valid override should not warn: {warnings:?}");
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('t'))), Some(Command::TogglePreview));
         // The default chord no longer triggers toggle.
         assert_eq!(km.chord_action(&ctrl(KeyCode::Char('p'))), None);
     }
@@ -493,10 +428,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("toggle_preview")));
         assert!(warnings.iter().any(|w| w.contains("bogus_command")));
         // Falls back to the default chord.
-        assert_eq!(
-            km.chord_action(&ctrl(KeyCode::Char('p'))),
-            Some(Command::TogglePreview)
-        );
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('p'))), Some(Command::TogglePreview));
     }
 
     #[test]
@@ -543,9 +475,6 @@ mod tests {
             assert!(!b.group.is_empty(), "binding group must be non-empty");
         }
         // At least one binding is flagged primary (footer subset).
-        assert!(
-            table.iter().any(|b| b.primary),
-            "need at least one primary binding"
-        );
+        assert!(table.iter().any(|b| b.primary), "need at least one primary binding");
     }
 }

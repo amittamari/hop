@@ -1,5 +1,5 @@
 use crate::core::AgentId;
-use jiff::{tz::TimeZone, Timestamp};
+use jiff::{Timestamp, tz::TimeZone};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AgentFilter {
@@ -67,17 +67,8 @@ impl DateFilter {
             _ => return None,
         };
         let end_date = start_date.tomorrow().ok()?;
-        let start = start_date
-            .to_zoned(tz.clone())
-            .ok()?
-            .timestamp()
-            .as_second();
-        let end = end_date
-            .to_zoned(tz)
-            .ok()?
-            .timestamp()
-            .as_second()
-            .checked_sub(1)?;
+        let start = start_date.to_zoned(tz.clone()).ok()?.timestamp().as_second();
+        let end = end_date.to_zoned(tz).ok()?.timestamp().as_second().checked_sub(1)?;
 
         Some((Some(start), Some(end)))
     }
@@ -164,23 +155,13 @@ impl ParsedQuery {
         if !self.agents.include.is_empty() {
             filters.push(format!(
                 "agent:{}",
-                self.agents
-                    .include
-                    .iter()
-                    .map(|a| a.slug())
-                    .collect::<Vec<_>>()
-                    .join(",")
+                self.agents.include.iter().map(|a| a.slug()).collect::<Vec<_>>().join(",")
             ));
         }
         if !self.agents.exclude.is_empty() {
             filters.push(format!(
                 "-agent:{}",
-                self.agents
-                    .exclude
-                    .iter()
-                    .map(|a| a.slug())
-                    .collect::<Vec<_>>()
-                    .join(",")
+                self.agents.exclude.iter().map(|a| a.slug()).collect::<Vec<_>>().join(",")
             ));
         }
         for dir in &self.dirs.include {
@@ -198,11 +179,7 @@ impl ParsedQuery {
         if let Some(date) = self.date {
             filters.push(date.summary());
         }
-        if filters.is_empty() {
-            None
-        } else {
-            Some(filters.join(","))
-        }
+        if filters.is_empty() { None } else { Some(filters.join(",")) }
     }
 }
 
@@ -212,11 +189,11 @@ impl ParsedQuery {
 /// is reused unchanged rather than building a `ParsedQuery` by hand.
 pub fn compose_simple(free_text: &str, repo_scope: Option<&str>) -> String {
     let mut out = String::new();
-    if let Some(slug) = repo_scope {
-        if !slug.is_empty() {
-            out.push_str("repo:");
-            out.push_str(slug);
-        }
+    if let Some(slug) = repo_scope
+        && !slug.is_empty()
+    {
+        out.push_str("repo:");
+        out.push_str(slug);
     }
     if !free_text.is_empty() {
         if !out.is_empty() {
@@ -301,11 +278,7 @@ fn parse_date(val: &str) -> Option<DateFilter> {
         None => (false, val.strip_prefix('<').unwrap_or(val)),
     };
     let secs = parse_duration(rest)?;
-    Some(if older {
-        DateFilter::OlderThan(secs)
-    } else {
-        DateFilter::Within(secs)
-    })
+    Some(if older { DateFilter::OlderThan(secs) } else { DateFilter::Within(secs) })
 }
 
 fn parse_duration(s: &str) -> Option<i64> {
@@ -355,10 +328,7 @@ fn complete_value(partial: &str, candidates: &[&str]) -> Option<String> {
     if partial.is_empty() {
         return None;
     }
-    let matches: Vec<&&str> = candidates
-        .iter()
-        .filter(|c| c.starts_with(partial))
-        .collect();
+    let matches: Vec<&&str> = candidates.iter().filter(|c| c.starts_with(partial)).collect();
     // Only complete when unambiguous and not already complete.
     match matches.as_slice() {
         [only] if **only != partial => Some((**only).to_string()),
@@ -419,31 +389,16 @@ mod tests {
         assert_eq!(parse("date:month").date, Some(DateFilter::LastMonth));
         assert_eq!(parse("date:<1h").date, Some(DateFilter::Within(3600)));
         assert_eq!(parse("date:<2d").date, Some(DateFilter::Within(2 * 86400)));
-        assert_eq!(
-            parse("date:>1w").date,
-            Some(DateFilter::OlderThan(7 * 86400))
-        );
+        assert_eq!(parse("date:>1w").date, Some(DateFilter::OlderThan(7 * 86400)));
     }
 
     #[test]
     fn date_range_windows() {
         let now = 1_000_000i64;
-        assert_eq!(
-            DateFilter::LastWeek.range(now),
-            (Some(now - 7 * 86400), Some(now))
-        );
-        assert_eq!(
-            DateFilter::LastMonth.range(now),
-            (Some(now - 30 * 86400), Some(now))
-        );
-        assert_eq!(
-            DateFilter::Within(3600).range(now),
-            (Some(now - 3600), Some(now))
-        );
-        assert_eq!(
-            DateFilter::OlderThan(3600).range(now),
-            (None, Some(now - 3600))
-        );
+        assert_eq!(DateFilter::LastWeek.range(now), (Some(now - 7 * 86400), Some(now)));
+        assert_eq!(DateFilter::LastMonth.range(now), (Some(now - 30 * 86400), Some(now)));
+        assert_eq!(DateFilter::Within(3600).range(now), (Some(now - 3600), Some(now)));
+        assert_eq!(DateFilter::OlderThan(3600).range(now), (None, Some(now - 3600)));
     }
 
     #[test]
@@ -456,17 +411,11 @@ mod tests {
             .timestamp()
             .as_second();
 
-        let expected_start = jiff::civil::date(2024, 3, 10)
-            .to_zoned(tz.clone())
-            .unwrap()
-            .timestamp()
-            .as_second();
-        let expected_end = jiff::civil::date(2024, 3, 11)
-            .to_zoned(tz.clone())
-            .unwrap()
-            .timestamp()
-            .as_second()
-            - 1;
+        let expected_start =
+            jiff::civil::date(2024, 3, 10).to_zoned(tz.clone()).unwrap().timestamp().as_second();
+        let expected_end =
+            jiff::civil::date(2024, 3, 11).to_zoned(tz.clone()).unwrap().timestamp().as_second()
+                - 1;
 
         assert_eq!(
             DateFilter::Today.calendar_day_range(now, tz, 0),
@@ -485,17 +434,11 @@ mod tests {
             .timestamp()
             .as_second();
 
-        let expected_start = jiff::civil::date(2024, 3, 9)
-            .to_zoned(tz.clone())
-            .unwrap()
-            .timestamp()
-            .as_second();
-        let expected_end = jiff::civil::date(2024, 3, 10)
-            .to_zoned(tz.clone())
-            .unwrap()
-            .timestamp()
-            .as_second()
-            - 1;
+        let expected_start =
+            jiff::civil::date(2024, 3, 9).to_zoned(tz.clone()).unwrap().timestamp().as_second();
+        let expected_end =
+            jiff::civil::date(2024, 3, 10).to_zoned(tz.clone()).unwrap().timestamp().as_second()
+                - 1;
 
         assert_eq!(
             DateFilter::Yesterday.calendar_day_range(now, tz, -1),
@@ -506,10 +449,7 @@ mod tests {
     #[test]
     fn autocomplete_agent_value() {
         assert_eq!(autocomplete("agent:cl").as_deref(), Some("agent:claude"));
-        assert_eq!(
-            autocomplete("bug agent:co").as_deref(),
-            Some("bug agent:codex")
-        );
+        assert_eq!(autocomplete("bug agent:co").as_deref(), Some("bug agent:codex"));
         // already complete -> no suggestion
         assert_eq!(autocomplete("agent:claude"), None);
         // free text -> no suggestion
