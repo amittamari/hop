@@ -57,7 +57,8 @@ See `README.md` for current keybindings and query syntax.
 ## Data Sources
 
 - Claude Code: JSONL sessions parsed by `src/adapters/claude.rs`.
-- Codex: JSONL sessions parsed by `src/adapters/codex.rs`.
+- Codex: plain or zstd-compressed JSONL sessions parsed by
+  `src/adapters/codex.rs`.
 - GitHub PR enrichment: optional background lookup through the `gh` CLI.
 
 Adapters are responsible for turning source-specific JSONL shapes into stable

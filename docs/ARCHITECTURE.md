@@ -46,6 +46,10 @@ rows and surface as sync status warnings.
 - `src/adapters/`: source-specific integration. Adapters scan files, parse raw
   JSONL into `core` types, extract source-specific metadata candidates, provide
   preview transcripts, and build resume commands.
+  The Codex adapter treats plain `.jsonl` and compressed `.jsonl.zst` rollouts
+  as representations of the same session and selects the transcript record
+  family from persisted `history_mode`, with a non-empty fallback for malformed
+  or transitional files.
 - `src/query.rs`: parses user query text into a structured query independent of
   Tantivy.
 - `src/index.rs`: owns Tantivy schema, upsert/delete, incremental diff helpers,

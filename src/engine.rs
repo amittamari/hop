@@ -244,7 +244,7 @@ fn sync_index_with_sidecar_dir(
     sidecar_base: &Path,
     mut on_batch_commit: impl FnMut(&SearchIndex),
 ) -> Result<SyncReport> {
-    let (known, known_sidecars) = index.known_sync_state()?;
+    let known = index.known_sync_state()?;
     let mut writer = index.writer()?;
     let mut report = SyncReport::default();
     let mut all_scanned = HashMap::new();
@@ -278,10 +278,18 @@ fn sync_index_with_sidecar_dir(
         }
     }
 
-    let (mut changed, deleted) = diff_authoritative(&known, &all_scanned, &authoritative_agents);
+    let (mut changed, deleted) =
+        diff_authoritative(&known.mtimes, &all_scanned, &authoritative_agents);
     let mut changed_keys: HashSet<_> = changed.iter().map(|(key, _)| key.clone()).collect();
     for (key, entry) in &all_scanned {
-        if sidecar_stamps.get(key) != known_sidecars.get(key) && changed_keys.insert(key.clone()) {
+        // Codex compression preserves the rollout mtime while replacing
+        // `.jsonl` with `.jsonl.zst`, so mtime alone cannot detect this change.
+        if known.source_paths.get(key) != Some(&entry.path) && changed_keys.insert(key.clone()) {
+            changed.push((key.clone(), entry.clone()));
+        }
+        if sidecar_stamps.get(key) != known.sidecar_stamps.get(key)
+            && changed_keys.insert(key.clone())
+        {
             changed.push((key.clone(), entry.clone()));
         }
     }
@@ -721,5 +729,58 @@ mod tests {
             .search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10)
             .unwrap();
         assert_eq!(updated[0].branch.as_deref(), Some("feature/hooks"));
+    }
+
+    #[test]
+    fn source_path_change_reindexes_when_mtime_is_preserved() {
+        use crate::adapters::codex::CodexAdapter;
+        use std::fs::FileTimes;
+
+        let data = tempfile::tempdir().unwrap();
+        let sessions = data.path().join("sessions/2026/07/11");
+        std::fs::create_dir_all(&sessions).unwrap();
+        let plain = sessions.join("rollout-2026-07-11T10-00-00-session.jsonl");
+        let compressed = sessions.join("rollout-2026-07-11T10-00-00-session.jsonl.zst");
+        let rollout = |message: &str| {
+            format!(
+                concat!(
+                    r#"{{"type":"session_meta","timestamp":"2026-07-11T10:00:00Z","payload":{{"id":"session","cwd":"/w"}}}}"#,
+                    "\n",
+                    r#"{{"type":"event_msg","payload":{{"type":"user_message","message":"{message}"}}}}"#,
+                    "\n"
+                ),
+                message = message
+            )
+        };
+        std::fs::write(&plain, rollout("before compression")).unwrap();
+        let original_mtime = std::fs::metadata(&plain).unwrap().modified().unwrap();
+
+        let index_dir = tempfile::tempdir().unwrap();
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![Box::new(CodexAdapter::new(data.path().to_path_buf()))];
+        let mut engine = Engine::new(index_dir.path(), adapters).unwrap();
+        assert_eq!(engine.sync_once().unwrap().indexed, 1);
+
+        std::fs::write(
+            &compressed,
+            zstd::stream::encode_all(rollout("after compression").as_bytes(), 0).unwrap(),
+        )
+        .unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&compressed)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(original_mtime))
+            .unwrap();
+        std::fs::remove_file(&plain).unwrap();
+
+        assert_eq!(engine.sync_once().unwrap().indexed, 1);
+        engine.set_query("after compression");
+        engine.search().unwrap();
+        assert_eq!(engine.results().len(), 1);
+        assert_eq!(
+            engine.results()[0].source_path.as_deref(),
+            Some(compressed.as_path())
+        );
     }
 }

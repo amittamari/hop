@@ -6,6 +6,7 @@ use crate::core::{
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 pub struct CodexAdapter {
@@ -32,13 +33,14 @@ impl CodexAdapter {
 
     fn extract(&self, path: &Path) -> Result<Extracted> {
         use crate::core::{split_blocks, Message, Role};
-        let raw =
-            std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+        let raw = read_rollout(path)?;
         let mut directory = String::new();
         let mut branch = None;
         let mut repo_url = None;
         let mut first_ts: Option<i64> = None;
-        let mut messages: Vec<Message> = Vec::new();
+        let mut event_messages: Vec<Message> = Vec::new();
+        let mut response_messages: Vec<Message> = Vec::new();
+        let mut history_mode = HistoryMode::Legacy;
         let mut yolo = false;
 
         for line in raw.lines() {
@@ -58,6 +60,7 @@ impl CodexAdapter {
             let Some(p) = parsed.payload else { continue };
             match parsed.kind.as_str() {
                 "session_meta" => {
+                    history_mode = p.history_mode.unwrap_or_default();
                     if let Some(c) = p.cwd {
                         directory = c;
                     }
@@ -86,14 +89,44 @@ impl CodexAdapter {
                         continue;
                     };
                     let blocks = split_blocks(&text);
-                    messages.push(Message {
+                    event_messages.push(Message {
                         role: if is_user { Role::User } else { Role::Agent },
                         blocks,
+                    });
+                }
+                "response_item" if p.sub.as_deref() == Some("message") => {
+                    let role = match p.role.as_deref() {
+                        Some("user") => Role::User,
+                        Some("assistant") => Role::Agent,
+                        _ => continue,
+                    };
+                    let text = p
+                        .content
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter_map(|item| match item.kind.as_str() {
+                            "input_text" | "output_text" => item.text,
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let Some(text) = clean_event_message(&text) else {
+                        continue;
+                    };
+                    response_messages.push(Message {
+                        role,
+                        blocks: split_blocks(&text),
                     });
                 }
                 _ => {}
             }
         }
+        let messages = match history_mode {
+            HistoryMode::Paginated if !response_messages.is_empty() => response_messages,
+            HistoryMode::Paginated => event_messages,
+            HistoryMode::Legacy if !event_messages.is_empty() => event_messages,
+            HistoryMode::Legacy => response_messages,
+        };
         Ok(Extracted {
             messages,
             directory,
@@ -105,10 +138,21 @@ impl CodexAdapter {
     }
 }
 
-const DROP_XML_BLOCKS: [(&str, &str); 2] = [
+const DROP_XML_BLOCKS: [(&str, &str); 11] = [
+    ("<user_instructions", "</user_instructions>"),
     ("<environment_context", "</environment_context>"),
+    ("<apps_instructions", "</apps_instructions>"),
+    ("<skills_instructions", "</skills_instructions>"),
+    ("<plugins_instructions", "</plugins_instructions>"),
+    ("<collaboration_mode", "</collaboration_mode>"),
+    ("<multi_agent_mode", "</multi_agent_mode>"),
+    ("<realtime_conversation", "</realtime_conversation>"),
+    ("<context_window_guidance", "</context_window_guidance>"),
+    ("<context_window", "</context_window>"),
     ("<system-reminder", "</system-reminder>"),
 ];
+
+const USER_MESSAGE_BEGIN: &str = "## My request for Codex:";
 
 fn clean_event_message(text: &str) -> Option<String> {
     let mut lines = Vec::new();
@@ -157,7 +201,11 @@ fn clean_event_message(text: &str) -> Option<String> {
     }
 
     let cleaned = lines.join("\n");
-    let trimmed = cleaned.trim();
+    let trimmed = cleaned
+        .find(USER_MESSAGE_BEGIN)
+        .map(|idx| &cleaned[idx + USER_MESSAGE_BEGIN.len()..])
+        .unwrap_or(&cleaned)
+        .trim();
     if trimmed.is_empty() {
         None
     } else {
@@ -166,10 +214,49 @@ fn clean_event_message(text: &str) -> Option<String> {
 }
 
 fn strip_codex_wrappers(line: &str) -> String {
-    line.replace("<context>", "")
-        .replace("</context>", "")
-        .replace("<user_instructions>", "")
-        .replace("</user_instructions>", "")
+    line.replace("<context>", "").replace("</context>", "")
+}
+
+fn derive_codex_title(messages: &[crate::core::Message]) -> String {
+    use crate::core::{Block, Role};
+
+    let title_messages = messages
+        .iter()
+        .position(|message| {
+            message.role == Role::User
+                && !message.blocks.iter().any(|block| {
+                    matches!(
+                        block,
+                        Block::Prose(text)
+                            if text.trim_start().starts_with("## Code review guidelines:")
+                    )
+                })
+        })
+        .map(|index| &messages[index..])
+        .unwrap_or_default();
+    derive_session_title(None, title_messages)
+}
+
+fn read_rollout(path: &Path) -> Result<String> {
+    if is_compressed_rollout(path) {
+        let file =
+            std::fs::File::open(path).with_context(|| format!("reading {}", path.display()))?;
+        let mut decoder = zstd::stream::read::Decoder::new(file)
+            .with_context(|| format!("decompressing {}", path.display()))?;
+        let mut raw = String::new();
+        decoder
+            .read_to_string(&mut raw)
+            .with_context(|| format!("decompressing {}", path.display()))?;
+        Ok(raw)
+    } else {
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))
+    }
+}
+
+fn is_compressed_rollout(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".jsonl.zst"))
 }
 
 #[derive(Deserialize)]
@@ -185,6 +272,8 @@ struct Payload {
     // session_meta
     cwd: Option<String>,
     git: Option<Git>,
+    #[serde(default)]
+    history_mode: Option<HistoryMode>,
     // turn_context
     approval_policy: Option<String>,
     sandbox_policy: Option<SandboxPolicy>,
@@ -192,6 +281,24 @@ struct Payload {
     #[serde(rename = "type")]
     sub: Option<String>,
     message: Option<String>,
+    role: Option<String>,
+    content: Option<Vec<ContentItem>>,
+}
+
+#[derive(Deserialize)]
+struct ContentItem {
+    #[serde(rename = "type")]
+    kind: String,
+    text: Option<String>,
+}
+
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum HistoryMode {
+    Paginated,
+    #[default]
+    #[serde(other)]
+    Legacy,
 }
 
 #[derive(Deserialize)]
@@ -234,13 +341,11 @@ impl Adapter for CodexAdapter {
 
     fn parse(&self, path: &Path) -> Result<Session> {
         use crate::core::flatten_messages;
-        let id = path
-            .file_stem()
-            .and_then(|s| s.to_str())
+        let id = canonical_rollout_stem(path)
             .map(session_id_from_filename)
             .unwrap_or_else(|| "unknown".to_string());
         let ex = self.extract(path)?;
-        let title = derive_session_title(None, &ex.messages);
+        let title = derive_codex_title(&ex.messages);
         let content = flatten_messages(&ex.messages);
         // Prefer the remote recorded in session_meta; fall back to resolving it
         // from the cwd so older rollouts without git metadata still get a repo.
@@ -317,7 +422,7 @@ fn session_id_from_filename(stem: &str) -> String {
         .unwrap_or_else(|| stem.to_string())
 }
 
-/// Recursively collect `rollout-*.jsonl` files keyed by trailing-uuid id.
+/// Recursively collect plain or zstd-compressed rollout files keyed by session id.
 fn collect_jsonl(dir: &Path, out: &mut HashMap<SessionId, ScanEntry>) -> Result<()> {
     if !dir.is_dir() {
         return Ok(());
@@ -328,15 +433,25 @@ fn collect_jsonl(dir: &Path, out: &mut HashMap<SessionId, ScanEntry>) -> Result<
             collect_jsonl(&path, out)?;
             continue;
         }
-        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        let Some(stem) = canonical_rollout_stem(&path) else {
             continue;
         };
         let id = session_id_from_filename(stem);
         let mtime = file_mtime_ms(&entry)?;
-        out.insert(id, ScanEntry { path, mtime });
+        let should_insert = out.get(&id).is_none_or(|existing| {
+            let same_siblings = existing.path.parent() == path.parent()
+                && canonical_rollout_stem(&existing.path) == canonical_rollout_stem(&path);
+            !same_siblings || is_compressed_rollout(&existing.path) || !is_compressed_rollout(&path)
+        });
+        if should_insert {
+            out.insert(id, ScanEntry { path, mtime });
+        }
     }
     Ok(())
+}
+
+fn canonical_rollout_stem(path: &Path) -> Option<&str> {
+    let name = path.file_name()?.to_str()?;
+    let plain = name.strip_suffix(".zst").unwrap_or(name);
+    plain.strip_suffix(".jsonl")
 }

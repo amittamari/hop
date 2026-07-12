@@ -3,7 +3,7 @@ use crate::query::{ParsedQuery, SortOrder};
 use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::ops::Bound;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tantivy::collector::{Count, TopDocs};
 use tantivy::query::{
     AllQuery, BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, RangeQuery,
@@ -40,6 +40,12 @@ struct Fields {
     worktree: Field,
     permission_mode: Field,
     sidecar_stamp: Field,
+}
+
+pub(crate) struct KnownSyncState {
+    pub(crate) mtimes: HashMap<DocumentKey, i64>,
+    pub(crate) sidecar_stamps: HashMap<DocumentKey, String>,
+    pub(crate) source_paths: HashMap<DocumentKey, PathBuf>,
 }
 
 pub struct SearchIndex {
@@ -163,15 +169,12 @@ impl SearchIndex {
 
     /// document_key -> mtime for every indexed session (drives incremental diff).
     pub fn known_mtimes(&self) -> Result<HashMap<DocumentKey, i64>> {
-        Ok(self.known_sync_state()?.0)
+        Ok(self.known_sync_state()?.mtimes)
     }
 
-    /// Indexed source mtimes and sidecar file stamps, keyed by document key.
-    /// Keeping these signals separate lets metadata-only hook writes trigger a
-    /// reparse without distorting the source-file mtime.
-    pub fn known_sync_state(
-        &self,
-    ) -> Result<(HashMap<DocumentKey, i64>, HashMap<DocumentKey, String>)> {
+    /// Internal incremental-sync signals. Physical source paths are separate
+    /// because Codex compression changes the path while preserving mtime.
+    pub(crate) fn known_sync_state(&self) -> Result<KnownSyncState> {
         let searcher = self.reader.searcher();
         let n = searcher.num_docs().max(1) as usize;
         let hits = searcher.search(
@@ -180,6 +183,7 @@ impl SearchIndex {
         )?;
         let mut mtimes = HashMap::new();
         let mut sidecars = HashMap::new();
+        let mut source_paths = HashMap::new();
         for (_, addr) in hits {
             let doc: TantivyDocument = searcher.doc(addr)?;
             let doc_key = doc.get_first(self.f.doc_key).and_then(|v| v.as_str());
@@ -189,9 +193,16 @@ impl SearchIndex {
                 if let Some(stamp) = doc.get_first(self.f.sidecar_stamp).and_then(|v| v.as_str()) {
                     sidecars.insert(doc_key.to_string(), stamp.to_string());
                 }
+                if let Some(path) = doc.get_first(self.f.source_path).and_then(|v| v.as_str()) {
+                    source_paths.insert(doc_key.to_string(), PathBuf::from(path));
+                }
             }
         }
-        Ok((mtimes, sidecars))
+        Ok(KnownSyncState {
+            mtimes,
+            sidecar_stamps: sidecars,
+            source_paths,
+        })
     }
 
     /// Run a parsed query. `now` is unix seconds (for date filtering). `sort`
