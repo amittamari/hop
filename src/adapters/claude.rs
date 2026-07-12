@@ -45,6 +45,7 @@ struct Line {
 #[derive(Deserialize)]
 struct Message {
     content: Option<Content>,
+    model: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +68,7 @@ struct Extracted {
     branch: Option<String>,
     title: Option<String>,
     first_ts: Option<i64>,
+    model: Option<String>,
 }
 
 impl ClaudeAdapter {
@@ -80,6 +82,7 @@ impl ClaudeAdapter {
         let mut has_ai_title = false;
         let mut first_ts: Option<i64> = None;
         let mut messages: Vec<Message> = Vec::new();
+        let mut model: Option<String> = None;
 
         for line in raw.lines() {
             if line.trim().is_empty() {
@@ -116,6 +119,16 @@ impl ClaudeAdapter {
             if !is_user && !is_assistant {
                 continue;
             }
+            // Keep the last real model an assistant line reports. Skip synthetic
+            // sentinels like "<synthetic>" that Claude writes for injected turns.
+            if is_assistant {
+                if let Some(m) = parsed.message.as_ref().and_then(|m| m.model.as_deref()) {
+                    let m = m.trim();
+                    if !m.is_empty() && !m.starts_with('<') {
+                        model = Some(m.to_string());
+                    }
+                }
+            }
             if parsed.is_meta == Some(true) || parsed.tool_use_result.is_some() {
                 continue;
             }
@@ -143,6 +156,7 @@ impl ClaudeAdapter {
             branch,
             title,
             first_ts,
+            model,
         })
     }
 }
@@ -208,6 +222,9 @@ impl Adapter for ClaudeAdapter {
                 archived: false,
                 worktree: None,
                 permission_mode: None,
+                model: ex.model,
+                commit: None,
+                source: None,
             },
             content,
             mtime: 0,

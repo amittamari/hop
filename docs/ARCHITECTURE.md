@@ -115,6 +115,18 @@ rows and surface as sync status warnings.
   normalization, command-tag filtering, or transcript flattening, prefer a
   shared core helper over duplicating the policy in each adapter. Width-specific
   truncation remains a rendering concern.
+- **B-011 Adapter Vocabulary Containment:** Agent-specific knowledge — format
+  quirks, magic field values, enum variants, and per-agent judgments (e.g. which
+  Codex `SessionSource` values are non-interactive, which model sentinels are
+  synthetic) — must live inside that agent's adapter module. Generic layers
+  (`engine`, `core`, `index`, `tui`) must never name an agent-specific constant,
+  string literal, or `adapters::<agent>::…` symbol in non-test code; they reach
+  adapters only through the `Adapter` trait and `core` types. When a generic layer
+  needs an agent-specific decision, add an agent-agnostic `Adapter` trait method
+  with a safe default and let the adapter override it (see `Adapter::is_interactive`),
+  rather than importing the adapter's logic upward. This extends `B-001` (raw JSON
+  stays in adapters) from data to *semantics*, and complements `B-010` (genuinely
+  cross-agent policy belongs in `core`).
 
 ## Current Invariants
 
@@ -123,7 +135,12 @@ rows and surface as sync status warnings.
   indexed rows, and unavailable adapters are reported without forcing deletion.
   Sessions that parse to no usable conversation (zero messages or empty content,
   e.g. a Cursor subagent spawn the model blocked before any reply) are counted as
-  `empty_sessions` and skipped rather than indexed.
+  `empty_sessions` and skipped rather than indexed. As a sibling filter, sessions
+  the producing adapter reports as non-interactive (via `Adapter::is_interactive`;
+  Codex sub-agent / memory-consolidation / exec-startup threads) are counted as
+  `non_interactive_sessions` and skipped. The judgment stays in the adapter — the
+  engine only knows the agent-agnostic concept — and is fail-open, so absent or
+  unrecognized sources are always kept.
 - **I-003 Schema Versioning:** Schema changes must bump `SCHEMA_VERSION` in
   `src/index.rs`.
 - **I-004 Shared Transcript Extraction:** Search content and preview transcript

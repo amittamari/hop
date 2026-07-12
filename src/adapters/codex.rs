@@ -37,6 +37,9 @@ impl CodexAdapter {
         let mut directory = String::new();
         let mut branch = None;
         let mut repo_url = None;
+        let mut commit = None;
+        let mut model = None;
+        let mut source = None;
         let mut first_ts: Option<i64> = None;
         let mut event_messages: Vec<Message> = Vec::new();
         let mut response_messages: Vec<Message> = Vec::new();
@@ -67,6 +70,21 @@ impl CodexAdapter {
                     if let Some(g) = p.git {
                         branch = g.branch.filter(|b| !b.trim().is_empty());
                         repo_url = g.repository_url.filter(|u| !u.trim().is_empty());
+                        commit = g.commit_hash.filter(|c| !c.trim().is_empty());
+                    }
+                    source = normalize_source(p.source);
+                    // A non-interactive thread classification (subagent /
+                    // memory_consolidation) also means the session isn't
+                    // user-resumable; let it drive the filter signal.
+                    if let Some(ts) = p
+                        .thread_source
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                    {
+                        if is_non_interactive_source(Some(ts)) {
+                            source = Some(ts.to_string());
+                        }
                     }
                 }
                 "turn_context" => {
@@ -75,6 +93,14 @@ impl CodexAdapter {
                         == Some("danger-full-access");
                     if never && danger {
                         yolo = true;
+                    }
+                    // First non-empty model wins (matches branch/dir): later
+                    // turns may be a trailing "codex-auto-review" turn rather
+                    // than the model the user actually ran.
+                    if model.is_none() {
+                        if let Some(m) = p.model.filter(|m| !m.trim().is_empty()) {
+                            model = Some(m);
+                        }
                     }
                 }
                 "event_msg" => {
@@ -132,8 +158,11 @@ impl CodexAdapter {
             directory,
             branch,
             repo_url,
+            commit,
             first_ts,
             yolo,
+            model,
+            source,
         })
     }
 }
@@ -153,6 +182,33 @@ const DROP_XML_BLOCKS: [(&str, &str); 11] = [
 ];
 
 const USER_MESSAGE_BEGIN: &str = "## My request for Codex:";
+
+/// Whether a Codex session `source`/`thread_source` marker denotes a
+/// non-interactive thread a user would never resume (sub-agents, memory
+/// consolidation, exec startup). Fail-open: `None` and any unrecognized value
+/// are treated as interactive so a resumable session is never hidden. Mirrors
+/// the complement of Codex's `INTERACTIVE_SESSION_SOURCES` allowlist (cli,
+/// vscode, atlas, chatgpt).
+fn is_non_interactive_source(source: Option<&str>) -> bool {
+    matches!(
+        source,
+        Some("subagent" | "memory_consolidation" | "unified_exec_startup" | "internal")
+    )
+}
+
+/// Reduce a Codex `SessionSource` value to a marker string for interactivity
+/// filtering. Bare strings ("cli", "unified_exec_startup") pass through; nested
+/// variants (`{"subagent": …}`, `{"internal": …}`) reduce to their variant key.
+fn normalize_source(value: Option<serde_json::Value>) -> Option<String> {
+    match value {
+        Some(serde_json::Value::String(s)) => {
+            let s = s.trim();
+            (!s.is_empty()).then(|| s.to_string())
+        }
+        Some(serde_json::Value::Object(map)) => map.into_iter().next().map(|(k, _)| k),
+        _ => None,
+    }
+}
 
 fn clean_event_message(text: &str) -> Option<String> {
     let mut lines = Vec::new();
@@ -274,9 +330,15 @@ struct Payload {
     git: Option<Git>,
     #[serde(default)]
     history_mode: Option<HistoryMode>,
+    // `source` is a bare string for interactive origins ("cli", "vscode") but an
+    // object for nested variants ("{\"subagent\":{…}}"), so parse it loosely to
+    // avoid failing the whole session_meta line.
+    source: Option<serde_json::Value>,
+    thread_source: Option<String>,
     // turn_context
     approval_policy: Option<String>,
     sandbox_policy: Option<SandboxPolicy>,
+    model: Option<String>,
     // event_msg
     #[serde(rename = "type")]
     sub: Option<String>,
@@ -305,6 +367,7 @@ enum HistoryMode {
 struct Git {
     branch: Option<String>,
     repository_url: Option<String>,
+    commit_hash: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -318,8 +381,11 @@ struct Extracted {
     directory: String,
     branch: Option<String>,
     repo_url: Option<String>,
+    commit: Option<String>,
     first_ts: Option<i64>,
     yolo: bool,
+    model: Option<String>,
+    source: Option<String>,
 }
 
 impl Adapter for CodexAdapter {
@@ -371,6 +437,9 @@ impl Adapter for CodexAdapter {
                 } else {
                     Some("default".into())
                 },
+                model: ex.model,
+                commit: ex.commit,
+                source: ex.source,
             },
             content,
             mtime: 0,
@@ -400,6 +469,10 @@ impl Adapter for CodexAdapter {
 
     fn unarchive_command(&self, s: &Session) -> Option<Vec<String>> {
         Some(vec!["codex".into(), "unarchive".into(), s.meta.id.clone()])
+    }
+
+    fn is_interactive(&self, s: &Session) -> bool {
+        !is_non_interactive_source(s.meta.source.as_deref())
     }
 }
 
@@ -454,4 +527,21 @@ fn canonical_rollout_stem(path: &Path) -> Option<&str> {
     let name = path.file_name()?.to_str()?;
     let plain = name.strip_suffix(".zst").unwrap_or(name);
     plain.strip_suffix(".jsonl")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_non_interactive_source;
+
+    #[test]
+    fn interactivity_filter_is_fail_open() {
+        assert!(is_non_interactive_source(Some("subagent")));
+        assert!(is_non_interactive_source(Some("memory_consolidation")));
+        assert!(is_non_interactive_source(Some("unified_exec_startup")));
+        // Absent or unrecognized => treated as interactive (never hide a session).
+        assert!(!is_non_interactive_source(None));
+        assert!(!is_non_interactive_source(Some("cli")));
+        assert!(!is_non_interactive_source(Some("vscode")));
+        assert!(!is_non_interactive_source(Some("some-future-source")));
+    }
 }

@@ -65,6 +65,14 @@ pub fn default_columns() -> Vec<Column> {
             flex: false,
         },
         Column {
+            id: "model",
+            header: "MODEL",
+            align: Align::Left,
+            priority: 35,
+            min_width: 5,
+            flex: false,
+        },
+        Column {
             id: "pr",
             header: "PR",
             align: Align::Left,

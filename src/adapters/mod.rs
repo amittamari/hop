@@ -28,6 +28,13 @@ pub trait Adapter: Send {
     fn unarchive_command(&self, _s: &Session) -> Option<Vec<String>> {
         None
     }
+    /// Whether a parsed session is an interactive thread a user could resume.
+    /// Non-interactive threads (e.g. Codex sub-agent / memory-consolidation /
+    /// exec-startup sessions) are skipped at index time. Default: interactive —
+    /// only adapters with a notion of non-interactive threads override this.
+    fn is_interactive(&self, _s: &Session) -> bool {
+        true
+    }
 }
 
 /// Default v1 adapters, honoring config data-dir overrides.

@@ -652,13 +652,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -709,13 +704,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
             archived: true,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -813,13 +803,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -879,13 +864,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(true);
 
@@ -954,13 +934,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
@@ -1140,13 +1115,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
 
         let enr: Vec<Box<dyn Enricher>> = vec![];
@@ -1196,13 +1166,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1261,13 +1226,7 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1326,13 +1285,7 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(true);
 
@@ -1392,13 +1345,7 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(true);
 
@@ -1448,13 +1395,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
             archived: true,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(false);
 
@@ -1510,13 +1452,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1566,13 +1503,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1633,13 +1565,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1749,13 +1676,8 @@ mod tests {
             directory: "/work/api".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
             branch: Some("feat/auth".into()),
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
@@ -1802,13 +1724,7 @@ mod tests {
             directory: "/tmp/nonexistent-hop-test-dir-999999".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(false);
 
@@ -1866,13 +1782,7 @@ mod tests {
             directory: "/tmp".into(),
             timestamp: 0,
             message_count: 3,
-            yolo: false,
-            branch: None,
-            repo_url: None,
-            source_path: None,
-            archived: false,
-            worktree: None,
-            permission_mode: None,
+            ..Default::default()
         }]);
         app.open_yolo_modal_with(false);
 

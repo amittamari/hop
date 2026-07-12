@@ -124,8 +124,9 @@ pub fn is_command_tag_line(text: &str) -> bool {
         .any(|prefix| trimmed.starts_with(prefix))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AgentId {
+    #[default]
     Claude,
     Codex,
     Cursor,
@@ -199,7 +200,7 @@ impl Session {
 }
 
 /// Row-sized session data for search results and frontend rendering.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct SessionSummary {
     pub id: SessionId,
     pub agent: AgentId,
@@ -222,6 +223,14 @@ pub struct SessionSummary {
     pub worktree: Option<String>,
     /// Permission mode: "default", "yolo", "auto". Replaces the boolean `yolo` field.
     pub permission_mode: Option<String>,
+    /// Model the session ran on, when the agent records it. None otherwise.
+    pub model: Option<String>,
+    /// Git commit SHA at session time (Codex records it). None otherwise.
+    pub commit: Option<String>,
+    /// Origin thread source (Codex `SessionSource`). Used to filter
+    /// non-interactive threads at index time; None ⇒ treated as interactive.
+    /// Not persisted to the index (indexed sessions are all interactive).
+    pub source: Option<String>,
 }
 
 impl SessionSummary {
