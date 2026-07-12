@@ -11,96 +11,85 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Cell, Row};
 use std::collections::HashMap;
 
-#[allow(clippy::too_many_arguments)]
-fn cell(
-    s: &SessionSummary,
-    col: &Column,
-    enrichers: &[Box<dyn Enricher>],
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    now: i64,
-    frame: u64,
-    theme: &Theme,
-) -> (String, Style) {
+fn cell(s: &SessionSummary, col: &Column, ctx: &RowCtx<'_>) -> (String, Style) {
     match col.id {
-        "agent" => (s.agent.badge().to_string(), Style::default().fg(theme.agent_color(s.agent))),
+        "agent" => {
+            (s.agent.badge().to_string(), Style::default().fg(ctx.theme.agent_color(s.agent)))
+        }
         "title" => (s.title.clone(), Style::default()),
         "msgs" => (
             if s.message_count > 0 { s.message_count.to_string() } else { "-".into() },
-            Style::default().fg(theme.muted),
+            Style::default().fg(ctx.theme.muted),
         ),
-        "time" => (rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
+        "time" => (rel_time(s.timestamp, ctx.now), Style::default().fg(ctx.theme.muted)),
         "model" => {
-            (s.model.clone().unwrap_or_else(|| "-".into()), Style::default().fg(theme.muted))
+            (s.model.clone().unwrap_or_else(|| "-".into()), Style::default().fg(ctx.theme.muted))
         }
-        other => enrichment_cell(other, s, enrichers, resolved, frame, theme),
+        other => enrichment_cell(other, s, ctx),
     }
 }
 
-fn enrichment_cell(
-    id: &str,
-    s: &SessionSummary,
-    enrichers: &[Box<dyn Enricher>],
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    frame: u64,
-    theme: &Theme,
-) -> (String, Style) {
-    let Some(enr) = enrichers.iter().find(|e| e.id() == id) else {
+fn enrichment_cell(id: &str, s: &SessionSummary, ctx: &RowCtx<'_>) -> (String, Style) {
+    let Some(enr) = ctx.enrichers.iter().find(|e| e.id() == id) else {
         return (String::new(), Style::default());
     };
     match enr.kind() {
         EnrichKind::Fast => {
             let text = enr.resolve(s).map(|v| v.text).unwrap_or_else(|| "—".into());
-            (text, Style::default().fg(theme.muted))
+            (text, Style::default().fg(ctx.theme.muted))
         }
-        EnrichKind::Slow => match resolved.get(&(s.document_key(), enr.id())) {
-            Some(Some(text)) => (text.clone(), Style::default().fg(theme.accent)),
-            Some(None) => ("—".into(), Style::default().fg(theme.muted)),
+        EnrichKind::Slow => match ctx.resolved.get(&(s.document_key(), enr.id())) {
+            Some(Some(text)) => (text.clone(), Style::default().fg(ctx.theme.accent)),
+            Some(None) => ("—".into(), Style::default().fg(ctx.theme.muted)),
             None => (
-                crate::tui::view::spinner_glyph(frame).to_string(),
-                Style::default().fg(theme.muted),
+                crate::tui::view::spinner_glyph(ctx.frame).to_string(),
+                Style::default().fg(ctx.theme.muted),
             ),
         },
     }
 }
 
-/// Solve the layout using only the rows currently visible in the viewport.
-pub fn layout_for_rows(
+/// Compute the `(text, style)` of every column for the visible rows once per
+/// frame. The width solver and the row builder both read this, so each cell's
+/// `cell()` (and its per-row `document_key()` probe) runs once per frame instead
+/// of twice. The flex (title) column is rendered specially with query-term
+/// highlighting, so its slot is left as an empty placeholder here.
+pub fn compute_cells(
     columns: &[Column],
-    width: u16,
     rows: &[SessionSummary],
-    enrichers: &[Box<dyn Enricher>],
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    now: i64,
-    frame: u64,
-) -> Vec<(usize, u16)> {
-    let desired = desired_widths(columns, rows, enrichers, resolved, now, frame);
-    solve_layout_with_desired(columns, width, &desired)
+    ctx: &RowCtx<'_>,
+) -> Vec<Vec<(String, Style)>> {
+    rows.iter()
+        .map(|s| {
+            columns
+                .iter()
+                .map(
+                    |col| {
+                        if col.flex { (String::new(), Style::default()) } else { cell(s, col, ctx) }
+                    },
+                )
+                .collect()
+        })
+        .collect()
 }
 
-fn desired_widths(
+/// Solve the layout from precomputed cell texts (visible rows only). Non-flex
+/// column widths come from the cell text; the flex column absorbs the slack.
+pub fn layout_from_cells(
     columns: &[Column],
-    rows: &[SessionSummary],
-    enrichers: &[Box<dyn Enricher>],
-    resolved: &HashMap<(String, &'static str), Option<String>>,
-    now: i64,
-    frame: u64,
-) -> Vec<u16> {
+    width: u16,
+    cells: &[Vec<(String, Style)>],
+) -> Vec<(usize, u16)> {
     let mut widths: Vec<u16> = columns.iter().map(|col| display_width(col.header) as u16).collect();
-
-    // Widths depend only on cell text, not style, so the theme is irrelevant
-    // here; build one default instead of one per cell.
-    let theme = Theme::default();
-    for row in rows {
+    for row_cells in cells {
         for (i, col) in columns.iter().enumerate() {
             if col.flex {
                 continue;
             }
-            let (text, _) = cell(row, col, enrichers, resolved, now, frame, &theme);
-            widths[i] = widths[i].max(display_width(&text) as u16);
+            widths[i] = widths[i].max(display_width(&row_cells[i].0) as u16);
         }
     }
-
-    widths
+    solve_layout_with_desired(columns, width, &widths)
 }
 
 pub struct RowCtx<'a> {
@@ -116,9 +105,11 @@ pub struct RowCtx<'a> {
 /// beyond the row dimming.
 const ARCHIVED_MARKER: &str = "arch ";
 
-/// Build one Table row for a session across the kept (visible) columns.
+/// Build one Table row for a session across the kept (visible) columns, reusing
+/// the cells computed for this row by [`compute_cells`] (indexed by column).
 pub fn session_row(
     session: &SessionSummary,
+    row_cells: &[(String, Style)],
     layout: &[(usize, u16)],
     columns: &[Column],
     ctx: &RowCtx<'_>,
@@ -136,9 +127,8 @@ pub fn session_row(
                     session.archived,
                 ))
             } else {
-                let (text, style) =
-                    cell(session, col, ctx.enrichers, ctx.resolved, ctx.now, ctx.frame, ctx.theme);
-                Cell::from(Span::styled(fit(&text, width, col.align), style))
+                let (text, style) = &row_cells[ci];
+                Cell::from(Span::styled(fit(text, width, col.align), *style))
             }
         })
         .collect();
@@ -208,26 +198,20 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let resolved = HashMap::new();
         let row_data = sess();
-        let layout =
-            layout_for_rows(&cols, 120, std::slice::from_ref(&row_data), &enr, &resolved, 3600, 0);
+        let theme = Theme::default();
         let ctx = RowCtx {
             enrichers: &enr,
             resolved: &resolved,
             now: 3600,
             frame: 0,
             terms: &[],
-            theme: &Theme::default(),
+            theme: &theme,
         };
-        session_row(&row_data, &layout, &cols, &ctx);
-        let (agent_text, _) = super::cell(
-            &row_data,
-            cols.iter().find(|c| c.id == "agent").unwrap(),
-            &enr,
-            &resolved,
-            3600,
-            0,
-            &Theme::default(),
-        );
+        let grid = compute_cells(&cols, std::slice::from_ref(&row_data), &ctx);
+        let layout = layout_from_cells(&cols, 120, &grid);
+        session_row(&row_data, &grid[0], &layout, &cols, &ctx);
+        let (agent_text, _) =
+            super::cell(&row_data, cols.iter().find(|c| c.id == "agent").unwrap(), &ctx);
         assert_eq!(agent_text, "CLAUDE");
     }
 
@@ -247,7 +231,17 @@ mod tests {
         row.branch = Some("workflow/ghostty-terminal".into());
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let resolved = HashMap::new();
-        let layout = layout_for_rows(&cols, 120, &[row], &enr, &resolved, 0, 0);
+        let theme = Theme::default();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 0,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+        };
+        let grid = compute_cells(&cols, &[row], &ctx);
+        let layout = layout_from_cells(&cols, 120, &grid);
         let width = |id| layout.iter().find(|&&(i, _)| cols[i].id == id).map(|&(_, w)| w).unwrap();
 
         assert_eq!(width("repo"), "responsive-editor".len() as u16);
@@ -261,10 +255,19 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(crate::enrich::gh_pr::GhPrEnricher)];
         let resolved = HashMap::new();
         let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
+        let theme = Theme::default();
+        let mk = |frame| RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 0,
+            frame,
+            terms: &[],
+            theme: &theme,
+        };
         // frame=0 -> first braille frame; frame=3 -> fourth.
-        let (t0, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 0, &Theme::default());
+        let (t0, _) = super::cell(&sess(), pr_col, &mk(0));
         assert_eq!(t0, crate::tui::view::SPINNER_FRAMES[0]);
-        let (t3, _) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 3, &Theme::default());
+        let (t3, _) = super::cell(&sess(), pr_col, &mk(3));
         assert_eq!(t3, crate::tui::view::SPINNER_FRAMES[3]);
     }
 
@@ -279,7 +282,16 @@ mod tests {
         let mut resolved = HashMap::new();
         resolved.insert(("claude:a".to_string(), "pr"), Some("#42".to_string()));
         let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
-        let (text, style) = super::cell(&sess(), pr_col, &enr, &resolved, 0, 0, &Theme::default());
+        let theme = Theme::default();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 0,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+        };
+        let (text, style) = super::cell(&sess(), pr_col, &ctx);
         assert_eq!(text, "#42");
         assert_eq!(style.fg, Some(Theme::default().accent));
     }

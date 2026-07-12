@@ -134,15 +134,16 @@ fn clean_user_text(text: &str) -> &str {
 }
 
 /// Cursor transcripts redact extended thinking as `[REDACTED]` in text blocks.
-fn strip_redacted(text: &str) -> String {
+fn strip_redacted(text: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
     let trimmed = text.trim();
     if trimmed == "[REDACTED]" {
-        return String::new();
+        return Cow::Borrowed("");
     }
     if let Some(prefix) = trimmed.strip_suffix("[REDACTED]") {
-        return prefix.trim_end().to_string();
+        return Cow::Borrowed(prefix.trim_end());
     }
-    trimmed.to_string()
+    Cow::Borrowed(trimmed)
 }
 
 impl CursorAdapter {
@@ -152,11 +153,15 @@ impl CursorAdapter {
         let mut messages: Vec<Message> = Vec::new();
         let mut errored = false;
 
+        // One decode buffer reused across lines; simd-json needs `&mut [u8]`, so we
+        // refill this rather than allocating a fresh Vec per line.
+        let mut buf: Vec<u8> = Vec::new();
         for line in raw.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            let mut buf = line.as_bytes().to_vec();
+            buf.clear();
+            buf.extend_from_slice(line.as_bytes());
             let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
                 Ok(l) => l,
                 Err(_) => continue,
@@ -187,8 +192,8 @@ impl CursorAdapter {
             }
 
             let joined = text_parts.join(" ");
-            let cleaned = if role == Role::User {
-                clean_user_text(&joined).to_string()
+            let cleaned: std::borrow::Cow<'_, str> = if role == Role::User {
+                std::borrow::Cow::Borrowed(clean_user_text(&joined))
             } else {
                 strip_redacted(&joined)
             };

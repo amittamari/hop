@@ -162,15 +162,6 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             Rect { x: list_area.x, y, width: list_area.width, height: 1.min(list_area.height) };
         f.render_widget(para, centered);
     } else {
-        let layout = results_list::layout_for_rows(
-            cols,
-            list_inner_w,
-            visible_results,
-            model.enrichers,
-            model.resolved,
-            model.now,
-            app.frame(),
-        );
         let ctx = results_list::RowCtx {
             enrichers: model.enrichers,
             resolved: model.resolved,
@@ -179,9 +170,14 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             terms: model.query_terms,
             theme: &model.theme,
         };
+        // Compute cells once, then feed the same grid to the width solver and the
+        // row builder so `cell()` runs a single time per visible cell per frame.
+        let grid = results_list::compute_cells(cols, visible_results, &ctx);
+        let layout = results_list::layout_from_cells(cols, list_inner_w, &grid);
         let rows: Vec<Row> = visible_results
             .iter()
-            .map(|s| results_list::session_row(s, &layout, cols, &ctx))
+            .zip(&grid)
+            .map(|(s, row_cells)| results_list::session_row(s, row_cells, &layout, cols, &ctx))
             .collect();
         let mut state = TableState::default();
         state.select(Some(app.selected().saturating_sub(visible_start)));
@@ -243,9 +239,12 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // footer: static hints on the left, volatile status on the right. The two
     // halves share the footer row via SpaceBetween so right-aligned status
     // (sync/pr/filters/warning) survives clipping ahead of the static hints.
+    // Build the status line once and size its region from it, rather than
+    // building it a second time just to measure the width.
+    let status_line = footer_status_line(model.status, &model.theme);
     let [hints_area, status_area] = Layout::horizontal([
         Constraint::Min(0),
-        Constraint::Length(footer_status_width(model.status, &model.theme)),
+        Constraint::Length(line_display_width(&status_line)),
     ])
     .flex(Flex::SpaceBetween)
     .areas(footer_area);
@@ -253,10 +252,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         Paragraph::new(footer_hints_line(app.keymap(), app.search_mode(), &model.theme)),
         hints_area,
     );
-    f.render_widget(
-        Paragraph::new(footer_status_line(model.status, &model.theme)).alignment(Alignment::Right),
-        status_area,
-    );
+    f.render_widget(Paragraph::new(status_line).alignment(Alignment::Right), status_area);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
@@ -334,11 +330,10 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Display width of the rendered status line, used to size the right footer
-/// region so the status is never clipped.
-fn footer_status_width(status: &StatusLine, theme: &Theme) -> u16 {
-    let text: String =
-        footer_status_line(status, theme).spans.iter().map(|s| s.content.as_ref()).collect();
+/// Display width of a rendered line, used to size the right footer region so
+/// the status is never clipped.
+fn line_display_width(line: &Line) -> u16 {
+    let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
     crate::tui::columns::display_width(&text).min(u16::MAX as usize) as u16
 }
 
