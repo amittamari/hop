@@ -282,15 +282,12 @@ pub fn derive_session_title(explicit: Option<&str>, messages: &[Message]) -> Str
     let raw = explicit.or_else(|| {
         messages
             .iter()
-            .filter(|m| m.role == Role::User)
-            .find_map(|m| {
-                m.blocks
-                    .iter()
-                    .find_map(|b| match b {
-                        Block::Prose(s) => Some(s.as_str()),
-                        _ => None,
-                    })
-                    .filter(|text| !text.trim_start().starts_with("## Code review guidelines:"))
+            .find(|m| m.role == Role::User)
+            .and_then(|m| {
+                m.blocks.iter().find_map(|b| match b {
+                    Block::Prose(s) => Some(s.as_str()),
+                    _ => None,
+                })
             })
     });
 
@@ -351,32 +348,6 @@ mod tests {
         );
         assert_eq!(derive_session_title(None, &messages), "first user prompt");
         assert_eq!(derive_session_title(None, &[]), "(untitled)");
-    }
-
-    #[test]
-    fn derive_session_title_skips_review_boilerplate() {
-        let messages = vec![
-            Message {
-                role: Role::User,
-                blocks: vec![Block::Prose(
-                    "## Code review guidelines:\nReview this carefully.".into(),
-                )],
-            },
-            Message {
-                role: Role::Agent,
-                blocks: vec![Block::Prose("Acknowledged.".into())],
-            },
-            Message {
-                role: Role::User,
-                blocks: vec![Block::Prose("Find the regression".into())],
-            },
-        ];
-
-        assert_eq!(derive_session_title(None, &messages), "Find the regression");
-        assert_eq!(
-            derive_session_title(Some("Explicit review"), &messages),
-            "Explicit review"
-        );
     }
 
     #[test]

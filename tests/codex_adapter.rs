@@ -382,6 +382,48 @@ fn codex_filters_all_injected_context_blocks_and_request_prefix() {
 }
 
 #[test]
+fn codex_title_skips_review_mode_boilerplate() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("rollout-2026-07-11T10-00-00-review.jsonl");
+    let records = [
+        serde_json::json!({
+            "type": "session_meta",
+            "timestamp": "2026-07-11T10:00:00Z",
+            "payload": { "id": "review", "cwd": "/w" }
+        }),
+        serde_json::json!({
+            "type": "event_msg",
+            "payload": {
+                "type": "user_message",
+                "message": "## Code review guidelines:\nReview this carefully."
+            }
+        }),
+        serde_json::json!({
+            "type": "event_msg",
+            "payload": { "type": "agent_message", "message": "Acknowledged." }
+        }),
+        serde_json::json!({
+            "type": "event_msg",
+            "payload": { "type": "user_message", "message": "Find the regression" }
+        }),
+    ];
+    std::fs::write(
+        &file,
+        records
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+    .unwrap();
+
+    let adapter = CodexAdapter::new(PathBuf::from("/unused"));
+    let session = adapter.parse(&file).unwrap();
+    assert_eq!(session.meta.title, "Find the regression");
+    assert!(session.content.contains("## Code review guidelines:"));
+}
+
+#[test]
 fn scans_and_parses_compressed_rollouts_and_prefers_plain_siblings() {
     let tmp = tempfile::tempdir().unwrap();
     let sessions = tmp.path().join("sessions/2026/07/11");

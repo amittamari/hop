@@ -172,8 +172,8 @@ impl SearchIndex {
         Ok(self.known_sync_state()?.mtimes)
     }
 
-    /// Internal incremental-sync signals, including physical source paths so a
-    /// source representation change can trigger a reparse without changing mtime.
+    /// Internal incremental-sync signals. Physical source paths are separate
+    /// because Codex compression changes the path while preserving mtime.
     pub(crate) fn known_sync_state(&self) -> Result<KnownSyncState> {
         let searcher = self.reader.searcher();
         let n = searcher.num_docs().max(1) as usize;

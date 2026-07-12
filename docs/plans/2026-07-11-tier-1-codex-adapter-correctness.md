@@ -19,7 +19,7 @@ This plan implements C1–C3 from the dated Codex-inspired improvements review.
   same session ID, prefer a plain sibling during representation transitions,
   and reparse when the stored physical source path changes.
 - Remove Codex-injected instruction/context blocks and the
-  `## My request for Codex:` prefix. In shared title derivation, skip leading
+  `## My request for Codex:` prefix. When deriving a Codex title, skip leading
   user prose beginning with `## Code review guidelines:` while retaining that
   prose in the transcript and search content.
 - Add `zstd` as a direct dependency. No index schema bump is required because
@@ -30,6 +30,6 @@ This plan implements C1–C3 from the dated Codex-inspired improvements review.
 - Adapter tests cover legacy/paginated selection, non-empty fallbacks, ordered
   response text, ignored roles/content, injected-context cleaning, compressed
   scan/parse/preview behavior, sibling precedence, and corrupt streams.
-- Core tests cover review-boilerplate title fallback.
+- Codex adapter tests cover review-boilerplate title fallback.
 - Index tests verify persisted source paths are available to incremental sync.
 - Run `cargo test` as the acceptance check.

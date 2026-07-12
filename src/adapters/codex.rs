@@ -217,6 +217,26 @@ fn strip_codex_wrappers(line: &str) -> String {
     line.replace("<context>", "").replace("</context>", "")
 }
 
+fn derive_codex_title(messages: &[crate::core::Message]) -> String {
+    use crate::core::{Block, Role};
+
+    let title_messages = messages
+        .iter()
+        .position(|message| {
+            message.role == Role::User
+                && !message.blocks.iter().any(|block| {
+                    matches!(
+                        block,
+                        Block::Prose(text)
+                            if text.trim_start().starts_with("## Code review guidelines:")
+                    )
+                })
+        })
+        .map(|index| &messages[index..])
+        .unwrap_or_default();
+    derive_session_title(None, title_messages)
+}
+
 fn read_rollout(path: &Path) -> Result<String> {
     if is_compressed_rollout(path) {
         let file =
@@ -325,7 +345,7 @@ impl Adapter for CodexAdapter {
             .map(session_id_from_filename)
             .unwrap_or_else(|| "unknown".to_string());
         let ex = self.extract(path)?;
-        let title = derive_session_title(None, &ex.messages);
+        let title = derive_codex_title(&ex.messages);
         let content = flatten_messages(&ex.messages);
         // Prefer the remote recorded in session_meta; fall back to resolving it
         // from the cwd so older rollouts without git metadata still get a repo.
