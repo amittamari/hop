@@ -140,18 +140,11 @@ pub fn solve_layout_with_desired(
 ) -> Vec<(usize, u16)> {
     let mut kept: Vec<usize> = (0..columns.len()).collect();
 
-    let floor = |i: usize| -> u16 {
-        columns[i]
-            .min_width
-            .max(display_width(columns[i].header) as u16)
-    };
+    let floor =
+        |i: usize| -> u16 { columns[i].min_width.max(display_width(columns[i].header) as u16) };
 
     let desired = |i: usize| -> u16 {
-        desired_widths
-            .get(i)
-            .copied()
-            .unwrap_or_else(|| floor(i))
-            .max(floor(i))
+        desired_widths.get(i).copied().unwrap_or_else(|| floor(i)).max(floor(i))
     };
 
     let needed = |kept: &[usize]| -> u16 {
@@ -188,11 +181,11 @@ pub fn solve_layout_with_desired(
         extra -= grow_by;
     }
 
-    if extra > 0 {
-        if let Some((i, width)) = out.iter_mut().find(|(i, _)| columns[*i].flex) {
-            *width += extra;
-            debug_assert!(columns[*i].flex);
-        }
+    if extra > 0
+        && let Some((i, width)) = out.iter_mut().find(|(i, _)| columns[*i].flex)
+    {
+        *width += extra;
+        debug_assert!(columns[*i].flex);
     }
 
     out
@@ -388,15 +381,8 @@ mod tests {
     fn flex_column_absorbs_extra_width() {
         let cols = default_columns();
         let layout = solve_layout(&cols, 200);
-        let title_w = layout
-            .iter()
-            .find(|&&(i, _)| cols[i].id == "title")
-            .unwrap()
-            .1;
-        assert!(
-            title_w > 12,
-            "title should grow past its min on a wide pane"
-        );
+        let title_w = layout.iter().find(|&&(i, _)| cols[i].id == "title").unwrap().1;
+        assert!(title_w > 12, "title should grow past its min on a wide pane");
     }
 
     #[test]
@@ -404,13 +390,7 @@ mod tests {
         let cols = default_columns();
         let desired = vec![6, 3, 18, 60, 4, 5, 4];
         let layout = solve_layout_with_desired(&cols, 100, &desired);
-        let width = |id| {
-            layout
-                .iter()
-                .find(|&&(i, _)| cols[i].id == id)
-                .map(|&(_, w)| w)
-                .unwrap()
-        };
+        let width = |id| layout.iter().find(|&&(i, _)| cols[i].id == id).map(|&(_, w)| w).unwrap();
 
         assert_eq!(width("repo"), 4); // header is wider than the visible value
         assert_eq!(width("branch"), 18);
@@ -442,10 +422,7 @@ mod tests {
 
     #[test]
     fn fit_end_truncates_start() {
-        assert_eq!(
-            fit_end("/Users/amitt/workspaces/personal/hop", 20),
-            "…spaces/personal/hop"
-        );
+        assert_eq!(fit_end("/Users/amitt/workspaces/personal/hop", 20), "…spaces/personal/hop");
         assert_eq!(fit_end("/short", 20), "/short");
         assert_eq!(fit_end("abc", 3), "abc");
         assert_eq!(fit_end("abcd", 3), "…cd");
@@ -455,11 +432,7 @@ mod tests {
     #[test]
     fn configured_columns_orders_and_disables() {
         let disabled = vec!["pr".to_string()];
-        let order = vec![
-            "time".to_string(),
-            "title".to_string(),
-            "missing".to_string(),
-        ];
+        let order = vec!["time".to_string(), "title".to_string(), "missing".to_string()];
         let cols = configured_columns(default_columns(), &disabled, &order);
         let ids: Vec<&str> = cols.iter().map(|c| c.id).collect();
         assert_eq!(ids[0..2], ["time", "title"]);

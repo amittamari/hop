@@ -1,7 +1,7 @@
-use crate::adapters::{file_mtime_ms, git_remote_url, parse_ts_secs, Adapter, GitFieldCache};
+use crate::adapters::{Adapter, GitFieldCache, file_mtime_ms, git_remote_url, parse_ts_secs};
 use crate::core::{
-    derive_session_title, is_command_tag_line, AgentId, ScanEntry, Session, SessionId,
-    SessionSummary,
+    AgentId, ScanEntry, Session, SessionId, SessionSummary, derive_session_title,
+    is_command_tag_line,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -17,10 +17,7 @@ pub struct ClaudeAdapter {
 
 impl ClaudeAdapter {
     pub fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            repo_cache: GitFieldCache::new(git_remote_url),
-        }
+        Self { root, repo_cache: GitFieldCache::new(git_remote_url) }
     }
 }
 
@@ -73,7 +70,7 @@ struct Extracted {
 
 impl ClaudeAdapter {
     fn extract(&self, path: &Path) -> Result<Extracted> {
-        use crate::core::{split_blocks, Message, Role};
+        use crate::core::{Message, Role, split_blocks};
         let raw =
             std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
         let mut directory = String::new();
@@ -96,22 +93,19 @@ impl ClaudeAdapter {
             if let Some(t) = nonempty_text(parsed.ai_title.as_deref()) {
                 title = Some(t.to_string());
                 has_ai_title = true;
-            } else if !has_ai_title {
-                if let Some(t) = nonempty_text(parsed.summary.as_deref()) {
-                    title = Some(t.to_string());
-                }
+            } else if !has_ai_title && let Some(t) = nonempty_text(parsed.summary.as_deref()) {
+                title = Some(t.to_string());
             }
-            if directory.is_empty() {
-                if let Some(cwd) = &parsed.cwd {
-                    directory = cwd.clone();
-                }
+            if directory.is_empty()
+                && let Some(cwd) = &parsed.cwd
+            {
+                directory = cwd.clone();
             }
-            if branch.is_none() {
-                if let Some(b) = parsed.git_branch.as_deref() {
-                    if !b.trim().is_empty() {
-                        branch = Some(b.to_string());
-                    }
-                }
+            if branch.is_none()
+                && let Some(b) = parsed.git_branch.as_deref()
+                && !b.trim().is_empty()
+            {
+                branch = Some(b.to_string());
             }
             let kind = parsed.kind.as_deref().unwrap_or("");
             let is_user = kind == "user";
@@ -126,12 +120,12 @@ impl ClaudeAdapter {
             // synthetic sentinels like "<synthetic>" that Claude writes for
             // injected turns. Runs after the meta/tool-result skip so an injected
             // assistant line can't overwrite the model the user conversed with.
-            if is_assistant {
-                if let Some(m) = parsed.message.as_ref().and_then(|m| m.model.as_deref()) {
-                    let m = m.trim();
-                    if !m.is_empty() && !m.starts_with('<') {
-                        model = Some(m.to_string());
-                    }
+            if is_assistant
+                && let Some(m) = parsed.message.as_ref().and_then(|m| m.model.as_deref())
+            {
+                let m = m.trim();
+                if !m.is_empty() && !m.starts_with('<') {
+                    model = Some(m.to_string());
                 }
             }
             let text = parsed
@@ -147,19 +141,9 @@ impl ClaudeAdapter {
                 first_ts = parsed.timestamp.as_deref().and_then(parse_ts_secs);
             }
             let blocks = split_blocks(&text);
-            messages.push(Message {
-                role: if is_user { Role::User } else { Role::Agent },
-                blocks,
-            });
+            messages.push(Message { role: if is_user { Role::User } else { Role::Agent }, blocks });
         }
-        Ok(Extracted {
-            messages,
-            directory,
-            branch,
-            title,
-            first_ts,
-            model,
-        })
+        Ok(Extracted { messages, directory, branch, title, first_ts, model })
     }
 }
 
@@ -272,11 +256,7 @@ fn extract_text(content: &Content, is_user: bool) -> Option<String> {
                 .filter(|b| b.kind == "text")
                 .filter_map(|b| b.text.as_deref())
                 .collect();
-            if joined.is_empty() {
-                None
-            } else {
-                Some(joined.join(" "))
-            }
+            if joined.is_empty() { None } else { Some(joined.join(" ")) }
         }
     }
 }

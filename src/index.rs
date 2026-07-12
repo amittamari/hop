@@ -10,7 +10,7 @@ use tantivy::query::{
     TermQuery,
 };
 use tantivy::schema::{
-    Field, IndexRecordOption, Schema, Value, FAST, INDEXED, STORED, STRING, TEXT,
+    FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, Value,
 };
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
@@ -88,10 +88,9 @@ impl SearchIndex {
     pub fn open_or_create(dir: &Path) -> Result<Self> {
         std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
         let marker = dir.join(".schema_version");
-        let version_ok = std::fs::read_to_string(&marker)
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            == Some(SCHEMA_VERSION);
+        let version_ok =
+            std::fs::read_to_string(&marker).ok().and_then(|s| s.trim().parse::<u32>().ok())
+                == Some(SCHEMA_VERSION);
 
         if !version_ok && dir.join("meta.json").exists() {
             // schema changed: drop the whole index dir and recreate it empty
@@ -208,11 +207,7 @@ impl SearchIndex {
                 }
             }
         }
-        Ok(KnownSyncState {
-            mtimes,
-            sidecar_stamps: sidecars,
-            source_paths,
-        })
+        Ok(KnownSyncState { mtimes, sidecar_stamps: sidecars, source_paths })
     }
 
     /// Run a parsed query. `now` is unix seconds (for date filtering). `sort`
@@ -233,9 +228,8 @@ impl SearchIndex {
             clauses.push((Occur::Must, Box::new(AllQuery)));
         } else {
             let qp = QueryParser::for_index(&self.index, vec![self.f.title, self.f.content]);
-            let exact = qp
-                .parse_query(&sanitize(&q.free_text))
-                .unwrap_or_else(|_| Box::new(AllQuery));
+            let exact =
+                qp.parse_query(&sanitize(&q.free_text)).unwrap_or_else(|_| Box::new(AllQuery));
             let mut should: Vec<(Occur, Box<dyn Query>)> =
                 vec![(Occur::Should, Box::new(BoostQuery::new(exact, EXACT_BOOST)))];
             for word in q.free_text.split_whitespace() {
@@ -281,10 +275,10 @@ impl SearchIndex {
             if hi.is_some_and(|hi| hi < 0) {
                 return Ok(Vec::new());
             }
-            if let (Some(lo), Some(hi)) = (lo, hi) {
-                if lo > hi {
-                    return Ok(Vec::new());
-                }
+            if let (Some(lo), Some(hi)) = (lo, hi)
+                && lo > hi
+            {
+                return Ok(Vec::new());
             }
             let lower = lo
                 .map(|lo| Bound::Included(Term::from_field_u64(self.f.timestamp, lo.max(0) as u64)))
@@ -329,9 +323,8 @@ impl SearchIndex {
                     searcher
                         .search(
                             &query,
-                            &TopDocs::with_limit(page_limit)
-                                .and_offset(offset)
-                                .tweak_score(move |segment_reader: &tantivy::SegmentReader| {
+                            &TopDocs::with_limit(page_limit).and_offset(offset).tweak_score(
+                                move |segment_reader: &tantivy::SegmentReader| {
                                     let timestamps = segment_reader
                                         .fast_fields()
                                         .u64("timestamp")
@@ -343,7 +336,8 @@ impl SearchIndex {
                                         let combined = score + recency_boost(age);
                                         (score_bucket(combined), ts)
                                     }
-                                }),
+                                },
+                            ),
                         )?
                         .into_iter()
                         .map(|(_, a)| a)
@@ -386,29 +380,15 @@ impl SearchIndex {
 
     fn to_session(&self, doc: &TantivyDocument) -> Session {
         let meta = self.to_summary(doc);
-        let content = doc
-            .get_first(self.f.content)
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
-        let mtime = doc
-            .get_first(self.f.mtime)
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as i64;
-        Session {
-            meta,
-            content,
-            mtime,
-        }
+        let content =
+            doc.get_first(self.f.content).and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let mtime = doc.get_first(self.f.mtime).and_then(|v| v.as_u64()).unwrap_or(0) as i64;
+        Session { meta, content, mtime }
     }
 
     fn to_summary(&self, doc: &TantivyDocument) -> SessionSummary {
-        let get_str = |f: Field| {
-            doc.get_first(f)
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string()
-        };
+        let get_str =
+            |f: Field| doc.get_first(f).and_then(|v| v.as_str()).unwrap_or("").to_string();
         // Stored text fields treat the empty string as absent.
         let get_opt_str = |f: Field| Some(get_str(f)).filter(|s| !s.is_empty());
         let get_u64 = |f: Field| doc.get_first(f).and_then(|v| v.as_u64()).unwrap_or(0);
@@ -446,15 +426,8 @@ fn dir_ok(directory: &str, q: &ParsedQuery) -> bool {
 /// (non-git directories correctly drop out of any `repo:` query).
 fn repo_ok(repo_url: Option<&str>, q: &ParsedQuery) -> bool {
     let r = repo_url.unwrap_or_default().to_lowercase();
-    q.repos
-        .include
-        .iter()
-        .all(|i| r.contains(&i.to_lowercase()))
-        && !q
-            .repos
-            .exclude
-            .iter()
-            .any(|e| r.contains(&e.to_lowercase()))
+    q.repos.include.iter().all(|i| r.contains(&i.to_lowercase()))
+        && !q.repos.exclude.iter().any(|e| r.contains(&e.to_lowercase()))
 }
 
 fn score_bucket(score: tantivy::Score) -> i64 {
@@ -471,12 +444,7 @@ fn recency_boost(age_secs: u64) -> f32 {
 
 /// Escape characters that would make tantivy's QueryParser error out.
 fn sanitize(s: &str) -> String {
-    s.replace(
-        [
-            '+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"',
-        ],
-        " ",
-    )
+    s.replace(['+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"'], " ")
 }
 
 /// Pure incremental diff. Returns (changed[(id, entry)], deleted[id]).

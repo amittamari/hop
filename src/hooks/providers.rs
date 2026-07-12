@@ -28,11 +28,7 @@ pub fn home_dir() -> PathBuf {
 
 pub fn detect_providers() -> Vec<ProviderStatus> {
     let home = home_dir();
-    vec![
-        detect_claude(&home),
-        detect_codex(&home),
-        detect_cursor(&home),
-    ]
+    vec![detect_claude(&home), detect_codex(&home), detect_cursor(&home)]
 }
 
 fn detect_claude(home: &Path) -> ProviderStatus {
@@ -40,13 +36,7 @@ fn detect_claude(home: &Path) -> ProviderStatus {
     let config_path = plugin_dir.join("hooks").join("hooks.json");
     let detected = home.join(".claude").exists();
     let installed = detected && is_claude_plugin_installed();
-    ProviderStatus {
-        agent: AgentId::Claude,
-        detected,
-        installed,
-        config_path,
-        best_effort: false,
-    }
+    ProviderStatus { agent: AgentId::Claude, detected, installed, config_path, best_effort: false }
 }
 
 fn detect_codex(home: &Path) -> ProviderStatus {
@@ -54,26 +44,14 @@ fn detect_codex(home: &Path) -> ProviderStatus {
     let config_path = plugin_dir.join("hooks.json");
     let detected = home.join(".codex").join("config.toml").exists();
     let installed = detected && is_codex_plugin_installed();
-    ProviderStatus {
-        agent: AgentId::Codex,
-        detected,
-        installed,
-        config_path,
-        best_effort: false,
-    }
+    ProviderStatus { agent: AgentId::Codex, detected, installed, config_path, best_effort: false }
 }
 
 fn detect_cursor(home: &Path) -> ProviderStatus {
     let config_path = home.join(".cursor").join("hooks.json");
     let detected = home.join(".cursor").exists();
     let installed = detected && is_cursor_installed(&config_path);
-    ProviderStatus {
-        agent: AgentId::Cursor,
-        detected,
-        installed,
-        config_path,
-        best_effort: true,
-    }
+    ProviderStatus { agent: AgentId::Cursor, detected, installed, config_path, best_effort: true }
 }
 
 fn is_cursor_installed(path: &Path) -> bool {
@@ -101,9 +79,7 @@ fn claude_marketplace_root(home: &Path) -> PathBuf {
 }
 
 fn claude_plugin_dir(home: &Path) -> PathBuf {
-    claude_marketplace_root(home)
-        .join("plugins")
-        .join(CLAUDE_PLUGIN_NAME)
+    claude_marketplace_root(home).join("plugins").join(CLAUDE_PLUGIN_NAME)
 }
 
 fn claude_plugin_manifest() -> String {
@@ -224,31 +200,22 @@ pub fn install_claude(home: &Path) -> Result<String> {
             claude_run(&["plugin", "marketplace", "add", root_arg.as_ref()])?;
         }
     }
-    claude_run(&[
-        "plugin",
-        "install",
-        CLAUDE_PLUGIN_SELECTOR,
-        "--scope",
-        "user",
-    ])?;
-    Ok(format!(
-        "Claude Code: installed {CLAUDE_PLUGIN_SELECTOR} from {}",
-        root.display()
-    ))
+    claude_run(&["plugin", "install", CLAUDE_PLUGIN_SELECTOR, "--scope", "user"])?;
+    Ok(format!("Claude Code: installed {CLAUDE_PLUGIN_SELECTOR} from {}", root.display()))
 }
 
 pub fn uninstall_claude(home: &Path) -> Result<String> {
     let root = claude_marketplace_root(home);
     let installed = is_claude_plugin_installed();
     let registered = registered_claude_marketplace_root()?;
-    if let Some(existing) = &registered {
-        if existing != &root {
-            anyhow::bail!(
-                "Claude marketplace {CLAUDE_MARKETPLACE_NAME} points to {}, not hop's {}",
-                existing.display(),
-                root.display()
-            );
-        }
+    if let Some(existing) = &registered
+        && existing != &root
+    {
+        anyhow::bail!(
+            "Claude marketplace {CLAUDE_MARKETPLACE_NAME} points to {}, not hop's {}",
+            existing.display(),
+            root.display()
+        );
     }
     if installed {
         claude_run(&["plugin", "uninstall", CLAUDE_PLUGIN_SELECTOR])?;
@@ -283,9 +250,7 @@ fn codex_marketplace_root(home: &Path) -> PathBuf {
 }
 
 fn codex_plugin_dir(home: &Path) -> PathBuf {
-    codex_marketplace_root(home)
-        .join("plugins")
-        .join(CODEX_PLUGIN_NAME)
+    codex_marketplace_root(home).join("plugins").join(CODEX_PLUGIN_NAME)
 }
 
 fn codex_plugin_manifest() -> String {
@@ -339,9 +304,7 @@ fn write_codex_plugin(home: &Path) -> Result<PathBuf> {
     std::fs::write(manifest_dir.join("plugin.json"), codex_plugin_manifest())?;
     std::fs::write(plugin_dir.join("hooks.json"), codex_hooks_json())?;
     std::fs::write(
-        root.join(".agents")
-            .join("plugins")
-            .join("marketplace.json"),
+        root.join(".agents").join("plugins").join("marketplace.json"),
         codex_marketplace_json(),
     )?;
     Ok(root)
@@ -367,15 +330,12 @@ fn is_codex_plugin_installed() -> bool {
 }
 
 fn codex_plugin_is_enabled(value: &serde_json::Value) -> bool {
-    value
-        .get("installed")
-        .and_then(|i| i.as_array())
-        .is_some_and(|installed| {
-            installed.iter().any(|plugin| {
-                plugin.get("pluginId").and_then(|id| id.as_str()) == Some(CODEX_PLUGIN_SELECTOR)
-                    && plugin.get("enabled").and_then(|e| e.as_bool()) == Some(true)
-            })
+    value.get("installed").and_then(|i| i.as_array()).is_some_and(|installed| {
+        installed.iter().any(|plugin| {
+            plugin.get("pluginId").and_then(|id| id.as_str()) == Some(CODEX_PLUGIN_SELECTOR)
+                && plugin.get("enabled").and_then(|e| e.as_bool()) == Some(true)
         })
+    })
 }
 
 fn registered_codex_marketplace_root() -> Result<Option<PathBuf>> {
@@ -384,23 +344,20 @@ fn registered_codex_marketplace_root() -> Result<Option<PathBuf>> {
 }
 
 fn codex_marketplace_root_from_json(value: &serde_json::Value) -> Option<PathBuf> {
-    value
-        .get("marketplaces")
-        .and_then(|m| m.as_array())
-        .and_then(|marketplaces| {
-            marketplaces.iter().find_map(|marketplace| {
-                (marketplace.get("name").and_then(|n| n.as_str()) == Some(CODEX_MARKETPLACE_NAME))
-                    .then(|| {
-                        marketplace
-                            .get("marketplaceSource")
-                            .and_then(|source| source.get("source"))
-                            .and_then(|source| source.as_str())
-                            .or_else(|| marketplace.get("root").and_then(|root| root.as_str()))
-                    })
-                    .flatten()
-                    .map(PathBuf::from)
-            })
+    value.get("marketplaces").and_then(|m| m.as_array()).and_then(|marketplaces| {
+        marketplaces.iter().find_map(|marketplace| {
+            (marketplace.get("name").and_then(|n| n.as_str()) == Some(CODEX_MARKETPLACE_NAME))
+                .then(|| {
+                    marketplace
+                        .get("marketplaceSource")
+                        .and_then(|source| source.get("source"))
+                        .and_then(|source| source.as_str())
+                        .or_else(|| marketplace.get("root").and_then(|root| root.as_str()))
+                })
+                .flatten()
+                .map(PathBuf::from)
         })
+    })
 }
 
 pub fn install_codex(home: &Path) -> Result<String> {
@@ -417,36 +374,27 @@ pub fn install_codex(home: &Path) -> Result<String> {
         }
     }
     codex_json(&["plugin", "add", CODEX_PLUGIN_SELECTOR, "--json"])?;
-    Ok(format!(
-        "Codex: installed {CODEX_PLUGIN_SELECTOR} from {}",
-        root.display()
-    ))
+    Ok(format!("Codex: installed {CODEX_PLUGIN_SELECTOR} from {}", root.display()))
 }
 
 pub fn uninstall_codex(home: &Path) -> Result<String> {
     let root = codex_marketplace_root(home);
     let installed = is_codex_plugin_installed();
     let registered = registered_codex_marketplace_root()?;
-    if let Some(existing) = &registered {
-        if existing != &root {
-            anyhow::bail!(
-                "Codex marketplace {CODEX_MARKETPLACE_NAME} points to {}, not hop's {}",
-                existing.display(),
-                root.display()
-            );
-        }
+    if let Some(existing) = &registered
+        && existing != &root
+    {
+        anyhow::bail!(
+            "Codex marketplace {CODEX_MARKETPLACE_NAME} points to {}, not hop's {}",
+            existing.display(),
+            root.display()
+        );
     }
     if installed {
         codex_json(&["plugin", "remove", CODEX_PLUGIN_SELECTOR, "--json"])?;
     }
     if registered.is_some() {
-        codex_json(&[
-            "plugin",
-            "marketplace",
-            "remove",
-            CODEX_MARKETPLACE_NAME,
-            "--json",
-        ])?;
+        codex_json(&["plugin", "marketplace", "remove", CODEX_MARKETPLACE_NAME, "--json"])?;
     }
     if root.exists() {
         std::fs::remove_dir_all(&root)?;
@@ -474,22 +422,15 @@ pub fn install_cursor(home: &Path) -> Result<String> {
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}));
     let hooks_obj = hooks.as_object_mut().context("hooks not object")?;
-    let stop_arr = hooks_obj
-        .entry("stop")
-        .or_insert_with(|| serde_json::json!([]));
+    let stop_arr = hooks_obj.entry("stop").or_insert_with(|| serde_json::json!([]));
     let arr = stop_arr.as_array_mut().context("stop not array")?;
     arr.retain(|e| {
-        e.get("command")
-            .and_then(|c| c.as_str())
-            .is_none_or(|c| !c.contains("hop meta capture"))
+        e.get("command").and_then(|c| c.as_str()).is_none_or(|c| !c.contains("hop meta capture"))
     });
     arr.push(serde_json::json!({"command": "hop meta capture --agent cursor --event stop"}));
     let json = serde_json::to_string_pretty(&v)?;
     std::fs::write(&path, &json)?;
-    Ok(format!(
-        "Cursor: added stop hook to {} [best-effort]",
-        path.display()
-    ))
+    Ok(format!("Cursor: added stop hook to {} [best-effort]", path.display()))
 }
 
 pub fn uninstall_cursor(home: &Path) -> Result<String> {
@@ -499,14 +440,14 @@ pub fn uninstall_cursor(home: &Path) -> Result<String> {
     }
     let existing = std::fs::read_to_string(&path)?;
     let mut v: serde_json::Value = serde_json::from_str(&existing)?;
-    if let Some(hooks) = v.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-        if let Some(stop) = hooks.get_mut("stop").and_then(|s| s.as_array_mut()) {
-            stop.retain(|e| {
-                e.get("command")
-                    .and_then(|c| c.as_str())
-                    .is_none_or(|c| !c.contains("hop meta capture"))
-            });
-        }
+    if let Some(hooks) = v.get_mut("hooks").and_then(|h| h.as_object_mut())
+        && let Some(stop) = hooks.get_mut("stop").and_then(|s| s.as_array_mut())
+    {
+        stop.retain(|e| {
+            e.get("command")
+                .and_then(|c| c.as_str())
+                .is_none_or(|c| !c.contains("hop meta capture"))
+        });
     }
     let json = serde_json::to_string_pretty(&v)?;
     std::fs::write(&path, &json)?;
@@ -539,10 +480,12 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(!v["hooks"]["SessionStart"].is_null());
         assert!(!v["hooks"]["SessionEnd"].is_null());
-        assert!(v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .contains("hop meta capture --agent claude"));
+        assert!(
+            v["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains("hop meta capture --agent claude")
+        );
     }
 
     #[test]
@@ -564,10 +507,7 @@ mod tests {
         .unwrap();
         assert_eq!(marketplace["name"], CLAUDE_MARKETPLACE_NAME);
         assert_eq!(marketplace["plugins"][0]["name"], CLAUDE_PLUGIN_NAME);
-        assert_eq!(
-            marketplace["plugins"][0]["source"],
-            format!("./plugins/{CLAUDE_PLUGIN_NAME}")
-        );
+        assert_eq!(marketplace["plugins"][0]["source"], format!("./plugins/{CLAUDE_PLUGIN_NAME}"));
         assert!(plugin_dir.join("hooks/hooks.json").is_file());
     }
 
