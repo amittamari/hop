@@ -99,10 +99,7 @@ pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
             Event::Start(Tag::Item) => {
                 in_item = true;
                 item_line_start = false;
-                spans.push(Span::raw(format!(
-                    "{}• ",
-                    "  ".repeat(list_depth.saturating_sub(1))
-                )));
+                spans.push(Span::raw(format!("{}• ", "  ".repeat(list_depth.saturating_sub(1)))));
             }
             Event::End(TagEnd::Item) => {
                 in_item = false;
@@ -127,9 +124,8 @@ pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
                 if item_line_start {
                     item_line_start = false;
                     let trimmed = text.trim_start();
-                    if let Some(rest) = trimmed
-                        .strip_prefix("- ")
-                        .or_else(|| trimmed.strip_prefix("* "))
+                    if let Some(rest) =
+                        trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* "))
                     {
                         spans.push(Span::raw("• "));
                         text = rest.to_string();
@@ -199,9 +195,7 @@ pub fn render_transcript_with_terms(
                     Span::styled("● ", Style::default().fg(theme.agent_color(agent))),
                     Span::styled(
                         agent.badge(),
-                        Style::default()
-                            .fg(theme.agent_color(agent))
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.agent_color(agent)).add_modifier(Modifier::BOLD),
                     ),
                 ]));
                 for b in &m.blocks {
@@ -332,12 +326,8 @@ pub fn match_lines(lines: &[Line<'static>], terms: &[String]) -> Vec<usize> {
         .iter()
         .enumerate()
         .filter_map(|(i, l)| {
-            let text: String = l
-                .spans
-                .iter()
-                .map(|s| s.content.as_ref())
-                .collect::<String>()
-                .to_lowercase();
+            let text: String =
+                l.spans.iter().map(|s| s.content.as_ref()).collect::<String>().to_lowercase();
             terms.iter().any(|t| text.contains(t.as_str())).then_some(i)
         })
         .collect()
@@ -419,18 +409,12 @@ mod tests {
 
     fn msgs() -> Vec<Message> {
         vec![
-            Message {
-                role: Role::User,
-                blocks: vec![Block::Prose("fix the auth bug".into())],
-            },
+            Message { role: Role::User, blocks: vec![Block::Prose("fix the auth bug".into())] },
             Message {
                 role: Role::Agent,
                 blocks: vec![
                     Block::Prose("the refresh token dropped".into()),
-                    Block::Code {
-                        lang: Some("rust".into()),
-                        text: "fn refresh() {}".into(),
-                    },
+                    Block::Code { lang: Some("rust".into()), text: "fn refresh() {}".into() },
                 ],
             },
         ]
@@ -442,12 +426,7 @@ mod tests {
         let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude, &theme);
         let joined: String = lines
             .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("› fix the auth bug"));
@@ -466,12 +445,8 @@ mod tests {
     #[test]
     fn filter_tokens_are_not_match_terms() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(
-            &msgs(),
-            "agent:claude",
-            crate::core::AgentId::Claude,
-            &theme,
-        );
+        let lines =
+            render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude, &theme);
         assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
@@ -481,9 +456,7 @@ mod tests {
         let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude, &theme);
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("auth")
-                && s.style
-                    .add_modifier
-                    .contains(ratatui::style::Modifier::REVERSED)
+                && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
         });
         assert!(any_reverse);
     }
@@ -494,21 +467,14 @@ mod tests {
         let lines = render_indexed_fallback("refresh token failed", "token", &theme);
         let joined: String = lines
             .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("source unavailable"));
         assert!(joined.contains("refresh token failed"));
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("token")
-                && s.style
-                    .add_modifier
-                    .contains(ratatui::style::Modifier::REVERSED)
+                && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
         });
         assert!(any_reverse);
     }
@@ -539,12 +505,7 @@ mod tests {
         let lines = render_prose("- one\n- two", &theme);
         let joined: String = lines
             .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
         assert!(joined.contains("• one"));
@@ -557,12 +518,7 @@ mod tests {
         let lines = render_prose("- one\n  - two", &theme);
         let rendered: Vec<String> = lines
             .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect();
         assert!(rendered.iter().any(|line| line == "• one"));
         assert!(rendered.iter().any(|line| line == "  • two"));
@@ -574,9 +530,7 @@ mod tests {
         let lines = render_prose("**strong**", &theme);
         let bold = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("strong")
-                && s.style
-                    .add_modifier
-                    .contains(ratatui::style::Modifier::BOLD)
+                && s.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
         });
         assert!(bold);
     }
@@ -640,9 +594,7 @@ mod tests {
         // did not panic; and the ASCII term is still reverse-highlighted
         let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("latte")
-                && s.style
-                    .add_modifier
-                    .contains(ratatui::style::Modifier::REVERSED)
+                && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
         });
         assert!(any_rev);
     }

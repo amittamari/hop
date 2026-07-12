@@ -20,9 +20,7 @@ impl Enricher for GhPrEnricher {
             return None;
         }
         let num = gh_pr_number(branch, s.repo_url.as_deref(), &s.directory)?;
-        Some(EnrichValue {
-            text: format!("#{num}"),
-        })
+        Some(EnrichValue { text: format!("#{num}") })
     }
     fn cache_key(&self, s: &SessionSummary) -> String {
         let repo = s
@@ -76,11 +74,7 @@ pub fn open_pr_in_browser(pr_text: &str, repo_url: Option<&str>, dir: &str) -> b
     } else if !dir.is_empty() {
         cmd.current_dir(dir);
     }
-    cmd.stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    cmd.stdout(Stdio::null()).stderr(Stdio::null()).status().map(|s| s.success()).unwrap_or(false)
 }
 
 /// Parse a resolved PR label such as `"#4821"` back into its number. Returns
@@ -133,11 +127,7 @@ mod tests {
         // A non-numeric label can never resolve to a PR, so the helper returns
         // false before it would ever shell out to `gh`.
         assert!(!open_pr_in_browser("—", None, ""));
-        assert!(!open_pr_in_browser(
-            "",
-            Some("git@github.com:me/web.git"),
-            "/w"
-        ));
+        assert!(!open_pr_in_browser("", Some("git@github.com:me/web.git"), "/w"));
     }
 
     #[test]
@@ -149,23 +139,14 @@ mod tests {
 
     #[test]
     fn owner_repo_extraction() {
-        assert_eq!(
-            owner_repo_from_url("git@github.com:me/web.git").as_deref(),
-            Some("me/web")
-        );
-        assert_eq!(
-            owner_repo_from_url("https://github.com/me/web").as_deref(),
-            Some("me/web")
-        );
+        assert_eq!(owner_repo_from_url("git@github.com:me/web.git").as_deref(), Some("me/web"));
+        assert_eq!(owner_repo_from_url("https://github.com/me/web").as_deref(), Some("me/web"));
         assert_eq!(owner_repo_from_url("file:///tmp/x"), None);
         assert_eq!(
             owner_repo_from_url("https://github.com/owner/repo/tree/main").as_deref(),
             Some("owner/repo")
         );
-        assert_eq!(
-            owner_repo_from_url("https://notgithub.com/owner/repo"),
-            None
-        );
+        assert_eq!(owner_repo_from_url("https://notgithub.com/owner/repo"), None);
     }
 
     #[test]

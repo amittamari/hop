@@ -3,7 +3,7 @@
 
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
-use crate::tui::columns::{display_width, fit, solve_layout_with_desired, Column};
+use crate::tui::columns::{Column, display_width, fit, solve_layout_with_desired};
 use crate::tui::theme::Theme;
 use crate::tui::view::rel_time;
 use ratatui::style::{Modifier, Style};
@@ -22,24 +22,16 @@ fn cell(
     theme: &Theme,
 ) -> (String, Style) {
     match col.id {
-        "agent" => (
-            s.agent.badge().to_string(),
-            Style::default().fg(theme.agent_color(s.agent)),
-        ),
+        "agent" => (s.agent.badge().to_string(), Style::default().fg(theme.agent_color(s.agent))),
         "title" => (s.title.clone(), Style::default()),
         "msgs" => (
-            if s.message_count > 0 {
-                s.message_count.to_string()
-            } else {
-                "-".into()
-            },
+            if s.message_count > 0 { s.message_count.to_string() } else { "-".into() },
             Style::default().fg(theme.muted),
         ),
         "time" => (rel_time(s.timestamp, now), Style::default().fg(theme.muted)),
-        "model" => (
-            s.model.clone().unwrap_or_else(|| "-".into()),
-            Style::default().fg(theme.muted),
-        ),
+        "model" => {
+            (s.model.clone().unwrap_or_else(|| "-".into()), Style::default().fg(theme.muted))
+        }
         other => enrichment_cell(other, s, enrichers, resolved, frame, theme),
     }
 }
@@ -93,10 +85,7 @@ fn desired_widths(
     now: i64,
     frame: u64,
 ) -> Vec<u16> {
-    let mut widths: Vec<u16> = columns
-        .iter()
-        .map(|col| display_width(col.header) as u16)
-        .collect();
+    let mut widths: Vec<u16> = columns.iter().map(|col| display_width(col.header) as u16).collect();
 
     // Widths depend only on cell text, not style, so the theme is irrelevant
     // here; build one default instead of one per cell.
@@ -147,15 +136,8 @@ pub fn session_row(
                     session.archived,
                 ))
             } else {
-                let (text, style) = cell(
-                    session,
-                    col,
-                    ctx.enrichers,
-                    ctx.resolved,
-                    ctx.now,
-                    ctx.frame,
-                    ctx.theme,
-                );
+                let (text, style) =
+                    cell(session, col, ctx.enrichers, ctx.resolved, ctx.now, ctx.frame, ctx.theme);
                 Cell::from(Span::styled(fit(&text, width, col.align), style))
             }
         })
@@ -163,11 +145,7 @@ pub fn session_row(
     let row = Row::new(cells).height(1);
     // Dim the whole row for archived sessions; the selection highlight still
     // layers on top via the Table's row_highlight_style.
-    if session.archived {
-        row.style(Style::default().add_modifier(Modifier::DIM))
-    } else {
-        row
-    }
+    if session.archived { row.style(Style::default().add_modifier(Modifier::DIM)) } else { row }
 }
 
 /// Build the TITLE line, reverse-highlighting any query-term matches by
@@ -180,17 +158,9 @@ fn title_line(
     theme: &Theme,
     archived: bool,
 ) -> Line<'static> {
-    let marker_width = if archived {
-        ARCHIVED_MARKER.len() as u16
-    } else {
-        0
-    };
+    let marker_width = if archived { ARCHIVED_MARKER.len() as u16 } else { 0 };
     let title_width = width.saturating_sub(marker_width);
-    let base = Line::from(Span::raw(fit(
-        title,
-        title_width,
-        crate::tui::columns::Align::Left,
-    )));
+    let base = Line::from(Span::raw(fit(title, title_width, crate::tui::columns::Align::Left)));
     let highlighted = if terms.is_empty() {
         base
     } else {
@@ -199,10 +169,7 @@ fn title_line(
     if !archived {
         return highlighted;
     }
-    let mut spans = vec![Span::styled(
-        ARCHIVED_MARKER,
-        Style::default().fg(theme.muted),
-    )];
+    let mut spans = vec![Span::styled(ARCHIVED_MARKER, Style::default().fg(theme.muted))];
     spans.extend(highlighted.spans);
     Line::from(spans)
 }
@@ -210,10 +177,8 @@ fn title_line(
 /// Build the muted header row for the kept columns. Styled at the Row level so
 /// every header cell shares the muted color.
 pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) -> Row<'static> {
-    let cells: Vec<Cell<'static>> = layout
-        .iter()
-        .map(|&(ci, _)| Cell::from(columns[ci].header))
-        .collect();
+    let cells: Vec<Cell<'static>> =
+        layout.iter().map(|&(ci, _)| Cell::from(columns[ci].header)).collect();
     Row::new(cells).style(Style::default().fg(theme.muted))
 }
 
@@ -243,15 +208,8 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let resolved = HashMap::new();
         let row_data = sess();
-        let layout = layout_for_rows(
-            &cols,
-            120,
-            std::slice::from_ref(&row_data),
-            &enr,
-            &resolved,
-            3600,
-            0,
-        );
+        let layout =
+            layout_for_rows(&cols, 120, std::slice::from_ref(&row_data), &enr, &resolved, 3600, 0);
         let ctx = RowCtx {
             enrichers: &enr,
             resolved: &resolved,
@@ -290,13 +248,7 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![Box::new(BranchEnricher), Box::new(RepoEnricher)];
         let resolved = HashMap::new();
         let layout = layout_for_rows(&cols, 120, &[row], &enr, &resolved, 0, 0);
-        let width = |id| {
-            layout
-                .iter()
-                .find(|&&(i, _)| cols[i].id == id)
-                .map(|&(_, w)| w)
-                .unwrap()
-        };
+        let width = |id| layout.iter().find(|&&(i, _)| cols[i].id == id).map(|&(_, w)| w).unwrap();
 
         assert_eq!(width("repo"), "responsive-editor".len() as u16);
         assert_eq!(width("branch"), "workflow/ghostty-terminal".len() as u16);
@@ -354,9 +306,6 @@ mod tests {
         assert_eq!(first.style.fg, Some(theme.muted));
         // Non-archived titles carry no marker.
         let plain = super::title_line("fix auth", 40, &[], &theme, false);
-        assert_ne!(
-            plain.spans.first().map(|s| s.content.as_ref()),
-            Some(super::ARCHIVED_MARKER)
-        );
+        assert_ne!(plain.spans.first().map(|s| s.content.as_ref()), Some(super::ARCHIVED_MARKER));
     }
 }

@@ -1,12 +1,10 @@
-use hop::adapters::claude::ClaudeAdapter;
 use hop::adapters::Adapter;
+use hop::adapters::claude::ClaudeAdapter;
 use hop::core::AgentId;
 use std::path::PathBuf;
 
 fn fixture(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures/claude")
-        .join(name)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/claude").join(name)
 }
 
 #[test]
@@ -21,9 +19,7 @@ fn parses_id_cwd_and_excludes_noise() {
 
     // content keeps only real user + assistant text
     assert!(s.content.contains("fix the auth refresh token bug"));
-    assert!(s
-        .content
-        .contains("The refresh token was dropped on retry."));
+    assert!(s.content.contains("The refresh token was dropped on retry."));
     // excluded: local-command output, slash-command, tool_result, tool_use, isMeta
     assert!(!s.content.contains("noise"));
     assert!(!s.content.contains("/clear"));
@@ -91,8 +87,8 @@ fn claude_meta_assistant_line_does_not_override_model() {
 
 #[test]
 fn claude_prefers_ai_title_over_first_prompt() {
-    use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::claude::ClaudeAdapter;
     use std::fs;
 
     let tmp = tempfile::tempdir().unwrap();
@@ -118,8 +114,8 @@ fn claude_prefers_ai_title_over_first_prompt() {
 
 #[test]
 fn claude_uses_top_level_summary_title() {
-    use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::claude::ClaudeAdapter;
     use std::fs;
 
     let tmp = tempfile::tempdir().unwrap();
@@ -142,8 +138,8 @@ fn claude_uses_top_level_summary_title() {
 
 #[test]
 fn claude_preserves_long_normalized_title() {
-    use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::claude::ClaudeAdapter;
     use std::fs;
 
     let tmp = tempfile::tempdir().unwrap();
@@ -168,8 +164,8 @@ fn claude_preserves_long_normalized_title() {
 
 #[test]
 fn claude_captures_branch_and_filters_internals() {
-    use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::claude::ClaudeAdapter;
     use std::fs;
 
     let tmp = tempfile::tempdir().unwrap();
@@ -194,8 +190,8 @@ fn claude_captures_branch_and_filters_internals() {
 
 #[test]
 fn claude_transcript_has_roles_and_code() {
-    use hop::adapters::claude::ClaudeAdapter;
     use hop::adapters::Adapter;
+    use hop::adapters::claude::ClaudeAdapter;
     use hop::core::{Block, Role};
     use std::fs;
 

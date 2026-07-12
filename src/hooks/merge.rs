@@ -1,6 +1,6 @@
 use crate::core::SessionSummary;
 use crate::hooks::git_meta::GitMeta;
-use crate::hooks::sidecar::{sidecar_dir, sidecar_path_in, Sidecar};
+use crate::hooks::sidecar::{Sidecar, sidecar_dir, sidecar_path_in};
 use std::path::Path;
 
 pub fn apply_sidecar(summary: &mut SessionSummary, sidecar: &Sidecar) {
@@ -70,12 +70,7 @@ mod tests {
     }
 
     fn sidecar_with_events(events: Vec<SidecarEvent>) -> Sidecar {
-        Sidecar {
-            version: 1,
-            session_id: "s1".into(),
-            agent: AgentId::Claude,
-            events,
-        }
+        Sidecar { version: 1, session_id: "s1".into(), agent: AgentId::Claude, events }
     }
 
     #[test]
@@ -174,10 +169,7 @@ mod tests {
         enrich_from_git_if_needed(&mut summary);
         // Values unchanged — should not have shelled out
         assert_eq!(summary.branch.as_deref(), Some("existing-branch"));
-        assert_eq!(
-            summary.repo_url.as_deref(),
-            Some("https://example.com/repo")
-        );
+        assert_eq!(summary.repo_url.as_deref(), Some("https://example.com/repo"));
     }
 
     #[test]
@@ -263,9 +255,7 @@ mod tests {
             worktree: None,
             permission_mode: None,
         }]);
-        sidecar
-            .write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1"))
-            .unwrap();
+        sidecar.write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1")).unwrap();
 
         merge_sidecar_from_dir(&mut summary, sidecars.path());
 

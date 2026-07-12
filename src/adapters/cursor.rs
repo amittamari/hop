@@ -1,7 +1,7 @@
-use crate::adapters::{file_mtime_ms, git_remote_url, Adapter, GitFieldCache};
+use crate::adapters::{Adapter, GitFieldCache, file_mtime_ms, git_remote_url};
 use crate::core::{
-    derive_session_title, split_blocks, AgentId, Message, Role, ScanEntry, Session, SessionId,
-    SessionSummary,
+    AgentId, Message, Role, ScanEntry, Session, SessionId, SessionSummary, derive_session_title,
+    split_blocks,
 };
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -102,9 +102,8 @@ fn read_store_meta(chats_root: &Path, workspace: &str, uuid: &str) -> Option<Met
         rusqlite::Connection::open_with_flags(&db_path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .ok()?;
 
-    let hex_value: String = conn
-        .query_row("SELECT value FROM meta WHERE key='0'", [], |row| row.get(0))
-        .ok()?;
+    let hex_value: String =
+        conn.query_row("SELECT value FROM meta WHERE key='0'", [], |row| row.get(0)).ok()?;
 
     let bytes = hex::decode(hex_value.trim()).ok()?;
     let store: StoreMeta = serde_json::from_slice(&bytes).ok()?;
@@ -199,19 +198,14 @@ impl CursorAdapter {
             }
 
             let split = split_blocks(&cleaned);
-            messages.push(Message {
-                role,
-                blocks: split,
-            });
+            messages.push(Message { role, blocks: split });
         }
 
         // A turn that errored before the agent replied (e.g. a blocked subagent
         // spawn) has no usable conversation. Drop it so it isn't indexed.
         let has_agent_reply = messages.iter().any(|m| m.role == Role::Agent);
         if errored && !has_agent_reply {
-            return Ok(Extracted {
-                messages: Vec::new(),
-            });
+            return Ok(Extracted { messages: Vec::new() });
         }
 
         Ok(Extracted { messages })
@@ -309,17 +303,14 @@ impl Adapter for CursorAdapter {
             .and_then(|m| m.title.clone())
             .unwrap_or_else(|| derive_session_title(None, &ex.messages));
 
-        let timestamp = store
-            .as_ref()
-            .and_then(|m| m.timestamp_secs)
-            .unwrap_or_else(|| {
-                std::fs::metadata(path)
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs() as i64)
-                    .unwrap_or(0)
-            });
+        let timestamp = store.as_ref().and_then(|m| m.timestamp_secs).unwrap_or_else(|| {
+            std::fs::metadata(path)
+                .ok()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0)
+        });
 
         let yolo = store.as_ref().map(|m| m.yolo).unwrap_or(false);
         let content = flatten_messages(&ex.messages);
@@ -355,12 +346,7 @@ impl Adapter for CursorAdapter {
 
     fn resume_command(&self, s: &Session, yolo: bool) -> Vec<String> {
         if yolo {
-            vec![
-                "cursor-agent".into(),
-                "--force".into(),
-                "--resume".into(),
-                s.meta.id.clone(),
-            ]
+            vec!["cursor-agent".into(), "--force".into(), "--resume".into(), s.meta.id.clone()]
         } else {
             vec!["cursor-agent".into(), "--resume".into(), s.meta.id.clone()]
         }

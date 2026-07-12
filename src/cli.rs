@@ -120,17 +120,10 @@ impl Cli {
         if self.all || self.repo.is_some() {
             return false;
         }
-        let has_repo_token = self
-            .query
-            .as_deref()
-            .unwrap_or("")
-            .split_whitespace()
-            .any(|t| {
-                let body = t.strip_prefix(['-', '!']).unwrap_or(t);
-                body.split_once(':')
-                    .map(|(k, _)| k == "repo")
-                    .unwrap_or(false)
-            });
+        let has_repo_token = self.query.as_deref().unwrap_or("").split_whitespace().any(|t| {
+            let body = t.strip_prefix(['-', '!']).unwrap_or(t);
+            body.split_once(':').map(|(k, _)| k == "repo").unwrap_or(false)
+        });
         !has_repo_token
     }
 
@@ -139,16 +132,12 @@ impl Cli {
     /// the user typed DSL on the command line, so the simple toolbar does not
     /// silently drop it.
     pub fn query_has_dsl(&self) -> bool {
-        self.query
-            .as_deref()
-            .unwrap_or("")
-            .split_whitespace()
-            .any(|t| {
-                let body = t.strip_prefix(['-', '!']).unwrap_or(t);
-                body.split_once(':')
-                    .map(|(k, _)| matches!(k, "agent" | "dir" | "repo" | "date"))
-                    .unwrap_or(false)
-            })
+        self.query.as_deref().unwrap_or("").split_whitespace().any(|t| {
+            let body = t.strip_prefix(['-', '!']).unwrap_or(t);
+            body.split_once(':')
+                .map(|(k, _)| matches!(k, "agent" | "dir" | "repo" | "date"))
+                .unwrap_or(false)
+        })
     }
 
     /// Filter flags the simple toolbar cannot yet represent (`--agent`/`--dir`).
@@ -185,18 +174,12 @@ mod tests {
             repo: Some("hop".into()),
             ..cli()
         };
-        assert_eq!(
-            cli.initial_query(None),
-            "agent:claude dir:api repo:hop auth "
-        );
+        assert_eq!(cli.initial_query(None), "agent:claude dir:api repo:hop auth ");
     }
 
     #[test]
     fn initial_query_prepends_auto_repo() {
-        let cli = Cli {
-            query: Some("auth".into()),
-            ..cli()
-        };
+        let cli = Cli { query: Some("auth".into()), ..cli() };
         assert_eq!(cli.initial_query(Some("me/hop")), "repo:me/hop auth ");
     }
 
@@ -215,30 +198,14 @@ mod tests {
     #[test]
     fn wants_auto_repo_for_bare_and_free_text() {
         assert!(cli().wants_auto_repo());
-        assert!(Cli {
-            query: Some("auth".into()),
-            ..cli()
-        }
-        .wants_auto_repo());
+        assert!(Cli { query: Some("auth".into()), ..cli() }.wants_auto_repo());
     }
 
     #[test]
     fn wants_auto_repo_suppressed_by_explicit_filters() {
         assert!(!Cli { all: true, ..cli() }.wants_auto_repo());
-        assert!(!Cli {
-            repo: Some("other".into()),
-            ..cli()
-        }
-        .wants_auto_repo());
-        assert!(!Cli {
-            query: Some("repo:foo bug".into()),
-            ..cli()
-        }
-        .wants_auto_repo());
-        assert!(!Cli {
-            query: Some("-repo:vendor".into()),
-            ..cli()
-        }
-        .wants_auto_repo());
+        assert!(!Cli { repo: Some("other".into()), ..cli() }.wants_auto_repo());
+        assert!(!Cli { query: Some("repo:foo bug".into()), ..cli() }.wants_auto_repo());
+        assert!(!Cli { query: Some("-repo:vendor".into()), ..cli() }.wants_auto_repo());
     }
 }

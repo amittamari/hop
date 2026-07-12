@@ -259,17 +259,11 @@ impl App {
     }
 
     pub fn open_yolo_modal(&mut self) {
-        self.mode = Mode::YoloModal {
-            index: self.selected,
-            yolo: false,
-        };
+        self.mode = Mode::YoloModal { index: self.selected, yolo: false };
     }
 
     pub fn open_yolo_modal_with(&mut self, yolo: bool) {
-        self.mode = Mode::YoloModal {
-            index: self.selected,
-            yolo,
-        };
+        self.mode = Mode::YoloModal { index: self.selected, yolo };
     }
 
     pub fn preview_visible(&self) -> bool {
@@ -309,10 +303,8 @@ impl App {
         self.preview_scroll_step = preview_height.saturating_sub(1).max(1);
     }
     pub fn set_preview_matches(&mut self, matches: Vec<usize>) {
-        self.preview_matches = matches
-            .into_iter()
-            .map(|line| line.min(u16::MAX as usize) as u16)
-            .collect();
+        self.preview_matches =
+            matches.into_iter().map(|line| line.min(u16::MAX as usize) as u16).collect();
         self.preview_match_index = 0;
         self.preview_scroll = self.preview_matches.first().copied().unwrap_or(0);
     }
@@ -473,9 +465,7 @@ impl App {
                 if self.results.is_empty() {
                     Action::None
                 } else {
-                    Action::OpenPr {
-                        index: self.selected,
-                    }
+                    Action::OpenPr { index: self.selected }
                 }
             }
             keymap::Command::ToggleSearchMode => self.toggle_search_mode(),
@@ -493,11 +483,7 @@ impl App {
         match self.toolbar_focus {
             Focus::Scope => self.scope = self.scope.toggled(),
             Focus::Sort => {
-                self.sort = if dir < 0 {
-                    self.sort.prev()
-                } else {
-                    self.sort.next()
-                };
+                self.sort = if dir < 0 { self.sort.prev() } else { self.sort.next() };
             }
             Focus::Query => return Action::None,
         }
@@ -597,16 +583,10 @@ impl App {
         let yolo_capable = self.yolo_supported.get(idx).copied().unwrap_or(false);
         let archived = self.results.get(idx).is_some_and(|s| s.archived);
         if yolo_capable || archived {
-            self.mode = Mode::YoloModal {
-                index: idx,
-                yolo: false,
-            };
+            self.mode = Mode::YoloModal { index: idx, yolo: false };
             Action::None
         } else {
-            Action::Resume {
-                index: idx,
-                yolo: false,
-            }
+            Action::Resume { index: idx, yolo: false }
         }
     }
 }
@@ -770,10 +750,7 @@ mod tests {
         app.set_results(vec![s]);
         app.set_yolo_supported(vec![false]); // agent does not support yolo
         assert_eq!(app.handle_key(key(KeyCode::Enter)), Action::None);
-        assert!(
-            app.modal_open(),
-            "archived sessions must be confirmed before resume"
-        );
+        assert!(app.modal_open(), "archived sessions must be confirmed before resume");
         match app.handle_key(key(KeyCode::Enter)) {
             Action::Resume { index, .. } => assert_eq!(index, 0),
             other => panic!("expected resume after confirm, got {other:?}"),

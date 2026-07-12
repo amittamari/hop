@@ -1,5 +1,5 @@
 use hop::core::{AgentId, ScanEntry, Session, SessionSummary};
-use hop::index::{diff, diff_authoritative, SearchIndex};
+use hop::index::{SearchIndex, diff, diff_authoritative};
 use hop::query;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -40,21 +40,13 @@ fn build_search_and_reconstruct() {
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
 
     let mut w = idx.writer().unwrap();
-    idx.upsert(
-        &mut w,
-        &sess("a", "auth refresh", "token bug", AgentId::Claude, 100, 1),
-    );
-    idx.upsert(
-        &mut w,
-        &sess("b", "unrelated", "nothing here", AgentId::Codex, 90, 1),
-    );
+    idx.upsert(&mut w, &sess("a", "auth refresh", "token bug", AgentId::Claude, 100, 1));
+    idx.upsert(&mut w, &sess("b", "unrelated", "nothing here", AgentId::Codex, 90, 1));
     w.commit().unwrap();
     idx.reload().unwrap();
 
     let q = query::parse("auth");
-    let results = idx
-        .search(&q, query::SortOrder::Relevance, 1000, 50)
-        .unwrap();
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "a");
     assert_eq!(results[0].title, "auth refresh");
@@ -66,21 +58,13 @@ fn exact_ranks_above_fuzzy() {
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
     let mut w = idx.writer().unwrap();
-    idx.upsert(
-        &mut w,
-        &sess("exact", "refactor", "refactor", AgentId::Claude, 100, 1),
-    );
-    idx.upsert(
-        &mut w,
-        &sess("fuzzy", "refacter", "refacter", AgentId::Claude, 200, 1),
-    );
+    idx.upsert(&mut w, &sess("exact", "refactor", "refactor", AgentId::Claude, 100, 1));
+    idx.upsert(&mut w, &sess("fuzzy", "refacter", "refacter", AgentId::Claude, 200, 1));
     w.commit().unwrap();
     idx.reload().unwrap();
 
     let q = query::parse("refactor");
-    let results = idx
-        .search(&q, query::SortOrder::Relevance, 1000, 50)
-        .unwrap();
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
     assert_eq!(results[0].id, "exact"); // exact boosted above edit-distance-1
 }
 
@@ -89,35 +73,13 @@ fn text_search_breaks_equal_scores_by_recency() {
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
     let mut w = idx.writer().unwrap();
-    idx.upsert(
-        &mut w,
-        &sess(
-            "old",
-            "shared topic",
-            "shared topic",
-            AgentId::Claude,
-            100,
-            1,
-        ),
-    );
-    idx.upsert(
-        &mut w,
-        &sess(
-            "new",
-            "shared topic",
-            "shared topic",
-            AgentId::Claude,
-            200,
-            1,
-        ),
-    );
+    idx.upsert(&mut w, &sess("old", "shared topic", "shared topic", AgentId::Claude, 100, 1));
+    idx.upsert(&mut w, &sess("new", "shared topic", "shared topic", AgentId::Claude, 200, 1));
     w.commit().unwrap();
     idx.reload().unwrap();
 
     let q = query::parse("shared");
-    let results = idx
-        .search(&q, query::SortOrder::Relevance, 1000, 50)
-        .unwrap();
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, "new");
     assert_eq!(results[1].id, "old");
@@ -128,21 +90,13 @@ fn agent_filter_applies() {
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
     let mut w = idx.writer().unwrap();
-    idx.upsert(
-        &mut w,
-        &sess("c", "deploy", "ship it", AgentId::Claude, 100, 1),
-    );
-    idx.upsert(
-        &mut w,
-        &sess("x", "deploy", "ship it", AgentId::Codex, 100, 1),
-    );
+    idx.upsert(&mut w, &sess("c", "deploy", "ship it", AgentId::Claude, 100, 1));
+    idx.upsert(&mut w, &sess("x", "deploy", "ship it", AgentId::Codex, 100, 1));
     w.commit().unwrap();
     idx.reload().unwrap();
 
     let q = query::parse("deploy agent:codex");
-    let results = idx
-        .search(&q, query::SortOrder::Relevance, 1000, 50)
-        .unwrap();
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].agent, AgentId::Codex);
 }
@@ -155,35 +109,14 @@ fn incremental_diff_detects_changes_and_deletions() {
     known.insert("deleted".into(), 100);
 
     let mut scanned: HashMap<String, ScanEntry> = HashMap::new();
-    scanned.insert(
-        "keep".into(),
-        ScanEntry {
-            path: PathBuf::from("k"),
-            mtime: 100,
-        },
-    );
-    scanned.insert(
-        "changed".into(),
-        ScanEntry {
-            path: PathBuf::from("c"),
-            mtime: 500,
-        },
-    );
-    scanned.insert(
-        "new".into(),
-        ScanEntry {
-            path: PathBuf::from("n"),
-            mtime: 10,
-        },
-    );
+    scanned.insert("keep".into(), ScanEntry { path: PathBuf::from("k"), mtime: 100 });
+    scanned.insert("changed".into(), ScanEntry { path: PathBuf::from("c"), mtime: 500 });
+    scanned.insert("new".into(), ScanEntry { path: PathBuf::from("n"), mtime: 10 });
 
     let (changed, deleted) = diff(&known, &scanned);
     let mut changed_ids: Vec<&String> = changed.iter().map(|(id, _)| id).collect();
     changed_ids.sort();
-    assert_eq!(
-        changed_ids,
-        vec![&"changed".to_string(), &"new".to_string()]
-    );
+    assert_eq!(changed_ids, vec![&"changed".to_string(), &"new".to_string()]);
     assert_eq!(deleted, vec!["deleted".to_string()]);
 }
 
@@ -256,47 +189,25 @@ fn raw_session_id_can_overlap_between_agents() {
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();
     let mut w = idx.writer().unwrap();
-    idx.upsert(
-        &mut w,
-        &sess("same", "claude row", "shared", AgentId::Claude, 100, 11),
-    );
-    idx.upsert(
-        &mut w,
-        &sess("same", "codex row", "shared", AgentId::Codex, 90, 22),
-    );
+    idx.upsert(&mut w, &sess("same", "claude row", "shared", AgentId::Claude, 100, 11));
+    idx.upsert(&mut w, &sess("same", "codex row", "shared", AgentId::Codex, 90, 22));
     w.commit().unwrap();
     drop(w);
     idx.reload().unwrap();
 
-    let results = idx
-        .search(
-            &query::parse("shared"),
-            query::SortOrder::Relevance,
-            1_000,
-            10,
-        )
-        .unwrap();
+    let results =
+        idx.search(&query::parse("shared"), query::SortOrder::Relevance, 1_000, 10).unwrap();
     assert_eq!(results.len(), 2);
-    assert!(results
-        .iter()
-        .any(|s| s.id == "same" && s.agent == AgentId::Claude));
-    assert!(results
-        .iter()
-        .any(|s| s.id == "same" && s.agent == AgentId::Codex));
+    assert!(results.iter().any(|s| s.id == "same" && s.agent == AgentId::Claude));
+    assert!(results.iter().any(|s| s.id == "same" && s.agent == AgentId::Codex));
 
     let mut w = idx.writer().unwrap();
     idx.delete(&mut w, "claude:same");
     w.commit().unwrap();
     idx.reload().unwrap();
 
-    let results = idx
-        .search(
-            &query::parse("shared"),
-            query::SortOrder::Relevance,
-            1_000,
-            10,
-        )
-        .unwrap();
+    let results =
+        idx.search(&query::parse("shared"), query::SortOrder::Relevance, 1_000, 10).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].agent, AgentId::Codex);
 }
@@ -322,27 +233,13 @@ fn dir_filter_pages_past_many_filtered_out_hits() {
     }
     idx.upsert(
         &mut w,
-        &sess_in_dir(
-            "target",
-            "target",
-            "target",
-            AgentId::Claude,
-            "/work/target",
-            1,
-            9_999,
-        ),
+        &sess_in_dir("target", "target", "target", AgentId::Claude, "/work/target", 1, 9_999),
     );
     w.commit().unwrap();
     idx.reload().unwrap();
 
-    let results = idx
-        .search(
-            &query::parse("dir:target"),
-            query::SortOrder::Recent,
-            20_000,
-            1,
-        )
-        .unwrap();
+    let results =
+        idx.search(&query::parse("dir:target"), query::SortOrder::Recent, 20_000, 1).unwrap();
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].id, "target");
 }
@@ -374,19 +271,11 @@ fn branch_roundtrips_through_index() {
     idx.upsert(&mut w, &s);
     w.commit().unwrap();
     idx.reload().unwrap();
-    let out = idx
-        .search(&ParsedQuery::default(), query::SortOrder::Recent, 100, 10)
-        .unwrap();
+    let out = idx.search(&ParsedQuery::default(), query::SortOrder::Recent, 100, 10).unwrap();
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].branch.as_deref(), Some("feat/x"));
-    assert_eq!(
-        out[0].repo_url.as_deref(),
-        Some("git@github.com:me/web.git")
-    );
-    assert_eq!(
-        out[0].source_path.as_deref(),
-        Some(std::path::Path::new("/sessions/a.jsonl"))
-    );
+    assert_eq!(out[0].repo_url.as_deref(), Some("git@github.com:me/web.git"));
+    assert_eq!(out[0].source_path.as_deref(), Some(std::path::Path::new("/sessions/a.jsonl")));
 }
 
 #[test]
@@ -398,26 +287,14 @@ fn recency_boosts_recent_over_old_with_similar_text() {
     let three_months_ago = now - 90 * 86_400;
     idx.upsert(
         &mut w,
-        &sess(
-            "old",
-            "deploy api",
-            "deploy api",
-            AgentId::Claude,
-            three_months_ago,
-            1,
-        ),
+        &sess("old", "deploy api", "deploy api", AgentId::Claude, three_months_ago, 1),
     );
-    idx.upsert(
-        &mut w,
-        &sess("new", "deploy api", "deploy api", AgentId::Claude, now, 1),
-    );
+    idx.upsert(&mut w, &sess("new", "deploy api", "deploy api", AgentId::Claude, now, 1));
     w.commit().unwrap();
     idx.reload().unwrap();
 
     let q = query::parse("deploy");
-    let results = idx
-        .search(&q, query::SortOrder::Relevance, now, 50)
-        .unwrap();
+    let results = idx.search(&q, query::SortOrder::Relevance, now, 50).unwrap();
     assert_eq!(results.len(), 2);
     assert_eq!(results[0].id, "new");
     assert_eq!(results[1].id, "old");

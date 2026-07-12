@@ -53,9 +53,7 @@ pub(crate) fn parse_ts_secs(s: &str) -> Option<i64> {
 
 pub(crate) fn file_mtime_ms(entry: &std::fs::DirEntry) -> Result<i64> {
     let modified = entry.metadata()?.modified()?;
-    let dur = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
+    let dur = modified.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
     Ok(i64::try_from(dur.as_millis()).unwrap_or(i64::MAX))
 }
 
@@ -65,21 +63,12 @@ fn git_field(dir: &str, args: &[&str]) -> Option<String> {
     if dir.is_empty() {
         return None;
     }
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(args)
-        .output()
-        .ok()?;
+    let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().ok()?;
     if !out.status.success() {
         return None;
     }
     let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if value.is_empty() {
-        None
-    } else {
-        Some(value)
-    }
+    if value.is_empty() { None } else { Some(value) }
 }
 
 /// The `origin` remote URL. Same across all worktrees of a repo, which is what
@@ -101,10 +90,9 @@ pub fn git_remote_url(dir: &str) -> Option<String> {
             break;
         }
         if ancestor.exists() {
-            if let Some(url) = git_field(
-                &ancestor.to_string_lossy(),
-                &["remote", "get-url", "origin"],
-            ) {
+            if let Some(url) =
+                git_field(&ancestor.to_string_lossy(), &["remote", "get-url", "origin"])
+            {
                 return Some(url);
             }
             break;
@@ -123,10 +111,7 @@ pub(crate) struct GitFieldCache {
 
 impl GitFieldCache {
     pub(crate) fn new(resolver: fn(&str) -> Option<String>) -> Self {
-        Self {
-            cache: RefCell::new(HashMap::new()),
-            resolver,
-        }
+        Self { cache: RefCell::new(HashMap::new()), resolver }
     }
 
     pub(crate) fn resolve(&self, dir: &str) -> Option<String> {

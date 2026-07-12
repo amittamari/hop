@@ -1,6 +1,6 @@
 use crate::adapters::Adapter;
-use crate::core::{document_key, ResumeCommand, Session, SessionSummary, Transcript};
-use crate::index::{diff_authoritative, SearchIndex};
+use crate::core::{ResumeCommand, Session, SessionSummary, Transcript, document_key};
+use crate::index::{SearchIndex, diff_authoritative};
 use crate::query::{self, ParsedQuery, SortOrder};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -122,18 +122,13 @@ impl Engine {
 
     pub fn search(&mut self) -> Result<()> {
         let now = jiff::Timestamp::now().as_second();
-        self.results = self
-            .index
-            .search(&self.parsed, self.sort, now, self.limit)?;
+        self.results = self.index.search(&self.parsed, self.sort, now, self.limit)?;
         self.last_keystroke = None;
         Ok(())
     }
 
     pub fn adapter_for(&self, agent: crate::core::AgentId) -> Option<&dyn Adapter> {
-        self.adapters
-            .iter()
-            .find(|a| a.id() == agent)
-            .map(|b| b.as_ref())
+        self.adapters.iter().find(|a| a.id() == agent).map(|b| b.as_ref())
     }
 
     pub fn transcript_for(&self, session: &SessionSummary) -> Option<Transcript> {
@@ -144,15 +139,11 @@ impl Engine {
     }
 
     pub fn supports_yolo(&self, session: &SessionSummary) -> bool {
-        self.adapter_for(session.agent)
-            .is_some_and(|a| a.supports_yolo())
+        self.adapter_for(session.agent).is_some_and(|a| a.supports_yolo())
     }
 
     pub fn indexed_session(&self, session: &SessionSummary) -> Option<Session> {
-        self.index
-            .load_session(&session.document_key())
-            .ok()
-            .flatten()
+        self.index.load_session(&session.document_key()).ok().flatten()
     }
 
     pub fn indexed_content(&self, session: &SessionSummary) -> Option<String> {
@@ -173,16 +164,8 @@ impl Engine {
             Some(Err(_)) => return None,
             None => argv,
         };
-        let prepare = full
-            .meta
-            .archived
-            .then(|| adapter.unarchive_command(&full))
-            .flatten();
-        Some(ResumeCommand {
-            directory: full.meta.directory,
-            argv,
-            prepare,
-        })
+        let prepare = full.meta.archived.then(|| adapter.unarchive_command(&full)).flatten();
+        Some(ResumeCommand { directory: full.meta.directory, argv, prepare })
     }
 
     #[cfg(test)]
@@ -214,10 +197,8 @@ impl Engine {
             })();
             let _ = tx.send(Update::Refresh);
             let _ = tx.send(Update::Done {
-                report: result.unwrap_or_else(|_| SyncReport {
-                    fatal_errors: 1,
-                    ..SyncReport::default()
-                }),
+                report: result
+                    .unwrap_or_else(|_| SyncReport { fatal_errors: 1, ..SyncReport::default() }),
             });
         });
         (rx, handle)
@@ -383,10 +364,7 @@ mod tests {
                 .map(|s| {
                     (
                         s.meta.id.clone(),
-                        ScanEntry {
-                            path: PathBuf::from(&s.meta.id),
-                            mtime: s.mtime,
-                        },
+                        ScanEntry { path: PathBuf::from(&s.meta.id), mtime: s.mtime },
                     )
                 })
                 .collect())
@@ -484,10 +462,8 @@ mod tests {
     #[test]
     fn sync_then_search_finds_indexed_sessions() {
         let dir = tempfile::tempdir().unwrap();
-        let adapters: Vec<Box<dyn Adapter>> = vec![adapter(
-            AgentId::Claude,
-            vec![sess("a", "auth bug"), sess("b", "deploy")],
-        )];
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![adapter(AgentId::Claude, vec![sess("a", "auth bug"), sess("b", "deploy")])];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
 
         // synchronous full sync (the blocking core that the bg thread also calls)
@@ -513,32 +489,18 @@ mod tests {
         engine.set_query("");
         engine.search().unwrap();
 
-        let row = |id: &str| {
-            engine
-                .results()
-                .iter()
-                .find(|s| s.id == id)
-                .cloned()
-                .unwrap()
-        };
+        let row = |id: &str| engine.results().iter().find(|s| s.id == id).cloned().unwrap();
         let no_launcher = crate::config::LauncherConfig::default();
-        let active_cmd = engine
-            .resume_command_for(&row("active"), false, &no_launcher)
-            .unwrap();
+        let active_cmd = engine.resume_command_for(&row("active"), false, &no_launcher).unwrap();
         assert_eq!(active_cmd.prepare, None, "active sessions need no prep");
 
-        let archived_cmd = engine
-            .resume_command_for(&row("gone"), false, &no_launcher)
-            .unwrap();
+        let archived_cmd = engine.resume_command_for(&row("gone"), false, &no_launcher).unwrap();
         assert_eq!(
             archived_cmd.prepare,
             Some(vec!["unarchive".to_string(), "gone".to_string()]),
             "archived sessions unarchive before resuming"
         );
-        assert_eq!(
-            archived_cmd.argv,
-            vec!["echo".to_string(), "gone".to_string()]
-        );
+        assert_eq!(archived_cmd.argv, vec!["echo".to_string(), "gone".to_string()]);
     }
 
     #[test]
@@ -564,14 +526,8 @@ mod tests {
     fn sync_namespaces_overlapping_raw_ids_by_agent() {
         let dir = tempfile::tempdir().unwrap();
         let adapters: Vec<Box<dyn Adapter>> = vec![
-            adapter(
-                AgentId::Claude,
-                vec![sess_for(AgentId::Claude, "same", "auth claude")],
-            ),
-            adapter(
-                AgentId::Codex,
-                vec![sess_for(AgentId::Codex, "same", "auth codex")],
-            ),
+            adapter(AgentId::Claude, vec![sess_for(AgentId::Claude, "same", "auth claude")]),
+            adapter(AgentId::Codex, vec![sess_for(AgentId::Codex, "same", "auth codex")]),
         ];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
 
@@ -580,14 +536,8 @@ mod tests {
         engine.search().unwrap();
 
         assert_eq!(engine.results().len(), 2);
-        assert!(engine
-            .results()
-            .iter()
-            .any(|s| s.id == "same" && s.agent == AgentId::Claude));
-        assert!(engine
-            .results()
-            .iter()
-            .any(|s| s.id == "same" && s.agent == AgentId::Codex));
+        assert!(engine.results().iter().any(|s| s.id == "same" && s.agent == AgentId::Claude));
+        assert!(engine.results().iter().any(|s| s.id == "same" && s.agent == AgentId::Codex));
     }
 
     #[test]
@@ -596,14 +546,8 @@ mod tests {
         let mut engine = Engine::new(
             dir.path(),
             vec![
-                adapter(
-                    AgentId::Claude,
-                    vec![sess_for(AgentId::Claude, "a", "auth")],
-                ),
-                adapter(
-                    AgentId::Codex,
-                    vec![sess_for(AgentId::Codex, "b", "deploy")],
-                ),
+                adapter(AgentId::Claude, vec![sess_for(AgentId::Claude, "a", "auth")]),
+                adapter(AgentId::Codex, vec![sess_for(AgentId::Codex, "b", "deploy")]),
             ],
         )
         .unwrap();
@@ -611,10 +555,7 @@ mod tests {
 
         engine.replace_adapters(vec![
             unavailable_adapter(AgentId::Claude),
-            adapter(
-                AgentId::Codex,
-                vec![sess_for(AgentId::Codex, "b", "deploy")],
-            ),
+            adapter(AgentId::Codex, vec![sess_for(AgentId::Codex, "b", "deploy")]),
         ]);
         let report = engine.sync_once().unwrap();
         assert_eq!(report.adapters_unavailable, 1);
@@ -622,10 +563,7 @@ mod tests {
         engine.set_query("");
         engine.search().unwrap();
         assert_eq!(engine.results().len(), 2);
-        assert!(engine
-            .results()
-            .iter()
-            .any(|s| s.id == "a" && s.agent == AgentId::Claude));
+        assert!(engine.results().iter().any(|s| s.id == "a" && s.agent == AgentId::Claude));
     }
 
     #[test]
@@ -633,10 +571,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut engine = Engine::new(
             dir.path(),
-            vec![adapter(
-                AgentId::Claude,
-                vec![sess_for(AgentId::Claude, "a", "auth")],
-            )],
+            vec![adapter(AgentId::Claude, vec![sess_for(AgentId::Claude, "a", "auth")])],
         )
         .unwrap();
         engine.sync_once().unwrap();
@@ -657,10 +592,8 @@ mod tests {
         let mut empty = sess_for(AgentId::Claude, "empty", "");
         empty.content.clear();
         empty.meta.message_count = 0;
-        let adapters: Vec<Box<dyn Adapter>> = vec![adapter(
-            AgentId::Claude,
-            vec![empty, sess("real", "auth bug")],
-        )];
+        let adapters: Vec<Box<dyn Adapter>> =
+            vec![adapter(AgentId::Claude, vec![empty, sess("real", "auth bug")])];
         let mut engine = Engine::new(dir.path(), adapters).unwrap();
         engine.sync_once().unwrap();
         engine.set_query("");
@@ -716,7 +649,7 @@ mod tests {
 
     #[test]
     fn sidecar_only_change_reindexes_unchanged_session() {
-        use crate::hooks::sidecar::{sidecar_path_in, HookEvent, Sidecar, SidecarEvent};
+        use crate::hooks::sidecar::{HookEvent, Sidecar, SidecarEvent, sidecar_path_in};
 
         let dir = tempfile::tempdir().unwrap();
         let sidecars = tempfile::tempdir().unwrap();
@@ -727,9 +660,7 @@ mod tests {
         let first =
             sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
         assert_eq!(first.indexed, 1);
-        let initial = index
-            .search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10)
-            .unwrap();
+        let initial = index.search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10).unwrap();
         assert_eq!(initial[0].branch, None);
 
         let sidecar = Sidecar {
@@ -746,16 +677,12 @@ mod tests {
                 permission_mode: None,
             }],
         };
-        sidecar
-            .write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1"))
-            .unwrap();
+        sidecar.write(&sidecar_path_in(sidecars.path(), AgentId::Claude, "s1")).unwrap();
 
         let second =
             sync_index_with_sidecar_dir(&index, &adapters, sidecars.path(), |_| {}).unwrap();
         assert_eq!(second.indexed, 1);
-        let updated = index
-            .search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10)
-            .unwrap();
+        let updated = index.search(&ParsedQuery::default(), SortOrder::Recent, 1_000, 10).unwrap();
         assert_eq!(updated[0].branch.as_deref(), Some("feature/hooks"));
     }
 
@@ -806,9 +733,6 @@ mod tests {
         engine.set_query("after compression");
         engine.search().unwrap();
         assert_eq!(engine.results().len(), 1);
-        assert_eq!(
-            engine.results()[0].source_path.as_deref(),
-            Some(compressed.as_path())
-        );
+        assert_eq!(engine.results()[0].source_path.as_deref(), Some(compressed.as_path()));
     }
 }
