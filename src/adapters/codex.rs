@@ -40,11 +40,15 @@ impl CodexAdapter {
         let mut history_mode = HistoryMode::Legacy;
         let mut yolo = false;
 
+        // One decode buffer reused across lines; simd-json needs `&mut [u8]`, so we
+        // refill this rather than allocating a fresh Vec per line.
+        let mut buf: Vec<u8> = Vec::new();
         for line in raw.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            let mut buf = line.as_bytes().to_vec();
+            buf.clear();
+            buf.extend_from_slice(line.as_bytes());
             let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
                 Ok(l) => l,
                 Err(_) => continue,
@@ -249,8 +253,12 @@ fn clean_event_message(text: &str) -> Option<String> {
     if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
 }
 
-fn strip_codex_wrappers(line: &str) -> String {
-    line.replace("<context>", "").replace("</context>", "")
+fn strip_codex_wrappers(line: &str) -> std::borrow::Cow<'_, str> {
+    if line.contains("<context>") || line.contains("</context>") {
+        std::borrow::Cow::Owned(line.replace("<context>", "").replace("</context>", ""))
+    } else {
+        std::borrow::Cow::Borrowed(line)
+    }
 }
 
 fn derive_codex_title(messages: &[crate::core::Message]) -> String {

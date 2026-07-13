@@ -482,8 +482,14 @@ fn recency_boost(age_secs: u64) -> f32 {
 }
 
 /// Escape characters that would make tantivy's QueryParser error out.
-fn sanitize(s: &str) -> String {
-    s.replace(['+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"'], " ")
+fn sanitize(s: &str) -> std::borrow::Cow<'_, str> {
+    const SPECIAL: [char; 15] =
+        ['+', '-', '!', '^', '~', '*', '?', ':', '(', ')', '[', ']', '{', '}', '"'];
+    if s.contains(SPECIAL) {
+        std::borrow::Cow::Owned(s.replace(SPECIAL, " "))
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
 }
 
 /// Pure incremental diff. Returns (changed[(id, entry)], deleted[id]).

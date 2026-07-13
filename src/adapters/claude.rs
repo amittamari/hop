@@ -81,11 +81,15 @@ impl ClaudeAdapter {
         let mut messages: Vec<Message> = Vec::new();
         let mut model: Option<String> = None;
 
+        // One decode buffer reused across lines; simd-json needs `&mut [u8]`, so we
+        // refill this rather than allocating a fresh Vec per line.
+        let mut buf: Vec<u8> = Vec::new();
         for line in raw.lines() {
             if line.trim().is_empty() {
                 continue;
             }
-            let mut buf = line.as_bytes().to_vec();
+            buf.clear();
+            buf.extend_from_slice(line.as_bytes());
             let parsed: Line = match simd_json::serde::from_slice(&mut buf) {
                 Ok(l) => l,
                 Err(_) => continue,
