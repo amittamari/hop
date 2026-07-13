@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.9](https://github.com/amittamari/hop/compare/v0.2.8...v0.2.9) - 2026-07-13
+
+### Added
+
+- capture session model/commit and skip non-interactive threads ([#75](https://github.com/amittamari/hop/pull/75))
+- harden Codex session parsing ([#74](https://github.com/amittamari/hop/pull/74))
+- simple/raw search modes with guided toolbar ([#73](https://github.com/amittamari/hop/pull/73))
+- hook-based session metadata enrichment ([#65](https://github.com/amittamari/hop/pull/65))
+
+### Other
+
+- trim hot-path allocations in indexing and TUI render ([#77](https://github.com/amittamari/hop/pull/77))
+- adopt edition 2024, in-tree lint policy, and rustfmt config ([#76](https://github.com/amittamari/hop/pull/76))
+- add DESIGN.md, codex-inspired review, and no-local-paths rule
+- *(readme)* update demo
+
 ## [0.2.8](https://github.com/amittamari/hop/compare/v0.2.7...v0.2.8) - 2026-06-28
 
 ### Fixed
