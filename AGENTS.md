@@ -17,6 +17,7 @@ selected session in the original working directory.
 
 ## Working Rules
 
+- Read `docs/RUST_GUIDELINES.md` before starting any implementation work.
 - Prefer the existing module boundaries over introducing new framework shape.
 - Prefer files under ~500 lines. Crossing it on a file you're editing is a signal
   to split by responsibility — not a hard limit. If a file is legitimately over
