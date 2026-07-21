@@ -1,5 +1,8 @@
 //! Renders the result list as an aligned column grid using the `columns`
 //! solver, the fast enrichers, and a resolved-slow-value lookup.
+//
+// File-size note: production code is ~330 lines; the rest is colocated
+// #[cfg(test)] tests. Over the ~500-line soft limit by test volume, not code.
 
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};

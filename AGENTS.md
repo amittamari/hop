@@ -18,6 +18,10 @@ selected session in the original working directory.
 ## Working Rules
 
 - Prefer the existing module boundaries over introducing new framework shape.
+- Prefer files under ~500 lines. Crossing it on a file you're editing is a signal
+  to split by responsibility — not a hard limit. If a file is legitimately over
+  (e.g. dominated by colocated `#[cfg(test)]` tests), add a one-line note near the
+  top explaining why, and move on. Don't split modules purely to satisfy the count.
 - Keep `main.rs` as orchestration only when possible; reusable behavior belongs
   in library modules.
 - Parse external data at adapter boundaries into `core` types before indexing or

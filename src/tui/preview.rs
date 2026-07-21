@@ -1,6 +1,9 @@
 //! Transcript preview rendering: code highlighting (syntect), prose markdown
 //! (pulldown-cmark), and assembling messages into scrollable, match-highlighted
 //! lines.
+//
+// File-size note: production code is ~475 lines; colocated #[cfg(test)] tests
+// push the file over the ~500-line soft limit. Kept together intentionally.
 
 use crate::core::{AgentId, Block, Message, Role, SessionSummary, Transcript};
 use crate::tui::theme::Theme;
