@@ -209,7 +209,7 @@ fn main() -> Result<()> {
     engine.search()?; // immediate results from whatever is already indexed
 
     // background sync streams new sessions in
-    let (updates, _handle) = Engine::spawn_background_sync(dir.clone(), bg_adapters);
+    let (updates, update_tx, _handle) = Engine::spawn_background_sync(dir.clone(), bg_adapters);
 
     let pr_enabled = !config.columns.disabled.iter().any(|d| d == "pr");
     // Enrichers passed to the renderer for cell metadata. GhPrEnricher is included
@@ -229,7 +229,11 @@ fn main() -> Result<()> {
     let init_preview = (config.display.visible, config.display.width_pct);
 
     let update_cache = update_cache_path();
-    let update_handle = std::thread::spawn(move || hop::update::check_for_update(&update_cache));
+    std::thread::spawn(move || {
+        if let Some(info) = hop::update::check_for_update(&update_cache) {
+            let _ = update_tx.send(Update::UpgradeAvailable { latest: info.latest.to_string() });
+        }
+    });
 
     // resume request escapes the TUI loop so we exec AFTER restoring the terminal
     let pending = run_tui(
@@ -241,10 +245,6 @@ fn main() -> Result<()> {
         init_preview,
         initial,
     )?;
-
-    if let Ok(Some(info)) = update_handle.join() {
-        eprintln!("{}", hop::update::upgrade_message(&info));
-    }
 
     if let Some((session, yolo)) = pending {
         let command = engine
@@ -453,6 +453,7 @@ struct LoopState {
     preview: preview::PreviewState,
     sync_status: Option<String>,
     sync_done: bool,
+    update_available: Option<String>,
 }
 
 impl LoopState {
@@ -462,6 +463,7 @@ impl LoopState {
             preview: preview::PreviewState::default(),
             sync_status: Some("syncing".to_string()),
             sync_done: false,
+            update_available: None,
         }
     }
 
@@ -474,6 +476,7 @@ impl LoopState {
             } else {
                 None
             },
+            update: self.update_available.clone(),
         }
     }
 
@@ -494,6 +497,11 @@ impl LoopState {
                 Update::Done { report } => {
                     self.sync_status = Some(report.status_line());
                     self.sync_done = true;
+                }
+                Update::UpgradeAvailable { latest } => {
+                    if self.update_available.is_none() {
+                        self.update_available = Some(latest);
+                    }
                 }
             }
         }

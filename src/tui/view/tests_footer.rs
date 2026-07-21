@@ -117,7 +117,7 @@ fn footer_text_with_status(width: u16, status: &StatusLine) -> String {
 
 #[test]
 fn footer_status_shows_when_both_fit() {
-    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
+    let status = StatusLine { warning: Some("WARNTOKEN".to_string()), ..StatusLine::default() };
     // A wide row fits the full hint line, a gap, and the status together.
     let text = footer_text_with_status(160, &status);
     assert!(text.contains("type to search"), "hints must render: {text:?}");
@@ -126,7 +126,7 @@ fn footer_status_shows_when_both_fit() {
 
 #[test]
 fn footer_status_hidden_when_too_narrow() {
-    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
+    let status = StatusLine { warning: Some("WARNTOKEN".to_string()), ..StatusLine::default() };
     // 40 cols can't fit the full hint line plus the status: the low-priority
     // right-side status is dropped and the high-priority hints keep the row.
     let text = footer_text_with_status(40, &status);

@@ -32,6 +32,7 @@ fn renders_yolo_dialog_and_status_footer() {
         sync: Some("sync complete; parse errors 2".to_string()),
         pr_pending: 1,
         warning: Some("source unavailable".to_string()),
+        ..StatusLine::default()
     };
     let command = vec![
         "claude".to_string(),

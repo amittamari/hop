@@ -92,7 +92,7 @@ rows and surface as sync status warnings.
   (nerd-font icon layer, default on / opt-out).
 - `src/update.rs`: background update checker. Queries GitHub releases API at
   startup (cached 24 hours), detects install method (Homebrew vs cargo), and
-  prints an upgrade notice to stderr after the TUI exits.
+  shows a compact upgrade indicator (`↑ v<version>`) in the TUI footer status.
 
 ## Stable Boundaries
 

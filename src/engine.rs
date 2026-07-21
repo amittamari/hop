@@ -13,12 +13,14 @@ use std::time::{Duration, Instant};
 
 pub const DEBOUNCE: Duration = Duration::from_millis(40);
 
-/// Message pushed from the background sync thread to the UI loop.
+/// Message pushed from background threads to the UI loop.
 pub enum Update {
     /// New sessions were indexed; UI should re-run its current search.
     Refresh,
     /// Sync finished with non-fatal quality/status counters.
     Done { report: SyncReport },
+    /// A newer hop version is available.
+    UpgradeAvailable { latest: String },
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -189,8 +191,9 @@ impl Engine {
     pub fn spawn_background_sync(
         index_dir: std::path::PathBuf,
         adapters: Vec<Box<dyn Adapter>>,
-    ) -> (Receiver<Update>, std::thread::JoinHandle<()>) {
+    ) -> (Receiver<Update>, Sender<Update>, std::thread::JoinHandle<()>) {
         let (tx, rx): (Sender<Update>, Receiver<Update>) = mpsc::channel();
+        let tx_clone = tx.clone();
         let handle = std::thread::spawn(move || {
             let result = (|| -> Result<SyncReport> {
                 let index = SearchIndex::open_or_create(&index_dir)?;
@@ -204,7 +207,7 @@ impl Engine {
                     .unwrap_or_else(|_| SyncReport { fatal_errors: 1, ..SyncReport::default() }),
             });
         });
-        (rx, handle)
+        (rx, tx_clone, handle)
     }
 
     /// Re-open the reader (after a background commit) so subsequent searches see new docs.

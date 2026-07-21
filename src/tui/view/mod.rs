@@ -35,6 +35,7 @@ pub struct StatusLine {
     pub sync: Option<String>,
     pub pr_pending: usize,
     pub warning: Option<String>,
+    pub update: Option<String>,
 }
 
 pub struct RenderModel<'a> {

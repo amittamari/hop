@@ -73,11 +73,14 @@ pub(super) fn footer_status_line(
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
-        // Status glyph (icons on) colored by the warning role; empty in ascii.
         spans.push(Span::styled(
             format!("{}{}", glyphs.warning(), warning),
             Style::default().fg(theme.warning),
         ));
+    }
+    if let Some(version) = status.update.as_deref().filter(|s| !s.is_empty()) {
+        push_sep(&mut spans);
+        spans.push(Span::styled(format!("\u{2191} v{version}"), Style::default().fg(theme.accent)));
     }
     Line::from(spans)
 }
