@@ -11,7 +11,8 @@ use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
 use hop::tui::toolbar::Scope;
 use hop::tui::{Action, App, SearchMode, preview, view::RenderModel, view::StatusLine};
-use ratatui::crossterm::event::{self, Event};
+use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
+use ratatui::crossterm::execute;
 use std::time::Duration;
 
 fn hop_dirs() -> Option<directories::ProjectDirs> {
@@ -291,6 +292,9 @@ fn run_tui(
     }
 
     let mut terminal = ratatui::init();
+    // `ratatui::init()` enables raw mode + the alternate screen but not mouse
+    // capture, so wheel/trackpad scroll events would otherwise never reach us.
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
     let mut app = App::new();
     app.set_glyphs(glyphs);
     app.set_keymap(keymap);
@@ -387,32 +391,34 @@ fn run_tui(
                 state.process_sync(&updates, engine, &mut app)?;
             }
 
-            if event::poll(Duration::from_millis(50))?
-                && let Event::Key(key) = event::read()?
-            {
-                match app.handle_key(key) {
-                    Action::Quit => return Ok(None),
-                    Action::Search => {
-                        engine.set_query(app.effective_query());
-                        engine.set_sort(app.sort());
-                    }
-                    Action::Resume { index, yolo } => {
-                        if let Some(s) = app.results().get(index).cloned() {
-                            return Ok(Some((s, yolo)));
+            if event::poll(Duration::from_millis(50))? {
+                match event::read()? {
+                    Event::Key(key) => match app.handle_key(key) {
+                        Action::Quit => return Ok(None),
+                        Action::Search => {
+                            engine.set_query(app.effective_query());
+                            engine.set_sort(app.sort());
                         }
-                    }
-                    Action::OpenPr { index } => {
-                        if let Some(s) = app.results().get(index)
-                            && let Some(Some(pr)) =
-                                state.enrichment.resolved.get(&(s.document_key(), "pr"))
-                        {
-                            hop::enrich::gh_pr::open_pr_in_browser(
-                                pr,
-                                s.repo_url.as_deref(),
-                                &s.directory,
-                            );
+                        Action::Resume { index, yolo } => {
+                            if let Some(s) = app.results().get(index).cloned() {
+                                return Ok(Some((s, yolo)));
+                            }
                         }
-                    }
+                        Action::OpenPr { index } => {
+                            if let Some(s) = app.results().get(index)
+                                && let Some(Some(pr)) =
+                                    state.enrichment.resolved.get(&(s.document_key(), "pr"))
+                            {
+                                hop::enrich::gh_pr::open_pr_in_browser(
+                                    pr,
+                                    s.repo_url.as_deref(),
+                                    &s.directory,
+                                );
+                            }
+                        }
+                        _ => {}
+                    },
+                    Event::Mouse(me) => app.handle_mouse(me),
                     _ => {}
                 }
             }
@@ -425,6 +431,11 @@ fn run_tui(
         }
     })();
 
+    // Release mouse capture before restoring the terminal. This runs on every
+    // exit path (quit and resume): the caller exec-resumes only after `run_tui`
+    // returns, so the resumed agent CLI inherits a terminal with normal mouse
+    // behavior.
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
     ratatui::restore();
     outcome
 }

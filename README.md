@@ -149,6 +149,7 @@ below are rebindable via `[keybindings]` in `config.toml` (see
 | `Ctrl + O` | Open the selected session's PR in the browser (when one is resolved) |
 | `Ctrl + P` | Toggle the preview pane |
 | `Ctrl + U` / `D` | Scroll preview pane up / down by viewport |
+| Mouse / trackpad scroll | Scroll the preview pane (when it's open) |
 | `Ctrl + N` / `B` | Go to next / previous preview match |
 | `Ctrl + ←` / `→` | Resize the preview pane |
 | `?` | Show help menu |
@@ -159,6 +160,11 @@ below are rebindable via `[keybindings]` in `config.toml` (see
 > modeless — bare `j`/`k` type into the query rather than navigating, matching how
 > fuzzy-finder pickers like `fzf`, `atuin`, and Codex's `/resume` behave. Reach for
 > **raw search mode** (below) when you want the full query language, not a key mode.
+
+> **Mouse capture.** `hop` captures the mouse so the wheel scrolls the preview.
+> As with most full-screen TUIs, this intercepts click-drag text selection while
+> `hop` runs; use your terminal's modifier (often `Shift`+drag) to select text.
+> Terminal scrollback is unaffected since `hop` runs on the alternate screen.
 
 ---
 

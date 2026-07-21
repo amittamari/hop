@@ -5,9 +5,32 @@
 use super::{Action, App, Mode, SearchMode};
 use crate::tui::keymap;
 use crate::tui::toolbar::{Focus, Scope};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use ratatui::crossterm::event::{
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
+
+/// Lines the preview scrolls per mouse-wheel/trackpad scroll event. Deliberately
+/// small and distinct from `preview_scroll_step` (≈ one page, used by the
+/// keyboard scroll commands) so wheel scrolling reads smoothly.
+const MOUSE_SCROLL_LINES: u16 = 3;
 
 impl App {
+    /// Route a mouse event. Only wheel scroll is handled: when the preview pane
+    /// is visible it scrolls the transcript (never the sessions list); otherwise
+    /// it is ignored. Non-scroll mouse events are dropped.
+    pub fn handle_mouse(&mut self, me: MouseEvent) {
+        if !self.preview_visible {
+            return;
+        }
+        let delta = match me.kind {
+            MouseEventKind::ScrollUp => -i32::from(MOUSE_SCROLL_LINES),
+            MouseEventKind::ScrollDown => i32::from(MOUSE_SCROLL_LINES),
+            _ => return,
+        };
+        let next = self.preview_scroll as i32 + delta;
+        self.preview_scroll = next.max(0) as u16;
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
         if key.kind == KeyEventKind::Release {
             return Action::None; // ignore key-release (Windows)

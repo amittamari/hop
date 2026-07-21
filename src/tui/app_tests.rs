@@ -3,10 +3,14 @@
 
 use super::*;
 use crate::core::{AgentId, SessionSummary};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
 
 fn key(code: KeyCode) -> KeyEvent {
     KeyEvent::new(code, KeyModifiers::NONE)
+}
+
+fn scroll(kind: MouseEventKind) -> MouseEvent {
+    MouseEvent { kind, column: 0, row: 0, modifiers: KeyModifiers::NONE }
 }
 
 fn sess(id: &str) -> SessionSummary {
@@ -91,6 +95,42 @@ fn down_moves_selection() {
     app.handle_key(key(KeyCode::Down));
     app.handle_key(key(KeyCode::Down));
     assert_eq!(app.selected(), 2);
+}
+
+#[test]
+fn mouse_scroll_moves_preview_not_selection() {
+    let mut app = app_with(3);
+    app.set_preview(true, 50);
+    assert_eq!(app.preview_scroll(), 0);
+    assert_eq!(app.selected(), 0);
+
+    app.handle_mouse(scroll(MouseEventKind::ScrollDown));
+    assert!(app.preview_scroll() > 0, "scroll down should advance the preview");
+    let after_down = app.preview_scroll();
+    // The sessions-list selection is untouched by wheel scroll.
+    assert_eq!(app.selected(), 0);
+
+    // Scrolling up returns toward the top.
+    app.handle_mouse(scroll(MouseEventKind::ScrollUp));
+    assert!(app.preview_scroll() < after_down);
+}
+
+#[test]
+fn mouse_scroll_up_clamps_at_top() {
+    let mut app = app_with(3);
+    app.set_preview(true, 50);
+    // Already at the top; scrolling up must not underflow.
+    app.handle_mouse(scroll(MouseEventKind::ScrollUp));
+    assert_eq!(app.preview_scroll(), 0);
+}
+
+#[test]
+fn mouse_scroll_ignored_when_preview_hidden() {
+    let mut app = app_with(3);
+    assert!(!app.preview_visible());
+    app.handle_mouse(scroll(MouseEventKind::ScrollDown));
+    assert_eq!(app.preview_scroll(), 0);
+    assert_eq!(app.selected(), 0);
 }
 
 #[test]
