@@ -1,30 +1,14 @@
 use crate::core::AgentId;
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-
-#[derive(Debug, Deserialize)]
-pub struct PreviewConfig {
-    #[serde(default)]
-    pub visible: bool,
-    #[serde(default = "default_width_pct")]
-    pub width_pct: u16,
-    #[serde(default = "default_true")]
-    pub metadata_header: bool,
-}
 
 fn default_true() -> bool {
     true
 }
 fn default_width_pct() -> u16 {
     50
-}
-
-impl Default for PreviewConfig {
-    fn default() -> Self {
-        PreviewConfig { visible: false, width_pct: 50, metadata_header: true }
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -60,6 +44,17 @@ pub struct DisplayConfig {
     /// Set to `false` to fall back to the pre-icon text layout (no tofu).
     #[serde(default = "default_true")]
     pub icons: bool,
+    /// Whether the preview pane starts visible. Seeds the in-memory preview
+    /// state at launch; runtime toggles are not persisted.
+    #[serde(default)]
+    pub visible: bool,
+    /// Preview pane width as a percentage of the terminal width.
+    #[serde(default = "default_width_pct")]
+    pub width_pct: u16,
+    /// Preview metadata header. Only applies in the compact row style; the card
+    /// layout never renders the preview header regardless of this value.
+    #[serde(default = "default_true")]
+    pub metadata_header: bool,
 }
 
 fn default_row_style() -> String {
@@ -68,7 +63,13 @@ fn default_row_style() -> String {
 
 impl Default for DisplayConfig {
     fn default() -> Self {
-        DisplayConfig { row_style: "card".to_string(), icons: true }
+        DisplayConfig {
+            row_style: "card".to_string(),
+            icons: true,
+            visible: false,
+            width_pct: 50,
+            metadata_header: true,
+        }
     }
 }
 
@@ -123,8 +124,6 @@ pub struct Config {
     #[serde(default)]
     pub keybindings: HashMap<String, String>,
     #[serde(default)]
-    pub preview: PreviewConfig,
-    #[serde(default)]
     pub columns: ColumnsConfig,
     #[serde(default)]
     pub launcher: LauncherConfig,
@@ -172,28 +171,6 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UiState {
-    pub preview_visible: bool,
-    pub preview_width_pct: u16,
-}
-
-impl UiState {
-    pub fn load(path: &std::path::Path) -> Option<UiState> {
-        let text = std::fs::read_to_string(path).ok()?;
-        toml::from_str(&text).ok()
-    }
-
-    pub fn save(&self, path: &std::path::Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let text = toml::to_string(self).context("serializing ui_state")?;
-        std::fs::write(path, text).with_context(|| format!("writing {}", path.display()))?;
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,23 +199,23 @@ mod tests {
     #[test]
     fn preview_defaults() {
         let cfg = Config::default();
-        assert!(!cfg.preview.visible);
-        assert_eq!(cfg.preview.width_pct, 50);
-        assert!(cfg.preview.metadata_header);
+        assert!(!cfg.display.visible);
+        assert_eq!(cfg.display.width_pct, 50);
+        assert!(cfg.display.metadata_header);
     }
 
     #[test]
     fn preview_from_toml() {
         let toml = r#"
-            [preview]
+            [display]
             visible = false
             width_pct = 40
             metadata_header = false
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
-        assert!(!cfg.preview.visible);
-        assert_eq!(cfg.preview.width_pct, 40);
-        assert!(!cfg.preview.metadata_header);
+        assert!(!cfg.display.visible);
+        assert_eq!(cfg.display.width_pct, 40);
+        assert!(!cfg.display.metadata_header);
     }
 
     #[test]
@@ -324,16 +301,5 @@ mod tests {
         "#;
         let cfg = Config::from_toml_str(toml).unwrap();
         assert_eq!(cfg.launcher.command.as_deref(), Some("kv --ai {agent}"));
-    }
-
-    #[test]
-    fn ui_state_roundtrips() {
-        let tmp = tempfile::tempdir().unwrap();
-        let p = tmp.path().join("ui_state.toml");
-        UiState { preview_visible: false, preview_width_pct: 35 }.save(&p).unwrap();
-        let loaded = UiState::load(&p).unwrap();
-        assert!(!loaded.preview_visible);
-        assert_eq!(loaded.preview_width_pct, 35);
-        assert!(UiState::load(&tmp.path().join("absent.toml")).is_none());
     }
 }

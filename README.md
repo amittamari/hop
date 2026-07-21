@@ -245,11 +245,9 @@ row_style = "card"   # "card" (default, multi-line) or "compact" (single-line ta
 icons = true         # nerd-font icons in the chrome (default on). Set false to
                      # fall back to the plain text layout if your terminal font
                      # is not a patched Nerd Font.
-
-[preview]
-visible = true
-width_pct = 50
-metadata_header = true
+visible = false      # whether the preview pane starts open (seeds runtime state)
+width_pct = 50       # preview pane width as a percentage of the terminal
+metadata_header = true  # preview metadata header; only shown in the compact row style
 
 [columns]
 disabled = []   # e.g., ["pr"] to disable background GitHub PR resolution
@@ -280,8 +278,9 @@ of the `quit` binding, as an emergency exit. The help overlay (`?`) reflects you
 active bindings.
 
 > ⚙️ **Note:** The `theme` table is accepted for forward-compatibility but is
-> currently reserved and not applied. Preview width and visibility choices persist
-> automatically across restarts.
+> currently reserved and not applied. Preview width and visibility are seeded from
+> `[display]` at launch; runtime toggles and resizes are not persisted across
+> restarts.
 
 > 🔤 **Nerd Font:** `hop` renders nerd-font icons in its chrome by default
 > (`[display] icons = true`). These live in the Unicode Private Use Area and only

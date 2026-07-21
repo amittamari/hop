@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Parser;
 use hop::adapters;
 use hop::cli::Cli;
-use hop::config::{Config, UiState};
+use hop::config::Config;
 use hop::core::{ResumeCommand, SessionSummary};
 use hop::engine::{Engine, Update};
 use hop::enrich::gh_pr::GhPrEnricher;
@@ -28,12 +28,6 @@ fn enrich_cache_path() -> std::path::PathBuf {
     hop_dirs()
         .map(|d| d.cache_dir().join("enrich").join("gh_pr.json"))
         .unwrap_or_else(|| std::path::PathBuf::from(".hop-enrich.json"))
-}
-
-fn ui_state_path() -> std::path::PathBuf {
-    hop_dirs()
-        .map(|d| d.cache_dir().join("ui_state.toml"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".hop-ui-state.toml"))
 }
 
 fn update_cache_path() -> std::path::PathBuf {
@@ -222,10 +216,7 @@ fn main() -> Result<()> {
         None
     };
 
-    let ui_path = ui_state_path();
-    let init_preview = UiState::load(&ui_path)
-        .map(|u| (u.preview_visible, u.preview_width_pct))
-        .unwrap_or((config.preview.visible, config.preview.width_pct));
+    let init_preview = (config.display.visible, config.display.width_pct);
 
     let update_cache = update_cache_path();
     let update_handle = std::thread::spawn(move || hop::update::check_for_update(&update_cache));
@@ -239,7 +230,6 @@ fn main() -> Result<()> {
         &config,
         init_preview,
         initial,
-        ui_path,
     )?;
 
     if let Ok(Some(info)) = update_handle.join() {
@@ -283,7 +273,6 @@ fn run_tui(
     config: &Config,
     init_preview: (bool, u16),
     initial: InitialSearch,
-    ui_path: std::path::PathBuf,
 ) -> Result<Option<(SessionSummary, bool)>> {
     // Resolve keybindings before entering the alternate screen so any config
     // warnings land on the normal terminal rather than being clobbered.
@@ -307,7 +296,7 @@ fn run_tui(
     app.set_keymap(keymap);
     app.init_search(initial.mode, initial.scope, initial.repo_slug, initial.input);
     app.set_preview(init_preview.0, init_preview.1);
-    app.set_preview_header(config.preview.metadata_header);
+    app.set_preview_header(config.display.metadata_header);
     sync_results_into_app(engine, &mut app);
 
     let row_style = config.display.resolved_row_style();
@@ -437,11 +426,6 @@ fn run_tui(
     })();
 
     ratatui::restore();
-    let _ = UiState {
-        preview_visible: app.preview_visible(),
-        preview_width_pct: app.preview_width_pct(),
-    }
-    .save(&ui_path);
     outcome
 }
 
