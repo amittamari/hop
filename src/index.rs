@@ -13,10 +13,9 @@ use tantivy::query::{
 use tantivy::schema::{
     FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, Value,
 };
-use tantivy::snippet::SnippetGenerator;
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 const EXACT_BOOST: f32 = 5.0;
 const FETCH_PAGE: usize = 1_000;
 const SCORE_BUCKET_SCALE: f32 = 10.0;
@@ -331,12 +330,7 @@ impl SearchIndex {
 
         let query = BooleanQuery::new(clauses);
 
-        let has_terms = !q.free_text.trim().is_empty();
-        let snip_gen = if has_terms {
-            SnippetGenerator::create(&searcher, &query, self.f.content).ok()
-        } else {
-            None
-        };
+        let terms = q.free_terms();
 
         // --- collect pages until post-filters produce enough rows or hits are exhausted ---
         let total_hits = searcher.search(&query, &Count)?;
@@ -402,12 +396,10 @@ impl SearchIndex {
                 if !dir_ok(&s.directory, q) || !repo_ok(s.repo_url.as_deref(), q) {
                     continue;
                 }
-                if let Some(sg) = &snip_gen {
-                    let snip = sg.snippet_from_doc(&doc);
-                    let frag = snip.to_html();
-                    if !frag.is_empty() {
-                        s.snippet = Some(frag);
-                    }
+                if !terms.is_empty() {
+                    let content =
+                        doc.get_first(self.f.content).and_then(|v| v.as_str()).unwrap_or("");
+                    s.snippet = build_snippet(content, &terms, SNIPPET_MAX_LEN);
                 }
                 out.push(s);
                 if out.len() >= limit {
@@ -483,6 +475,127 @@ fn repo_ok(repo_url: Option<&str>, q: &ParsedQuery) -> bool {
     let r = repo_url.unwrap_or_default().to_lowercase();
     q.repos.include.iter().all(|i| r.contains(&i.to_lowercase()))
         && !q.repos.exclude.iter().any(|e| r.contains(&e.to_lowercase()))
+}
+
+const SNIPPET_MAX_LEN: usize = 150;
+
+fn build_snippet(content: &str, terms: &[String], max_len: usize) -> Option<String> {
+    use crate::core::MSG_SEP;
+
+    if terms.is_empty() {
+        return None;
+    }
+
+    let lower_terms: Vec<String> = terms.iter().map(|t| t.to_lowercase()).collect();
+
+    let mut best_chunk = "";
+    let mut best_count = 0usize;
+    for chunk in content.split(MSG_SEP) {
+        let lower = chunk.to_lowercase();
+        let count: usize = lower_terms.iter().map(|t| lower.matches(t).count()).sum();
+        if count > best_count {
+            best_count = count;
+            best_chunk = chunk;
+        }
+    }
+    if best_count == 0 {
+        return None;
+    }
+
+    let flat_chunk: String =
+        best_chunk.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+    let best_chunk = flat_chunk.as_str();
+
+    let lower_chunk = best_chunk.to_lowercase();
+    let first_pos = lower_terms.iter().filter_map(|t| lower_chunk.find(t)).min().unwrap_or(0);
+
+    let half = max_len / 2;
+    let byte_start = best_chunk
+        .char_indices()
+        .take_while(|(i, _)| *i < first_pos.saturating_sub(half))
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let window_start = if byte_start > 0 {
+        best_chunk[byte_start..]
+            .find(char::is_whitespace)
+            .map(|ws| {
+                byte_start
+                    + ws
+                    + best_chunk[byte_start + ws..].find(|c: char| !c.is_whitespace()).unwrap_or(1)
+            })
+            .unwrap_or(byte_start)
+    } else {
+        0
+    };
+
+    let mut end_chars = 0usize;
+    let mut window_end = best_chunk.len();
+    for (i, _) in best_chunk[window_start..].char_indices() {
+        end_chars += 1;
+        if end_chars >= max_len {
+            let candidate = window_start + i;
+            window_end = best_chunk[candidate..]
+                .find(char::is_whitespace)
+                .map(|ws| candidate + ws)
+                .unwrap_or(candidate);
+            break;
+        }
+    }
+
+    let window = &best_chunk[window_start..window_end];
+    let window_lower = window.to_lowercase();
+
+    let mut hits: Vec<(usize, usize)> = Vec::new();
+    for t in &lower_terms {
+        let mut search_from = 0;
+        while let Some(pos) = window_lower[search_from..].find(t.as_str()) {
+            let abs = search_from + pos;
+            hits.push((abs, abs + t.len()));
+            search_from = abs + t.len();
+        }
+    }
+    hits.sort_by_key(|&(a, _)| a);
+
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (s, e) in hits {
+        if let Some(last) = merged.last_mut()
+            && s <= last.1
+        {
+            last.1 = last.1.max(e);
+            continue;
+        }
+        merged.push((s, e));
+    }
+
+    let mut html = String::new();
+    let mut cursor = 0usize;
+    for (s, e) in &merged {
+        if cursor < *s {
+            html_escape_into(&window[cursor..*s], &mut html);
+        }
+        html.push_str("<b>");
+        html_escape_into(&window[*s..*e], &mut html);
+        html.push_str("</b>");
+        cursor = *e;
+    }
+    if cursor < window.len() {
+        html_escape_into(&window[cursor..], &mut html);
+    }
+
+    if html.is_empty() { None } else { Some(html) }
+}
+
+fn html_escape_into(s: &str, out: &mut String) {
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(c),
+        }
+    }
 }
 
 fn score_bucket(score: tantivy::Score) -> i64 {
@@ -575,5 +688,84 @@ mod tests {
         assert!(!repo_ok(Some("https://example.com/vendor/lib.git"), &q));
         // no repo_url -> nothing to exclude, stays in
         assert!(repo_ok(None, &q));
+    }
+
+    #[test]
+    fn snippet_single_message() {
+        let content = "the auth token expired";
+        let terms = vec!["auth".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert!(snip.contains("<b>auth</b>"));
+        assert!(snip.contains("token expired"));
+    }
+
+    #[test]
+    fn snippet_picks_best_message() {
+        let content = "hello world\x1Eimplement the auth fix now\x1Egoodbye";
+        let terms = vec!["implement".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert!(snip.contains("<b>implement</b>"));
+        assert!(snip.contains("auth fix"));
+        assert!(!snip.contains("hello"));
+        assert!(!snip.contains("goodbye"));
+    }
+
+    #[test]
+    fn snippet_wraps_multiple_occurrences() {
+        let content = "refresh the token then refresh again";
+        let terms = vec!["refresh".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert_eq!(snip.matches("<b>refresh</b>").count(), 2);
+    }
+
+    #[test]
+    fn snippet_windows_long_message() {
+        let content = format!("{} implement the feature {}", "x ".repeat(200), "y ".repeat(200));
+        let terms = vec!["implement".into()];
+        let snip = build_snippet(&content, &terms, 40).unwrap();
+        assert!(snip.contains("<b>implement</b>"));
+        assert!(snip.len() < content.len());
+    }
+
+    #[test]
+    fn snippet_short_message_fits_entirely() {
+        let content = "fix auth";
+        let terms = vec!["auth".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert_eq!(snip, "fix <b>auth</b>");
+    }
+
+    #[test]
+    fn snippet_no_matches_returns_none() {
+        let content = "hello world";
+        let terms = vec!["missing".into()];
+        assert!(build_snippet(content, &terms, 150).is_none());
+    }
+
+    #[test]
+    fn snippet_empty_terms_returns_none() {
+        let content = "hello world";
+        let terms: Vec<String> = vec![];
+        assert!(build_snippet(content, &terms, 150).is_none());
+    }
+
+    #[test]
+    fn snippet_collapses_newlines_to_spaces() {
+        let content = "first block\nsecond block with auth\nthird block";
+        let terms = vec!["auth".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert!(!snip.contains('\n'), "snippet should not contain newlines");
+        assert!(snip.contains("second block with <b>auth</b>"));
+        assert!(snip.contains("first block second block"));
+    }
+
+    #[test]
+    fn snippet_html_escapes_context() {
+        let content = "use <T> & auth";
+        let terms = vec!["auth".into()];
+        let snip = build_snippet(content, &terms, 150).unwrap();
+        assert!(snip.contains("&lt;T&gt;"));
+        assert!(snip.contains("&amp;"));
+        assert!(snip.contains("<b>auth</b>"));
     }
 }

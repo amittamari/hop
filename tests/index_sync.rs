@@ -313,6 +313,23 @@ fn search_with_query_produces_snippets() {
 }
 
 #[test]
+fn snippet_scoped_to_single_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    let content = "please implement the feature\x1EI will help you with that\x1Eimplement it now";
+    idx.upsert(&sess("a", "implement feature", content, AgentId::Claude, 100, 1)).unwrap();
+    idx.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("implement");
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
+    assert_eq!(results.len(), 1);
+    let snippet = results[0].snippet.as_deref().expect("snippet present");
+    assert!(snippet.contains("implement"), "snippet contains the term");
+    assert!(!snippet.contains("I will help"), "snippet should not cross message boundaries");
+}
+
+#[test]
 fn empty_query_produces_no_snippets() {
     let dir = tempfile::tempdir().unwrap();
     let idx = SearchIndex::open_or_create(dir.path()).unwrap();

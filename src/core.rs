@@ -71,9 +71,12 @@ pub fn split_blocks(text: &str) -> Vec<Block> {
 }
 
 /// Flatten messages into a single newline-joined string for the search index.
+pub const MSG_SEP: char = '\x1E';
+
 pub fn flatten_messages(msgs: &[Message]) -> String {
     let mut out = String::new();
     for m in msgs {
+        let before = out.len();
         for b in &m.blocks {
             let t = match b {
                 Block::Prose(s) => s.trim(),
@@ -82,12 +85,16 @@ pub fn flatten_messages(msgs: &[Message]) -> String {
             if t.is_empty() {
                 continue;
             }
-            if !out.is_empty() {
+            if out.len() > before {
                 out.push('\n');
             }
             out.push_str(t);
         }
+        if out.len() > before && !out.is_empty() {
+            out.push(MSG_SEP);
+        }
     }
+    out.truncate(out.trim_end_matches(MSG_SEP).len());
     out
 }
 
@@ -390,7 +397,7 @@ mod tests {
                 ],
             },
         ];
-        assert_eq!(flatten_messages(&msgs), "hi\nfixed\nlet x=1;");
+        assert_eq!(flatten_messages(&msgs), "hi\x1Efixed\nlet x=1;");
     }
 
     #[test]
