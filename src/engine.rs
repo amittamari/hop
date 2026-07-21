@@ -1,3 +1,6 @@
+// File-size note: ~560 of these lines are inline #[cfg(test)] tests exercising
+// private sync fns (sync_index, sync_index_with_sidecar_dir); the module itself
+// is ~170 lines. Splitting to satisfy the ~500-line soft limit would be ceremony.
 use crate::adapters::Adapter;
 use crate::core::{ResumeCommand, Session, SessionSummary, Transcript, document_key};
 use crate::index::{SearchIndex, diff_authoritative};
