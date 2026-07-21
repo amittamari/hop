@@ -2,6 +2,7 @@ use crate::config::RowStyle;
 use crate::core::SessionSummary;
 use crate::enrich::{BranchEnricher, Enricher};
 use crate::tui::columns::Column;
+use crate::tui::glyphs::Glyphs;
 use crate::tui::modal;
 use crate::tui::theme::Theme;
 use crate::tui::{App, help, results_list};
@@ -47,22 +48,14 @@ pub struct RenderModel<'a> {
     pub row_style: RowStyle,
 }
 
-const SELECTION_MARKER: &str = "❯ ";
-
-/// Braille throbber frames, indexed by the per-redraw frame counter. Hand-rolled
-/// to avoid a spinner crate; advances one frame per redraw (the run loop polls
-/// every 50ms, so it animates smoothly).
-pub(crate) const SPINNER_FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/// Braille throbber frames. The vocabulary now lives in the `glyphs` module
+/// (centralized glyph ownership); re-exported here so existing call sites and
+/// tests keep referring to `view::SPINNER_FRAMES`.
+pub(crate) use crate::tui::glyphs::SPINNER_FRAMES;
 
 /// The current throbber glyph for a given frame counter.
 fn spinner_frame(frame: u64) -> &'static str {
     SPINNER_FRAMES[(frame as usize) % SPINNER_FRAMES.len()]
-}
-
-/// Public throbber glyph for callers outside this module (e.g. the pending
-/// enricher cell), reusing the same frame table.
-pub(crate) fn spinner_glyph(frame: u64) -> &'static str {
-    spinner_frame(frame)
 }
 
 pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
@@ -160,6 +153,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             frame: app.frame(),
             terms: model.query_terms,
             theme: &model.theme,
+            glyphs: app.glyphs(),
         };
         let visible = card_visible_range(app.results(), app.selected(), list_area.height as usize);
         let visible_start = visible.start;
@@ -179,7 +173,8 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         }
     } else {
         // Compact (legacy table) mode
-        let marker_w = crate::tui::columns::display_width(SELECTION_MARKER) as u16;
+        let selection_marker = app.glyphs().selection_marker();
+        let marker_w = crate::tui::columns::display_width(selection_marker) as u16;
         let list_inner_w = list_area.width.saturating_sub(marker_w);
         let visible = visible_result_range(
             app.results().len(),
@@ -195,6 +190,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             frame: app.frame(),
             terms: model.query_terms,
             theme: &model.theme,
+            glyphs: app.glyphs(),
         };
         let grid = results_list::compute_cells(cols, visible_results, &ctx);
         let layout = results_list::layout_from_cells(cols, list_inner_w, &grid);
@@ -216,7 +212,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                     .bg(model.theme.selection_bg)
                     .add_modifier(Modifier::BOLD),
             )
-            .highlight_symbol(SELECTION_MARKER);
+            .highlight_symbol(selection_marker);
         f.render_stateful_widget(table, list_area, &mut state);
     }
 
@@ -246,6 +242,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
                     model.now,
                     model.resolved,
                     &model.theme,
+                    app.glyphs(),
                     preview_header_area.width,
                 ))
                 .style(Style::default().fg(model.theme.preview_text)),
@@ -266,7 +263,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // (sync/pr/warning) survives clipping ahead of the static hints.
     // Build the status line once and size its region from it, rather than
     // building it a second time just to measure the width.
-    let status_line = footer_status_line(model.status, &model.theme);
+    let status_line = footer_status_line(model.status, &model.theme, app.glyphs());
     let [hints_area, status_area] = Layout::horizontal([
         Constraint::Min(0),
         Constraint::Length(line_display_width(&status_line)),
@@ -274,14 +271,19 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     .flex(Flex::SpaceBetween)
     .areas(footer_area);
     f.render_widget(
-        Paragraph::new(footer_hints_line(app.keymap(), app.search_mode(), &model.theme)),
+        Paragraph::new(footer_hints_line(
+            app.keymap(),
+            app.search_mode(),
+            &model.theme,
+            app.glyphs(),
+        )),
         hints_area,
     );
     f.render_widget(Paragraph::new(status_line).alignment(Alignment::Right), status_area);
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);
-        modal::render_yolo_modal(f, session, yolo, model.modal_command, &model.theme);
+        modal::render_yolo_modal(f, session, yolo, model.modal_command, &model.theme, app.glyphs());
     }
 
     // help overlay (drawn last, on top)
@@ -297,6 +299,7 @@ fn footer_hints_line(
     keymap: &crate::tui::keymap::Keymap,
     mode: crate::tui::SearchMode,
     theme: &Theme,
+    glyphs: &Glyphs,
 ) -> Line<'static> {
     let primary: Vec<String> = crate::tui::keymap::bindings(keymap, mode)
         .iter()
@@ -310,6 +313,9 @@ fn footer_hints_line(
         })
         .collect();
 
+    // Restraint: footer key-hints get no icons. `glyphs` is used only for the
+    // shared separator so the glyph vocabulary stays centralized.
+    let sep = glyphs.sep();
     let mut spans = Vec::new();
     for (i, hint) in primary.iter().enumerate() {
         if i == 0 {
@@ -318,7 +324,7 @@ fn footer_hints_line(
                 Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
             ));
         } else {
-            spans.push(Span::styled(format!(" · {hint}"), Style::default().fg(theme.muted)));
+            spans.push(Span::styled(format!("{sep}{hint}"), Style::default().fg(theme.muted)));
         }
     }
     Line::from(spans)
@@ -326,11 +332,12 @@ fn footer_hints_line(
 
 /// Volatile, high-priority status shown on the right of the footer. Rendered
 /// right-aligned so it survives clipping ahead of the static hints.
-fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
+fn footer_status_line(status: &StatusLine, theme: &Theme, glyphs: &Glyphs) -> Line<'static> {
+    let sep = glyphs.sep();
     let mut spans = Vec::new();
     let push_sep = |spans: &mut Vec<Span<'static>>| {
         if !spans.is_empty() {
-            spans.push(Span::styled(" · ".to_string(), Style::default().fg(theme.muted)));
+            spans.push(Span::styled(sep.to_string(), Style::default().fg(theme.muted)));
         }
     };
     if let Some(sync) = status.sync.as_deref().filter(|s| !s.is_empty()) {
@@ -346,7 +353,11 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
-        spans.push(Span::styled(warning.to_string(), Style::default().fg(theme.warning)));
+        // Status glyph (icons on) colored by the warning role; empty in ascii.
+        spans.push(Span::styled(
+            format!("{}{}", glyphs.warning(), warning),
+            Style::default().fg(theme.warning),
+        ));
     }
     Line::from(spans)
 }
@@ -372,6 +383,7 @@ fn preview_header_lines(
     now: i64,
     resolved: &HashMap<(String, &'static str), Option<String>>,
     theme: &Theme,
+    glyphs: &Glyphs,
     width: u16,
 ) -> Vec<Line<'static>> {
     let w = width as usize;
@@ -382,20 +394,34 @@ fn preview_header_lines(
 
     let sep_style = Style::default().fg(theme.border);
     let muted = Style::default().fg(theme.muted);
-    const SEP: &str = " · ";
-    let sep_w = crate::tui::columns::display_width(SEP);
+    let sep = glyphs.sep();
+    let dw = crate::tui::columns::display_width;
+    let sep_w = dw(sep);
 
+    // Field icons (with trailing space) when enabled; empty in ascii mode.
+    let agent_glyph = glyphs.agent(s.agent);
     let badge = s.agent.badge();
+    let mark =
+        if agent_glyph.is_empty() { badge.to_string() } else { format!("{agent_glyph} {badge}") };
     let branch = BranchEnricher.resolve(s).map(|v| v.text);
     let pr = resolved.get(&(s.document_key(), "pr")).and_then(|v| v.as_deref());
-    let msgs = if s.message_count > 0 { Some(format!("{} msgs", s.message_count)) } else { None };
-    let time = rel_time(s.timestamp, now);
+    let msgs = if s.message_count > 0 {
+        Some(format!("{}{} msgs", glyphs.msgs(), s.message_count))
+    } else {
+        None
+    };
+    let time = format!("{}{}", glyphs.time(), rel_time(s.timestamp, now));
 
-    let dw = crate::tui::columns::display_width;
-    let fixed_w = dw(badge)
-        + sep_w // separator after badge
-        + branch.as_ref().map_or(0, |_| sep_w)
-        + pr.map_or(0, |p| sep_w + dw(p))
+    // Per-field icon widths that sit outside the truncation budgets.
+    let dir_icon_w = dw(glyphs.repo());
+    let branch_icon_w = dw(glyphs.branch());
+    let pr_icon_w = dw(glyphs.pr());
+
+    let fixed_w = dw(&mark)
+        + sep_w // separator after mark
+        + dir_icon_w
+        + branch.as_ref().map_or(0, |_| sep_w + branch_icon_w)
+        + pr.map_or(0, |p| sep_w + pr_icon_w + dw(p))
         + msgs.as_ref().map_or(0, |m| sep_w + dw(m))
         + sep_w
         + dw(&time);
@@ -421,28 +447,31 @@ fn preview_header_lines(
     let branch_text = branch.as_ref().map(|b| modal::fit_for_modal(b, branch_budget));
 
     let push_sep = |spans: &mut Vec<Span<'static>>| {
-        spans.push(Span::styled(SEP, sep_style));
+        spans.push(Span::styled(sep, sep_style));
     };
     let mut meta: Vec<Span<'static>> = Vec::new();
 
     meta.push(Span::styled(
-        badge,
+        mark,
         Style::default().fg(theme.agent_color(s.agent)).add_modifier(Modifier::BOLD),
     ));
 
     if !dir_text.is_empty() {
         push_sep(&mut meta);
-        meta.push(Span::styled(dir_text, muted));
+        meta.push(Span::styled(format!("{}{}", glyphs.repo(), dir_text), muted));
     }
 
     if let Some(branch_text) = branch_text.filter(|t| !t.is_empty()) {
         push_sep(&mut meta);
-        meta.push(Span::styled(branch_text, muted));
+        meta.push(Span::styled(format!("{}{}", glyphs.branch(), branch_text), muted));
     }
 
     if let Some(pr) = pr {
         push_sep(&mut meta);
-        meta.push(Span::styled(pr.to_string(), Style::default().fg(theme.accent)));
+        meta.push(Span::styled(
+            format!("{}{}", glyphs.pr(), pr),
+            Style::default().fg(theme.accent),
+        ));
     }
 
     if let Some(msgs) = msgs {
@@ -458,8 +487,6 @@ fn preview_header_lines(
 
     vec![title_line, meta_line, rule_line]
 }
-
-const ACCENT_BAR: &str = "▎";
 
 /// Render a single card. Selected cards get a left accent bar; unselected
 /// cards get a space in the same column. Content is inset by the bar width.
@@ -482,7 +509,10 @@ fn render_card(
         for row in 0..content_h {
             let bar_area = Rect { x: area.x, y: area.y + row, width: bar_w, height: 1 };
             f.render_widget(
-                Paragraph::new(Span::styled(ACCENT_BAR, Style::default().fg(ctx.theme.accent))),
+                Paragraph::new(Span::styled(
+                    ctx.glyphs.accent_bar(),
+                    Style::default().fg(ctx.theme.accent),
+                )),
                 bar_area,
             );
         }
@@ -998,7 +1028,7 @@ mod tests {
         .unwrap();
 
         let buf = term.backend().buffer();
-        let marker = SELECTION_MARKER.trim();
+        let marker = crate::tui::glyphs::Glyphs::ascii().selection_marker().trim();
         let has_marker = buf.content().iter().any(|c| c.symbol() == marker);
         assert!(has_marker, "selection marker should be rendered");
         let has_sel_bg =

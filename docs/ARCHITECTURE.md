@@ -69,7 +69,18 @@ rows and surface as sync status warnings.
   list has two rendering paths controlled by `[display] row_style`: `card` (default)
   renders multi-line cards with metadata and optional KWIC snippets via manual
   `Rect` layout; `compact` uses the legacy single-line `Table` with the column
-  solver.
+  solver. `tui/glyphs.rs` owns the centralized glyph vocabulary (`Glyphs`),
+  mirroring `theme::Theme`: a single value chosen once at startup and carried on
+  `App` (read via `App::glyphs()`). It has a `nerd` variant (Private Use Area
+  icons, the `[display] icons` opt-out default) and an `ascii` variant that
+  reproduces the pre-icon look with no tofu; field-icon accessors return the
+  empty string in `ascii`. Chrome glyphs (selection marker, accent bar,
+  separator, spinner, archived marker, and the field/status icons) resolve
+  through `Glyphs`; the preview transcript's content prefixes (`●`/`›`/`•`) stay
+  literal in `preview.rs` as a deliberate content-layer exception (icons live in
+  chrome, not content). Per-agent mark glyphs come from `Adapter::agent_glyph`
+  (B-011) and are injected into `Glyphs` by position in `AgentId::ALL`, so the
+  `tui` layer never names an agent-specific glyph literal.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
   synchronous; slow enrichers run through `EnrichmentService`.
 - `src/tui/columns.rs`: column definitions and responsive width solving.
@@ -78,7 +89,8 @@ rows and surface as sync status warnings.
   sessions) executed after terminal restore and before the resume `exec`.
 - `src/config.rs`: optional TOML config, persisted UI state, and launcher
   override (`[launcher]` section with `{agent}` template for custom resume
-  binaries). `[display]` section controls `row_style` (card/compact).
+  binaries). `[display]` section controls `row_style` (card/compact) and `icons`
+  (nerd-font icon layer, default on / opt-out).
 - `src/update.rs`: background update checker. Queries GitHub releases API at
   startup (cached 24 hours), detects install method (Homebrew vs cargo), and
   prints an upgrade notice to stderr after the TUI exits.
@@ -198,6 +210,12 @@ These are current architectural seams worth tracking before expanding the app:
   filters and therefore still run after Tantivy retrieval, but search now
   paginates until enough filtered-in rows are found or the matching hit set is
   exhausted.
+- **P-003 Agent Color Matches In The TUI Layer:** `Theme::agent_color`
+  (`tui/theme.rs`) matches `AgentId` to a brand RGB inside the generic `tui`
+  layer, which bends `B-011`. The newer per-agent glyph deliberately routes
+  through `Adapter::agent_glyph` instead; realigning `agent_color` the same way
+  (adapter-provided brand color injected into `Theme`) is the intended fix but is
+  out of scope for the icon facelift.
 
 Pressure points are not permanent architecture. Do not fix them opportunistically
 during unrelated work, but when a pressure point is resolved, update or remove

@@ -10,6 +10,13 @@ use std::path::Path;
 
 pub trait Adapter: Send {
     fn id(&self) -> AgentId;
+    /// This agent's nerd-font mark glyph (a Private Use Area code point), shown
+    /// beside the agent badge when icons are enabled. Agent-specific knowledge
+    /// lives here per architecture rule B-011; the default is empty so a new
+    /// adapter degrades to a text-only mark rather than tofu.
+    fn agent_glyph(&self) -> &'static str {
+        ""
+    }
     /// True if this agent's data directory exists.
     fn is_available(&self) -> bool;
     /// Cheap stat-level scan: session id -> (path, mtime). No file bodies read.
@@ -125,5 +132,55 @@ impl GitFieldCache {
         let result = (self.resolver)(dir);
         cache.insert(dir.to_string(), result.clone());
         result
+    }
+}
+
+#[cfg(test)]
+mod glyph_tests {
+    use super::*;
+
+    /// A minimal adapter that overrides nothing, to exercise the trait default.
+    struct BareAdapter;
+    impl Adapter for BareAdapter {
+        fn id(&self) -> AgentId {
+            AgentId::Claude
+        }
+        fn is_available(&self) -> bool {
+            false
+        }
+        fn scan(&self) -> Result<HashMap<SessionId, ScanEntry>> {
+            Ok(HashMap::new())
+        }
+        fn parse(&self, _: &Path) -> Result<crate::core::Session> {
+            unreachable!()
+        }
+        fn transcript(&self, _: &Path) -> Result<Vec<crate::core::Message>> {
+            unreachable!()
+        }
+        fn resume_command(&self, _: &crate::core::Session, _: bool) -> Vec<String> {
+            Vec::new()
+        }
+        fn supports_yolo(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn each_default_adapter_has_a_nonempty_distinct_glyph() {
+        let cfg = crate::config::Config::default();
+        let adapters = default_adapters(&cfg);
+        let glyphs: Vec<&str> = adapters.iter().map(|a| a.agent_glyph()).collect();
+        assert!(glyphs.iter().all(|g| !g.is_empty()), "every shipped adapter defines a glyph");
+        // Distinct so the agents are visually distinguishable.
+        for i in 0..glyphs.len() {
+            for j in (i + 1)..glyphs.len() {
+                assert_ne!(glyphs[i], glyphs[j], "adapter glyphs must be distinct");
+            }
+        }
+    }
+
+    #[test]
+    fn adapter_without_override_falls_back_to_empty_glyph() {
+        assert_eq!(BareAdapter.agent_glyph(), "");
     }
 }

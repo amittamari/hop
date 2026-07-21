@@ -4,6 +4,7 @@
 use crate::core::SessionSummary;
 use crate::enrich::{EnrichKind, Enricher};
 use crate::tui::columns::{Column, display_width, fit, solve_layout_with_desired};
+use crate::tui::glyphs::Glyphs;
 use crate::tui::theme::Theme;
 use crate::tui::view::rel_time;
 use ratatui::style::{Modifier, Style};
@@ -13,9 +14,7 @@ use std::collections::HashMap;
 
 fn cell(s: &SessionSummary, col: &Column, ctx: &RowCtx<'_>) -> (String, Style) {
     match col.id {
-        "agent" => {
-            (s.agent.badge().to_string(), Style::default().fg(ctx.theme.agent_color(s.agent)))
-        }
+        "agent" => (agent_mark(s, ctx.glyphs), Style::default().fg(ctx.theme.agent_color(s.agent))),
         "title" => (s.title.clone(), Style::default()),
         "msgs" => (
             if s.message_count > 0 { s.message_count.to_string() } else { "-".into() },
@@ -42,7 +41,7 @@ fn enrichment_cell(id: &str, s: &SessionSummary, ctx: &RowCtx<'_>) -> (String, S
             Some(Some(text)) => (text.clone(), Style::default().fg(ctx.theme.accent)),
             Some(None) => ("—".into(), Style::default().fg(ctx.theme.muted)),
             None => (
-                crate::tui::view::spinner_glyph(ctx.frame).to_string(),
+                ctx.glyphs.spinner_frame(ctx.frame).to_string(),
                 Style::default().fg(ctx.theme.muted),
             ),
         },
@@ -99,11 +98,19 @@ pub struct RowCtx<'a> {
     pub frame: u64,
     pub terms: &'a [String],
     pub theme: &'a Theme,
+    pub glyphs: &'a Glyphs,
 }
 
-/// Marker prefixed to the title of archived sessions so the state is explicit
-/// beyond the row dimming.
-const ARCHIVED_MARKER: &str = "arch ";
+/// The agent mark for a session: the agent glyph (when icons are on) followed by
+/// the agent badge. In ascii mode this is just the badge, unchanged.
+fn agent_mark(s: &SessionSummary, glyphs: &Glyphs) -> String {
+    let glyph = glyphs.agent(s.agent);
+    if glyph.is_empty() {
+        s.agent.badge().to_string()
+    } else {
+        format!("{glyph} {}", s.agent.badge())
+    }
+}
 
 /// Build one Table row for a session across the kept (visible) columns, reusing
 /// the cells computed for this row by [`compute_cells`] (indexed by column).
@@ -124,6 +131,7 @@ pub fn session_row(
                     width,
                     ctx.terms,
                     ctx.theme,
+                    ctx.glyphs,
                     session.archived,
                 ))
             } else {
@@ -140,15 +148,18 @@ pub fn session_row(
 
 /// Build the TITLE line, reverse-highlighting any query-term matches by
 /// reusing the preview's multi-byte-safe highlighter. Archived sessions get a
-/// muted `arch` marker prefixed to the title within the same cell width.
+/// muted marker prefixed to the title within the same cell width — the `arch `
+/// text in ascii mode, or an archive icon when icons are enabled.
 fn title_line(
     title: &str,
     width: u16,
     terms: &[String],
     theme: &Theme,
+    glyphs: &Glyphs,
     archived: bool,
 ) -> Line<'static> {
-    let marker_width = if archived { ARCHIVED_MARKER.len() as u16 } else { 0 };
+    let marker = glyphs.archived_marker();
+    let marker_width = if archived { display_width(marker) as u16 } else { 0 };
     let title_width = width.saturating_sub(marker_width);
     let base = Line::from(Span::raw(fit(title, title_width, crate::tui::columns::Align::Left)));
     let highlighted = if terms.is_empty() {
@@ -159,7 +170,7 @@ fn title_line(
     if !archived {
         return highlighted;
     }
-    let mut spans = vec![Span::styled(ARCHIVED_MARKER, Style::default().fg(theme.muted))];
+    let mut spans = vec![Span::styled(marker, Style::default().fg(theme.muted))];
     spans.extend(highlighted.spans);
     Line::from(spans)
 }
@@ -188,17 +199,17 @@ pub fn card_height(session: &SessionSummary, _selected: bool) -> u16 {
 pub fn card_lines(session: &SessionSummary, width: u16, ctx: &RowCtx<'_>) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
 
-    // Line 1: agent badge + bold title + right-aligned time
+    // Line 1: agent mark (glyph + badge) + bold title + right-aligned time
     let time_str = rel_time(session.timestamp, ctx.now);
     let time_w = display_width(&time_str) as u16;
-    let badge = session.agent.badge();
-    let badge_w = display_width(badge) as u16;
+    let mark = agent_mark(session, ctx.glyphs);
+    let mark_w = display_width(&mark) as u16;
     let gap = 2u16; // spaces between badge/title and title/time
-    let title_budget = width.saturating_sub(badge_w + gap + time_w + gap);
+    let title_budget = width.saturating_sub(mark_w + gap + time_w + gap);
     let title_fitted = fit(&session.title, title_budget, crate::tui::columns::Align::Left);
 
     let mut line1_spans = vec![
-        Span::styled(badge.to_string(), Style::default().fg(ctx.theme.agent_color(session.agent))),
+        Span::styled(mark, Style::default().fg(ctx.theme.agent_color(session.agent))),
         Span::raw("  "),
     ];
     // Highlight title terms if searching
@@ -219,31 +230,33 @@ pub fn card_lines(session: &SessionSummary, width: u16, ctx: &RowCtx<'_>) -> Vec
     line1_spans.push(Span::styled(time_str, Style::default().fg(ctx.theme.muted)));
     lines.push(Line::from(line1_spans));
 
-    // Line 2: muted dot-separated metadata
+    // Line 2: muted dot-separated metadata, each field prefixed with its icon
+    // (icons enabled) or its bare value (ascii).
+    let g = ctx.glyphs;
     let mut meta_parts: Vec<String> = Vec::new();
     // repo
     if let Some(enr) = ctx.enrichers.iter().find(|e| e.id() == "repo")
         && let Some(v) = enr.resolve(session)
     {
-        meta_parts.push(v.text);
+        meta_parts.push(format!("{}{}", g.repo(), v.text));
     }
     // branch
     if let Some(b) = &session.branch {
-        meta_parts.push(b.clone());
+        meta_parts.push(format!("{}{}", g.branch(), b));
     }
     // PR (slow enricher)
     if let Some(Some(pr)) = ctx.resolved.get(&(session.document_key(), "pr")) {
-        meta_parts.push(pr.clone());
+        meta_parts.push(format!("{}{}", g.pr(), pr));
     }
-    // model
+    // model (no dedicated icon; kept as plain text)
     if let Some(m) = &session.model {
         meta_parts.push(m.clone());
     }
     // message count
     if session.message_count > 0 {
-        meta_parts.push(format!("{} msgs", session.message_count));
+        meta_parts.push(format!("{}{} msgs", g.msgs(), session.message_count));
     }
-    let meta_text = meta_parts.join(" · ");
+    let meta_text = meta_parts.join(g.sep());
     let meta_fitted = fit(&meta_text, width, crate::tui::columns::Align::Left);
     let meta_style = if session.archived {
         Style::default().fg(ctx.theme.muted).add_modifier(Modifier::DIM)
@@ -351,6 +364,7 @@ mod tests {
             frame: 0,
             terms: &[],
             theme: &theme,
+            glyphs: &Glyphs::ascii(),
         };
         let grid = compute_cells(&cols, std::slice::from_ref(&row_data), &ctx);
         let layout = layout_from_cells(&cols, 120, &grid);
@@ -384,6 +398,7 @@ mod tests {
             frame: 0,
             terms: &[],
             theme: &theme,
+            glyphs: &Glyphs::ascii(),
         };
         let grid = compute_cells(&cols, &[row], &ctx);
         let layout = layout_from_cells(&cols, 120, &grid);
@@ -401,6 +416,7 @@ mod tests {
         let resolved = HashMap::new();
         let pr_col = cols.iter().find(|c| c.id == "pr").unwrap();
         let theme = Theme::default();
+        let g = Glyphs::ascii();
         let mk = |frame| RowCtx {
             enrichers: &enr,
             resolved: &resolved,
@@ -408,6 +424,7 @@ mod tests {
             frame,
             terms: &[],
             theme: &theme,
+            glyphs: &g,
         };
         // frame=0 -> first braille frame; frame=3 -> fourth.
         let (t0, _) = super::cell(&sess(), pr_col, &mk(0));
@@ -435,6 +452,7 @@ mod tests {
             frame: 0,
             terms: &[],
             theme: &theme,
+            glyphs: &Glyphs::ascii(),
         };
         let (text, style) = super::cell(&sess(), pr_col, &ctx);
         assert_eq!(text, "#42");
@@ -445,7 +463,14 @@ mod tests {
     fn title_line_highlights_query_terms() {
         use ratatui::style::Modifier;
         let terms = vec!["auth".to_string()];
-        let line = super::title_line("fix auth bug", 40, &terms, &Theme::default(), false);
+        let line = super::title_line(
+            "fix auth bug",
+            40,
+            &terms,
+            &Theme::default(),
+            &Glyphs::ascii(),
+            false,
+        );
         assert!(
             line.spans.iter().any(|s| {
                 s.content.contains("auth") && s.style.add_modifier.contains(Modifier::REVERSED)
@@ -457,13 +482,15 @@ mod tests {
     #[test]
     fn archived_title_gets_muted_marker_prefix() {
         let theme = Theme::default();
-        let line = super::title_line("fix auth", 40, &[], &theme, true);
+        let g = Glyphs::ascii();
+        let marker = g.archived_marker();
+        let line = super::title_line("fix auth", 40, &[], &theme, &g, true);
         let first = line.spans.first().expect("title line has spans");
-        assert_eq!(first.content, super::ARCHIVED_MARKER);
+        assert_eq!(first.content, marker);
         assert_eq!(first.style.fg, Some(theme.muted));
         // Non-archived titles carry no marker.
-        let plain = super::title_line("fix auth", 40, &[], &theme, false);
-        assert_ne!(plain.spans.first().map(|s| s.content.as_ref()), Some(super::ARCHIVED_MARKER));
+        let plain = super::title_line("fix auth", 40, &[], &theme, &g, false);
+        assert_ne!(plain.spans.first().map(|s| s.content.as_ref()), Some(marker));
     }
 
     fn card_sess() -> SessionSummary {
@@ -511,6 +538,7 @@ mod tests {
             frame: 0,
             terms: &[],
             theme: &theme,
+            glyphs: &Glyphs::ascii(),
         };
         let s = card_sess();
         let lines = super::card_lines(&s, 80, &ctx);
@@ -529,6 +557,7 @@ mod tests {
             frame: 0,
             terms: &[],
             theme: &theme,
+            glyphs: &Glyphs::ascii(),
         };
         let mut s = card_sess();
         s.snippet = Some("the <b>auth</b> token expired".into());
@@ -537,6 +566,71 @@ mod tests {
         // The snippet line should contain the matched term
         let snippet_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(snippet_text.contains("auth"), "snippet should contain matched term");
+    }
+
+    fn line_text(lines: &[Line<'static>], i: usize) -> String {
+        lines[i].spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    fn has_pua(s: &str) -> bool {
+        s.chars().any(|c| ('\u{e000}'..='\u{f8ff}').contains(&c))
+    }
+
+    #[test]
+    fn card_lines_icons_disabled_match_pre_change_text() {
+        let theme = Theme::default();
+        let g = Glyphs::ascii();
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+        let resolved = HashMap::new();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 3600,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+            glyphs: &g,
+        };
+        let s = card_sess();
+        let lines = super::card_lines(&s, 80, &ctx);
+        let l1 = line_text(&lines, 0);
+        let l2 = line_text(&lines, 1);
+        // Agent mark is the bare badge; metadata joins with the middot separator.
+        assert!(l1.starts_with("CLAUDE"), "ascii agent mark is the badge: {l1:?}");
+        assert!(l2.contains(" · "), "ascii metadata keeps the middot separator: {l2:?}");
+        assert!(l2.contains("feat/auth"), "branch value present: {l2:?}");
+        assert!(l2.contains("12 msgs"), "message count present: {l2:?}");
+        // No tofu: nothing in the chrome uses a Private Use Area code point.
+        assert!(!has_pua(&l1) && !has_pua(&l2), "ascii mode must not emit PUA glyphs");
+    }
+
+    #[test]
+    fn card_lines_icons_enabled_carry_glyphs() {
+        let theme = Theme::default();
+        let mut g = Glyphs::nerd();
+        g.set_agent_glyph(AgentId::Claude, "\u{f069}");
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+        let resolved = HashMap::new();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 3600,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+            glyphs: &g,
+        };
+        let s = card_sess();
+        let lines = super::card_lines(&s, 120, &ctx);
+        let l1 = line_text(&lines, 0);
+        let l2 = line_text(&lines, 1);
+        // Agent mark carries the adapter glyph ahead of the badge.
+        assert!(l1.contains("\u{f069}"), "agent glyph should prefix the mark: {l1:?}");
+        assert!(l1.contains("CLAUDE"), "text label still present: {l1:?}");
+        // Metadata fields carry their icons (branch fork, msgs comments).
+        assert!(l2.contains("\u{f126}"), "branch icon should prefix the branch: {l2:?}");
+        assert!(l2.contains("\u{f086}"), "msgs icon should prefix the count: {l2:?}");
+        assert!(l2.contains("feat/auth"), "branch value still present: {l2:?}");
     }
 
     #[test]

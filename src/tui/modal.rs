@@ -1,5 +1,6 @@
 use crate::core::SessionSummary;
 use crate::tui::columns;
+use crate::tui::glyphs::Glyphs;
 use crate::tui::theme::Theme;
 use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Flex, Layout, Rect};
@@ -32,6 +33,7 @@ pub fn render_yolo_modal(
     yolo: bool,
     modal_command: Option<&[String]>,
     theme: &Theme,
+    glyphs: &Glyphs,
 ) {
     let area = f.area();
     if area.width < 4 || area.height < 4 {
@@ -85,12 +87,14 @@ pub fn render_yolo_modal(
             Span::raw(command),
         ]),
     ];
+    let warn_style = Style::default().fg(theme.warning).add_modifier(Modifier::BOLD);
+    let warn_glyph = glyphs.warning(); // icon + trailing space when enabled, else ""
     if archived {
         body.push(Line::from(vec![
             Span::styled(format!("{:<label_w$}", "Archived"), label_style),
             Span::styled(
-                "session is archived; it will be unarchived first",
-                Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
+                format!("{warn_glyph}session is archived; it will be unarchived first"),
+                warn_style,
             ),
         ]));
     }
@@ -98,30 +102,26 @@ pub fn render_yolo_modal(
         body.push(Line::from(vec![
             Span::styled(format!("{:<label_w$}", "Missing"), label_style),
             Span::styled(
-                "directory does not exist; agent will start in current dir",
-                Style::default().fg(theme.warning).add_modifier(Modifier::BOLD),
+                format!("{warn_glyph}directory does not exist; agent will start in current dir"),
+                warn_style,
             ),
         ]));
     }
     body.push(Line::from(""));
-    body.push(Line::from(Span::styled(
-        if yolo {
-            "YOLO on: approvals and sandbox may be bypassed"
-        } else {
-            "YOLO off: normal resume"
-        },
-        if yolo {
-            Style::default().fg(theme.warning).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(theme.muted)
-        },
-    )));
+    body.push(if yolo {
+        Line::from(Span::styled(
+            format!("{warn_glyph}YOLO on: approvals and sandbox may be bypassed"),
+            warn_style,
+        ))
+    } else {
+        Line::from(Span::styled("YOLO off: normal resume", Style::default().fg(theme.muted)))
+    });
     body.push(Line::from(""));
 
     let key_style = Style::default().fg(theme.accent);
     let sep_style = Style::default().fg(theme.border);
     let hint_style = Style::default().fg(theme.muted);
-    let sep = Span::styled(" · ", sep_style);
+    let sep = Span::styled(glyphs.sep(), sep_style);
     let confirm_label = if archived { "unarchive & resume" } else { "resume" };
     body.push(Line::from(vec![
         Span::styled("Tab", key_style),

@@ -224,6 +224,10 @@ impl Adapter for CursorAdapter {
         AgentId::Cursor
     }
 
+    fn agent_glyph(&self) -> &'static str {
+        "\u{f246}" // nf-fa-i_cursor — evokes the editor caret
+    }
+
     fn is_available(&self) -> bool {
         self.root.is_dir()
     }

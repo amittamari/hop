@@ -156,6 +156,10 @@ impl Adapter for ClaudeAdapter {
         AgentId::Claude
     }
 
+    fn agent_glyph(&self) -> &'static str {
+        "\u{f069}" // nf-fa-asterisk — evokes the Anthropic sunburst
+    }
+
     fn is_available(&self) -> bool {
         self.root.is_dir()
     }

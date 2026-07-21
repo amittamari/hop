@@ -292,8 +292,18 @@ fn run_tui(
         eprintln!("hop: {warning}");
     }
 
+    // Build the glyph set once: pick the variant from config, then inject each
+    // agent's mark glyph from its adapter (B-011: the tui layer never names an
+    // agent-specific glyph literal). A fresh, cheap adapter set is used purely to
+    // read the glyphs.
+    let mut glyphs = hop::tui::glyphs::Glyphs::from_icons_enabled(config.display.icons);
+    for adapter in adapters::default_adapters(config) {
+        glyphs.set_agent_glyph(adapter.id(), adapter.agent_glyph());
+    }
+
     let mut terminal = ratatui::init();
     let mut app = App::new();
+    app.set_glyphs(glyphs);
     app.set_keymap(keymap);
     app.init_search(initial.mode, initial.scope, initial.repo_slug, initial.input);
     app.set_preview(init_preview.0, init_preview.1);

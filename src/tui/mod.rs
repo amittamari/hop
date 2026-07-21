@@ -1,4 +1,5 @@
 pub mod columns;
+pub mod glyphs;
 pub mod help;
 pub mod keymap;
 pub mod modal;
@@ -91,6 +92,7 @@ pub struct App {
     preview_matches: Vec<u16>,
     preview_match_index: usize,
     theme: crate::tui::theme::Theme,
+    glyphs: crate::tui::glyphs::Glyphs,
     keymap: keymap::Keymap,
     frame: u64,
     indexing: Option<usize>,
@@ -120,6 +122,9 @@ impl App {
             preview_matches: Vec::new(),
             preview_match_index: 0,
             theme: crate::tui::theme::Theme::default(),
+            // Safe default; production selects the config-driven variant via
+            // `set_glyphs`. ascii keeps `App::new()`-based tests tofu-free.
+            glyphs: crate::tui::glyphs::Glyphs::default(),
             keymap: keymap::Keymap::defaults(),
             frame: 0,
             indexing: None,
@@ -275,6 +280,14 @@ impl App {
     }
     pub fn theme(&self) -> &crate::tui::theme::Theme {
         &self.theme
+    }
+    pub fn glyphs(&self) -> &crate::tui::glyphs::Glyphs {
+        &self.glyphs
+    }
+    /// Replace the glyph set (e.g. with the config-driven variant resolved at
+    /// startup, with per-agent glyphs injected from the adapters).
+    pub fn set_glyphs(&mut self, glyphs: crate::tui::glyphs::Glyphs) {
+        self.glyphs = glyphs;
     }
     pub fn keymap(&self) -> &keymap::Keymap {
         &self.keymap

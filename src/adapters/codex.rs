@@ -380,6 +380,10 @@ impl Adapter for CodexAdapter {
         AgentId::Codex
     }
 
+    fn agent_glyph(&self) -> &'static str {
+        "\u{f120}" // nf-fa-terminal — evokes code / CLI
+    }
+
     fn is_available(&self) -> bool {
         self.session_roots().iter().any(|p| p.is_dir())
     }

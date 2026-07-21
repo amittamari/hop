@@ -55,6 +55,11 @@ impl RowStyle {
 pub struct DisplayConfig {
     #[serde(default = "default_row_style")]
     pub row_style: String,
+    /// Nerd-font icon facelift. Default `true` (opt-out): the TUI renders
+    /// Private Use Area icons in its chrome, which requires a patched Nerd Font.
+    /// Set to `false` to fall back to the pre-icon text layout (no tofu).
+    #[serde(default = "default_true")]
+    pub icons: bool,
 }
 
 fn default_row_style() -> String {
@@ -63,7 +68,7 @@ fn default_row_style() -> String {
 
 impl Default for DisplayConfig {
     fn default() -> Self {
-        DisplayConfig { row_style: "card".to_string() }
+        DisplayConfig { row_style: "card".to_string(), icons: true }
     }
 }
 
@@ -234,6 +239,21 @@ mod tests {
         assert!(!cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 40);
         assert!(!cfg.preview.metadata_header);
+    }
+
+    #[test]
+    fn icons_default_on_and_opt_out() {
+        // Opt-out: default enables the nerd-font icon layer.
+        assert!(Config::default().display.icons);
+        let toml = r#"
+            [display]
+            icons = false
+        "#;
+        let cfg = Config::from_toml_str(toml).unwrap();
+        assert!(!cfg.display.icons);
+        // Unset icons with an otherwise-present [display] stays on.
+        let cfg = Config::from_toml_str("[display]\nrow_style = \"compact\"\n").unwrap();
+        assert!(cfg.display.icons);
     }
 
     #[test]

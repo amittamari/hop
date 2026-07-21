@@ -240,6 +240,12 @@ An optional configuration file can be created in your platform's config director
 # Startup search mode: "simple" (guided toolbar, the default) or "raw" (query DSL).
 search_mode = "simple"
 
+[display]
+row_style = "card"   # "card" (default, multi-line) or "compact" (single-line table)
+icons = true         # nerd-font icons in the chrome (default on). Set false to
+                     # fall back to the plain text layout if your terminal font
+                     # is not a patched Nerd Font.
+
 [preview]
 visible = true
 width_pct = 50
@@ -276,6 +282,12 @@ active bindings.
 > ⚙️ **Note:** The `theme` table is accepted for forward-compatibility but is
 > currently reserved and not applied. Preview width and visibility choices persist
 > automatically across restarts.
+
+> 🔤 **Nerd Font:** `hop` renders nerd-font icons in its chrome by default
+> (`[display] icons = true`). These live in the Unicode Private Use Area and only
+> display correctly in a patched [Nerd Font](https://www.nerdfonts.com/). If you
+> see empty boxes (tofu) where icons should be, either switch your terminal to a
+> Nerd Font or set `icons = false` to use the plain text layout.
 
 ---
 
