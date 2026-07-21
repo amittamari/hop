@@ -1,17 +1,13 @@
 # Agent Map
 
 This file is the short entry point for coding agents. Keep it small. Durable
-project knowledge belongs in `docs/`, and detailed historical plans stay under
-`docs/plans/`.
+project knowledge belongs in `docs/`.
 
 ## Start Here
 
 - Project contract: `docs/PROJECT.md`
 - Architecture map: `docs/ARCHITECTURE.md`
 - User-facing usage: `README.md`
-- Historical design specs: `docs/specs/`
-- Existing implementation plans: `docs/plans/`
-- Dated review/action artifacts: `docs/reviews/`
 
 ## What This Repo Builds
 
@@ -61,5 +57,4 @@ help the next agent avoid rediscovery. Prefer updating `docs/PROJECT.md` or
 Architecture rules in `docs/ARCHITECTURE.md` use stable IDs. Do not renumber
 them casually; update or remove stale rules and pressure points when code changes
 make them obsolete. Current-state concerns that may be fixed later belong under
-`Known Pressure Points` or dated `docs/reviews/` artifacts, not in stable boundary
-or invariant language.
+`Known Pressure Points`, not in stable boundary or invariant language.

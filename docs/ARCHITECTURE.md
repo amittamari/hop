@@ -15,8 +15,7 @@ reviews, plans, and issues can refer to them without ambiguity.
 - When a rule is no longer true or no longer desired, update or remove it in the
   same change that fixes the code.
 - Put temporary defects, migration notes, and known-but-not-yet-fixed concerns in
-  `Known Pressure Points` or a dated `docs/reviews/` artifact, not in stable
-  boundary language.
+  `Known Pressure Points`, not in stable boundary language.
 
 ## Data Flow
 

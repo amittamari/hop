@@ -79,9 +79,3 @@ shared transcript text filtering/flattening.
 ## Documentation Sources
 
 - `docs/ARCHITECTURE.md` is the current architecture map.
-- `docs/specs/` contains dated design specs and may include historical decisions.
-- `docs/plans/` contains execution plans. Treat them as history unless
-  a current task explicitly says a plan is active.
-- `docs/reviews/` contains dated review artifacts and action-item source material.
-  Promote only durable rules into `docs/ARCHITECTURE.md`; leave temporary findings
-  in review docs or `Known Pressure Points` until resolved.
