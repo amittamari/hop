@@ -7,9 +7,9 @@ use crate::tui::theme::Theme;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
-/// Static, low-priority hints shown on the left of the footer, built from the
-/// `primary` subset of the canonical bindings table. Dropped first (clipped by
-/// the SpaceBetween layout) when the terminal is too narrow for both halves.
+/// Static, high-priority hints shown on the left of the footer, built from the
+/// `primary` subset of the canonical bindings table. Kept when the terminal is
+/// too narrow for both halves; the right-side status is dropped instead.
 pub(super) fn footer_hints_line(
     keymap: &crate::tui::keymap::Keymap,
     mode: crate::tui::SearchMode,
@@ -45,8 +45,9 @@ pub(super) fn footer_hints_line(
     Line::from(spans)
 }
 
-/// Volatile, high-priority status shown on the right of the footer. Rendered
-/// right-aligned so it survives clipping ahead of the static hints.
+/// Volatile, low-priority status shown on the right of the footer. Rendered
+/// right-aligned, and hidden entirely by `render` when the row can't fit both
+/// it and the higher-priority left-side hints.
 pub(super) fn footer_status_line(
     status: &StatusLine,
     theme: &Theme,

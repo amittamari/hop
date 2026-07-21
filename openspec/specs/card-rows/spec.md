@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines the multi-line card layout for session results in the TUI, including selection styling, compact mode fallback, display configuration, preview pane behavior, toolbar notation, and footer content.
+Defines the multi-line card layout for session results in the TUI, including selection styling, compact mode fallback, display configuration, preview pane behavior, and toolbar notation.
 
 ## Requirements
 
@@ -97,11 +97,3 @@ Toolbar filter chips SHALL use bracket notation for the selected value instead o
 #### Scenario: Focused chip
 - **WHEN** a toolbar chip has focus (via Tab)
 - **THEN** the value SHALL render as `[Value]` with bold styling
-
-### Requirement: Footer filters echo removed
-The footer status line SHALL NOT display the `filters` field that echoes the resolved search query.
-
-#### Scenario: Footer with active filters
-- **WHEN** a search query with filter tokens (e.g., `agent:claude`) is active
-- **THEN** the footer SHALL NOT show a `filters agent:claude` echo
-- **THEN** the footer SHALL continue to show sync status, PR pending count, and warnings

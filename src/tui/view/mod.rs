@@ -261,28 +261,29 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         );
     }
 
-    // footer: static hints on the left, volatile status on the right. The two
-    // halves share the footer row via SpaceBetween so right-aligned status
-    // (sync/pr/warning) survives clipping ahead of the static hints.
-    // Build the status line once and size its region from it, rather than
-    // building it a second time just to measure the width.
+    // footer: static hints on the left (high priority), volatile status on the
+    // right (low priority). When the row can't fit both halves plus a minimum
+    // gap, the right-side status is hidden entirely and the hints keep the full
+    // row — the hints never clip in favor of the status. Build each line once
+    // and measure it, rather than building a second time just to size regions.
+    const FOOTER_GAP: u16 = 1;
+    let hints_line =
+        footer::footer_hints_line(app.keymap(), app.search_mode(), &model.theme, app.glyphs());
     let status_line = footer::footer_status_line(model.status, &model.theme, app.glyphs());
-    let [hints_area, status_area] = Layout::horizontal([
-        Constraint::Min(0),
-        Constraint::Length(line_display_width(&status_line)),
-    ])
-    .flex(Flex::SpaceBetween)
-    .areas(footer_area);
-    f.render_widget(
-        Paragraph::new(footer::footer_hints_line(
-            app.keymap(),
-            app.search_mode(),
-            &model.theme,
-            app.glyphs(),
-        )),
-        hints_area,
-    );
-    f.render_widget(Paragraph::new(status_line).alignment(Alignment::Right), status_area);
+    let hints_w = line_display_width(&hints_line);
+    let status_w = line_display_width(&status_line);
+    if status_w > 0 && hints_w + FOOTER_GAP + status_w <= footer_area.width {
+        let [hints_area, status_area] =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(status_w)])
+                .flex(Flex::SpaceBetween)
+                .areas(footer_area);
+        f.render_widget(Paragraph::new(hints_line), hints_area);
+        f.render_widget(Paragraph::new(status_line).alignment(Alignment::Right), status_area);
+    } else {
+        // Not enough room for both (or nothing on the right): drop the
+        // low-priority status and give the whole row to the hints.
+        f.render_widget(Paragraph::new(hints_line), footer_area);
+    }
 
     if let Some((index, yolo)) = app.yolo_modal() {
         let session = app.results().get(index);

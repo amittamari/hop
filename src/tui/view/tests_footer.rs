@@ -1,5 +1,5 @@
 //! Footer render tests: primary key-hints, mode-aware Tab hint, and the
-//! right-aligned status surviving narrow widths.
+//! low-priority right-side status being hidden when both halves don't fit.
 
 use super::test_support::{footer_text, render_to_text};
 use super::*;
@@ -82,8 +82,8 @@ fn footer_shows_only_primary_actions() {
     );
 }
 
-#[test]
-fn footer_warning_survives_narrow_width() {
+/// Render the footer at `width` with a given status line and return flat text.
+fn footer_text_with_status(width: u16, status: &StatusLine) -> String {
     use crate::enrich::Enricher;
     use std::collections::HashMap;
 
@@ -91,11 +91,7 @@ fn footer_warning_survives_narrow_width() {
     let enr: Vec<Box<dyn Enricher>> = vec![];
     let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let cols = crate::tui::columns::default_columns();
-    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
-
-    // 50 cols is too narrow for the full static hint + warning on one line;
-    // the warning must still be present.
-    let backend = TestBackend::new(50, 8);
+    let backend = TestBackend::new(width, 8);
     let mut term = Terminal::new(backend).unwrap();
     term.draw(|f| {
         render(
@@ -108,7 +104,7 @@ fn footer_warning_survives_narrow_width() {
                 resolved: &resolved,
                 query_terms: &[],
                 preview_lines: &[],
-                status: &status,
+                status,
                 modal_command: None,
                 theme: Theme::default(),
                 row_style: RowStyle::Compact,
@@ -116,7 +112,34 @@ fn footer_warning_survives_narrow_width() {
         )
     })
     .unwrap();
-    let buf = term.backend().buffer().clone();
-    let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-    assert!(text.contains("WARNTOKEN"), "warning must survive narrow footer, got: {text:?}");
+    term.backend().buffer().content().iter().map(|c| c.symbol()).collect()
+}
+
+#[test]
+fn footer_status_shows_when_both_fit() {
+    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
+    // A wide row fits the full hint line, a gap, and the status together.
+    let text = footer_text_with_status(160, &status);
+    assert!(text.contains("type to search"), "hints must render: {text:?}");
+    assert!(text.contains("WARNTOKEN"), "status must render when both halves fit: {text:?}");
+}
+
+#[test]
+fn footer_status_hidden_when_too_narrow() {
+    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
+    // 40 cols can't fit the full hint line plus the status: the low-priority
+    // right-side status is dropped and the high-priority hints keep the row.
+    let text = footer_text_with_status(40, &status);
+    assert!(text.contains("type to"), "high-priority hints must remain: {text:?}");
+    assert!(
+        !text.contains("WARNTOKEN"),
+        "low-priority status must be hidden when both halves don't fit: {text:?}"
+    );
+}
+
+#[test]
+fn footer_empty_status_leaves_only_hints() {
+    // No sync/pr/warning: only the hints render, across the full row.
+    let text = footer_text_with_status(100, &StatusLine::default());
+    assert!(text.contains("type to search"), "hints must render: {text:?}");
 }
