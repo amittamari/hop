@@ -29,8 +29,14 @@ fn renders_columns_and_preview() {
     let transcript =
         vec![Message { role: Role::User, blocks: vec![Block::Prose("fix auth".into())] }];
 
-    let lines =
-        crate::tui::preview::render_transcript(&transcript, &[], AgentId::Claude, app.theme(), 80);
+    let lines = crate::tui::preview::render_transcript(
+        &transcript,
+        &[],
+        AgentId::Claude,
+        app.theme(),
+        app.glyphs(),
+        80,
+    );
 
     let cols = crate::tui::columns::default_columns();
     let backend = TestBackend::new(100, 12);
@@ -140,8 +146,14 @@ fn narrow_width_drops_preview() {
     let cols = crate::tui::columns::default_columns();
     let transcript =
         vec![Message { role: Role::User, blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())] }];
-    let lines =
-        crate::tui::preview::render_transcript(&transcript, &[], AgentId::Claude, app.theme(), 80);
+    let lines = crate::tui::preview::render_transcript(
+        &transcript,
+        &[],
+        AgentId::Claude,
+        app.theme(),
+        app.glyphs(),
+        80,
+    );
 
     let backend = TestBackend::new(40, 15);
     let mut term = Terminal::new(backend).unwrap();
@@ -197,8 +209,14 @@ fn wide_width_keeps_preview_and_list_floor() {
     let cols = crate::tui::columns::default_columns();
     let transcript =
         vec![Message { role: Role::User, blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())] }];
-    let lines =
-        crate::tui::preview::render_transcript(&transcript, &[], AgentId::Claude, app.theme(), 80);
+    let lines = crate::tui::preview::render_transcript(
+        &transcript,
+        &[],
+        AgentId::Claude,
+        app.theme(),
+        app.glyphs(),
+        80,
+    );
 
     let backend = TestBackend::new(140, 15);
     let mut term = Terminal::new(backend).unwrap();

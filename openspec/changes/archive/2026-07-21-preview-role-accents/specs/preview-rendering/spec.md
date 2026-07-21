@@ -1,10 +1,4 @@
-# Capability: Preview Rendering
-
-## Purpose
-
-Defines consistent transcript preview rendering across configured row styles.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Unified transcript rendering across row styles
 The preview panel SHALL use the separator-based transcript rendering

@@ -6,6 +6,7 @@
 // push the file over the ~500-line soft limit. Kept together intentionally.
 
 use crate::core::{AgentId, Block, Message, Role, SessionSummary, Transcript};
+use crate::tui::glyphs::Glyphs;
 use crate::tui::theme::Theme;
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use ratatui::style::{Color, Modifier, Style};
@@ -162,21 +163,17 @@ pub fn render_transcript(
     terms: &[String],
     agent: AgentId,
     theme: &Theme,
+    glyphs: &Glyphs,
     width: u16,
 ) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
 
     for m in msgs {
-        let role_label = match m.role {
-            Role::User => "user".to_string(),
-            Role::Agent => agent.badge().to_lowercase(),
-        };
-        out.push(thin_rule(&role_label, width, theme));
+        out.push(thin_rule(m.role, agent, glyphs, width, theme));
         for b in &m.blocks {
             match b {
                 Block::Prose(s) => {
-                    let prose = render_prose(s, theme);
-                    out.extend(prose);
+                    out.extend(render_prose(s, theme));
                 }
                 Block::Code { lang, text } => {
                     out.extend(highlight_code(text, lang.as_deref()));
@@ -194,21 +191,42 @@ pub fn render_transcript(
 }
 
 /// Build a thin rule line: `── role ────────────────`
-fn thin_rule(role: &str, width: u16, theme: &Theme) -> Line<'static> {
+fn thin_rule(
+    role: Role,
+    agent: AgentId,
+    glyphs: &Glyphs,
+    width: u16,
+    theme: &Theme,
+) -> Line<'static> {
+    let label = match role {
+        Role::User => "user".to_string(),
+        Role::Agent => {
+            let badge = agent.badge().to_lowercase();
+            let glyph = glyphs.agent(agent);
+            if glyph.is_empty() { badge } else { format!("{glyph} {badge}") }
+        }
+    };
     let prefix = "── ";
     let suffix = " ";
     let dw = crate::tui::columns::display_width;
-    let used = dw(prefix) + dw(role) + dw(suffix);
+    let used = dw(prefix) + dw(&label) + dw(suffix);
     let fill = (width as usize).saturating_sub(used);
     let rule_char = "─";
-    Line::from(vec![
-        Span::styled(prefix, Style::default().fg(theme.border)),
-        Span::styled(
-            role.to_string(),
+    let (rule_style, label_style) = match role {
+        Role::User => (
+            Style::default().fg(theme.border),
             Style::default().fg(theme.preview_text).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(suffix, Style::default().fg(theme.border)),
-        Span::styled(rule_char.repeat(fill), Style::default().fg(theme.border)),
+        Role::Agent => {
+            let style = Style::default().fg(theme.agent_color(agent));
+            (style, style.add_modifier(Modifier::BOLD))
+        }
+    };
+    Line::from(vec![
+        Span::styled(prefix, rule_style),
+        Span::styled(label, label_style),
+        Span::styled(suffix, rule_style),
+        Span::styled(rule_char.repeat(fill), rule_style),
     ])
 }
 
@@ -362,6 +380,7 @@ impl PreviewState {
         }
 
         let theme = *app.theme();
+        let glyphs = app.glyphs().clone();
         let preview_key = (sel_key.unwrap_or_default(), app.query().to_string());
         if app.preview_visible() && self.key.as_ref() != Some(&preview_key) {
             self.lines = if self.source_unavailable {
@@ -371,7 +390,7 @@ impl PreviewState {
                     .unwrap_or_default()
             } else {
                 let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
-                render_transcript(&self.transcript, terms, agent, &theme, preview_width)
+                render_transcript(&self.transcript, terms, agent, &theme, &glyphs, preview_width)
             };
             app.set_preview_matches(match_lines(&self.lines, terms));
             self.key = Some(preview_key);
@@ -383,6 +402,10 @@ impl PreviewState {
 mod tests {
     use super::*;
     use crate::core::{Block, Message, Role};
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans.iter().map(|span| span.content.as_ref()).collect()
+    }
 
     fn msgs() -> Vec<Message> {
         vec![
@@ -400,7 +423,14 @@ mod tests {
     #[test]
     fn transcript_has_role_separators() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &[],
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         let joined: String = lines
             .iter()
             .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
@@ -416,7 +446,14 @@ mod tests {
     fn first_match_line_is_found() {
         let theme = crate::tui::theme::Theme::default();
         let terms = vec!["refresh".into()];
-        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &terms,
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         let idx = first_match_line(&lines, "refresh");
         assert!(idx.is_some());
     }
@@ -425,7 +462,14 @@ mod tests {
     fn filter_tokens_are_not_match_terms() {
         let theme = crate::tui::theme::Theme::default();
         let terms = crate::query::parse("agent:claude").free_terms();
-        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &terms,
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
@@ -433,7 +477,14 @@ mod tests {
     fn match_terms_highlighted() {
         let theme = crate::tui::theme::Theme::default();
         let terms = vec!["auth".into()];
-        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &terms,
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("auth")
                 && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
@@ -572,7 +623,14 @@ mod tests {
             blocks: vec![Block::Prose("café au lait latte".into())],
         }];
         let terms = vec!["latte".into()];
-        let lines = render_transcript(&msgs, &terms, crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs,
+            &terms,
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         // did not panic; and the ASCII term is still reverse-highlighted
         let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("latte")
@@ -584,7 +642,14 @@ mod tests {
     #[test]
     fn separator_rendering_has_role_rules() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &[],
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         let joined: String = lines
             .iter()
             .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
@@ -599,10 +664,68 @@ mod tests {
     #[test]
     fn separator_role_name_is_bold() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
+        let lines = render_transcript(
+            &msgs(),
+            &[],
+            crate::core::AgentId::Claude,
+            &theme,
+            &Glyphs::ascii(),
+            80,
+        );
         let bold_role = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content == "user" && s.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
         });
         assert!(bold_role, "role name in separator should be bold");
+    }
+
+    #[test]
+    fn agent_separator_uses_brand_color_and_registered_glyph() {
+        let theme = Theme::default();
+        let mut glyphs = Glyphs::nerd();
+        glyphs.set_agent_glyph(AgentId::Claude, "✱");
+
+        let line = thin_rule(Role::Agent, AgentId::Claude, &glyphs, 40, &theme);
+
+        assert_eq!(line.spans[1].content, "✱ claude");
+        assert!(
+            line.spans.iter().all(|span| span.style.fg == Some(theme.agent_color(AgentId::Claude))),
+            "every agent separator span should use the brand color"
+        );
+    }
+
+    #[test]
+    fn user_separator_keeps_neutral_styles_and_has_no_glyph() {
+        let theme = Theme::default();
+        let mut glyphs = Glyphs::nerd();
+        glyphs.set_agent_glyph(AgentId::Claude, "✱");
+
+        let line = thin_rule(Role::User, AgentId::Claude, &glyphs, 40, &theme);
+
+        assert_eq!(line.spans[1].content, "user");
+        assert_eq!(line.spans[0].style.fg, Some(theme.border));
+        assert_eq!(line.spans[1].style.fg, Some(theme.preview_text));
+        assert_eq!(line.spans[2].style.fg, Some(theme.border));
+        assert_eq!(line.spans[3].style.fg, Some(theme.border));
+    }
+
+    #[test]
+    fn agent_body_lines_remain_undecorated() {
+        let theme = Theme::default();
+        let glyphs = Glyphs::ascii();
+        let messages = vec![Message {
+            role: Role::Agent,
+            blocks: vec![
+                Block::Prose("agent prose".into()),
+                Block::Code { lang: Some("rust".into()), text: "fn agent_code() {}".into() },
+            ],
+        }];
+
+        let lines = render_transcript(&messages, &[], AgentId::Claude, &theme, &glyphs, 80);
+        let prose = lines.iter().find(|line| line_text(line).contains("agent prose")).unwrap();
+        let code = lines.iter().find(|line| line_text(line).contains("fn agent_code")).unwrap();
+
+        assert_eq!(line_text(prose), "agent prose");
+        assert!(line_text(code).starts_with("  fn agent_code"));
+        assert!(lines.last().is_some_and(|line| line.spans.is_empty()));
     }
 }
