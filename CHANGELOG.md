@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.10](https://github.com/amittamari/hop/compare/v0.2.9...v0.2.10) - 2026-07-21
+
+### Added
+
+- *(tui)* nerd-font icon facelift with ascii fallback
+- *(tui)* add card-mode results list with KWIC snippets
+- *(openspec)* init openspec
+
+### Other
+
+- *(tui)* move toolbar inline with search header to reclaim a row
+
 ## [0.2.9](https://github.com/amittamari/hop/compare/v0.2.8...v0.2.9) - 2026-07-13
 
 ### Added
