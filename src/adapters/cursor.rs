@@ -339,6 +339,7 @@ impl Adapter for CursorAdapter {
                 model: None,
                 commit: None,
                 source: None,
+                snippet: None,
             },
             content,
             mtime: 0,

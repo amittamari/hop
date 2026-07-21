@@ -219,6 +219,8 @@ pub struct SessionSummary {
     /// non-interactive threads at index time; None ⇒ treated as interactive.
     /// Not persisted to the index (indexed sessions are all interactive).
     pub source: Option<String>,
+    /// KWIC snippet from Tantivy SnippetGenerator, populated during search.
+    pub snippet: Option<String>,
 }
 
 impl SessionSummary {

@@ -172,6 +172,151 @@ pub fn header_row(layout: &[(usize, u16)], columns: &[Column], theme: &Theme) ->
     Row::new(cells).style(Style::default().fg(theme.muted))
 }
 
+// ---------------------------------------------------------------------------
+// Card-mode rendering
+// ---------------------------------------------------------------------------
+
+/// Height of a card in lines: content (2 or 3) + 1 blank separator.
+/// Stable across selection state (accent bar doesn't change height).
+pub fn card_height(session: &SessionSummary, _selected: bool) -> u16 {
+    let content = if session.snippet.is_some() { 3 } else { 2 };
+    content + 1 // +1 blank separator
+}
+
+/// Build the lines for a single card. Returns a Vec of Lines that the caller
+/// renders as a Paragraph (optionally inside a bordered Block for the selected card).
+pub fn card_lines(session: &SessionSummary, width: u16, ctx: &RowCtx<'_>) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+
+    // Line 1: agent badge + bold title + right-aligned time
+    let time_str = rel_time(session.timestamp, ctx.now);
+    let time_w = display_width(&time_str) as u16;
+    let badge = session.agent.badge();
+    let badge_w = display_width(badge) as u16;
+    let gap = 2u16; // spaces between badge/title and title/time
+    let title_budget = width.saturating_sub(badge_w + gap + time_w + gap);
+    let title_fitted = fit(&session.title, title_budget, crate::tui::columns::Align::Left);
+
+    let mut line1_spans = vec![
+        Span::styled(badge.to_string(), Style::default().fg(ctx.theme.agent_color(session.agent))),
+        Span::raw("  "),
+    ];
+    // Highlight title terms if searching
+    let title_line =
+        Line::from(Span::styled(title_fitted, Style::default().add_modifier(Modifier::BOLD)));
+    let highlighted = if ctx.terms.is_empty() {
+        title_line
+    } else {
+        crate::tui::preview::highlight_terms(&title_line, ctx.terms, ctx.theme)
+    };
+    line1_spans.extend(highlighted.spans);
+    // Right-pad to push time to the right edge
+    let used: usize = line1_spans.iter().map(|s| display_width(&s.content)).sum();
+    let pad = (width as usize).saturating_sub(used + display_width(&time_str));
+    if pad > 0 {
+        line1_spans.push(Span::raw(" ".repeat(pad)));
+    }
+    line1_spans.push(Span::styled(time_str, Style::default().fg(ctx.theme.muted)));
+    lines.push(Line::from(line1_spans));
+
+    // Line 2: muted dot-separated metadata
+    let mut meta_parts: Vec<String> = Vec::new();
+    // repo
+    if let Some(enr) = ctx.enrichers.iter().find(|e| e.id() == "repo")
+        && let Some(v) = enr.resolve(session)
+    {
+        meta_parts.push(v.text);
+    }
+    // branch
+    if let Some(b) = &session.branch {
+        meta_parts.push(b.clone());
+    }
+    // PR (slow enricher)
+    if let Some(Some(pr)) = ctx.resolved.get(&(session.document_key(), "pr")) {
+        meta_parts.push(pr.clone());
+    }
+    // model
+    if let Some(m) = &session.model {
+        meta_parts.push(m.clone());
+    }
+    // message count
+    if session.message_count > 0 {
+        meta_parts.push(format!("{} msgs", session.message_count));
+    }
+    let meta_text = meta_parts.join(" · ");
+    let meta_fitted = fit(&meta_text, width, crate::tui::columns::Align::Left);
+    let meta_style = if session.archived {
+        Style::default().fg(ctx.theme.muted).add_modifier(Modifier::DIM)
+    } else {
+        Style::default().fg(ctx.theme.muted)
+    };
+    lines.push(Line::from(Span::styled(meta_fitted, meta_style)));
+
+    // Line 3: snippet (only when present)
+    if let Some(snippet) = &session.snippet {
+        lines.push(snippet_line(snippet, width, ctx.theme));
+    }
+
+    lines
+}
+
+/// Parse a Tantivy HTML snippet (`<b>term</b>`) into a styled Line with
+/// bold+accent on matched terms and muted for context.
+#[allow(unused_assignments)]
+fn snippet_line(html: &str, width: u16, theme: &Theme) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut remaining = html;
+    let muted = Style::default().fg(theme.muted);
+    let highlight = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
+    let mut total_w = 0usize;
+    let max_w = width as usize;
+
+    while !remaining.is_empty() && total_w < max_w {
+        if let Some(start) = remaining.find("<b>") {
+            if start > 0 {
+                let text = decode_html_entities(&remaining[..start]);
+                let budget = max_w.saturating_sub(total_w);
+                let fitted = take_up_to(&text, budget);
+                total_w += display_width(&fitted);
+                spans.push(Span::styled(fitted, muted));
+            }
+            remaining = &remaining[start + 3..];
+            if let Some(end) = remaining.find("</b>") {
+                let term = decode_html_entities(&remaining[..end]);
+                let budget = max_w.saturating_sub(total_w);
+                let fitted = take_up_to(&term, budget);
+                total_w += display_width(&fitted);
+                spans.push(Span::styled(fitted, highlight));
+                remaining = &remaining[end + 4..];
+            } else {
+                let text = decode_html_entities(remaining);
+                let budget = max_w.saturating_sub(total_w);
+                let fitted = take_up_to(&text, budget);
+                total_w += display_width(&fitted);
+                spans.push(Span::styled(fitted, highlight));
+                break;
+            }
+        } else {
+            let text = decode_html_entities(remaining);
+            let budget = max_w.saturating_sub(total_w);
+            let fitted = take_up_to(&text, budget);
+            total_w += display_width(&fitted);
+            spans.push(Span::styled(fitted, muted));
+            break;
+        }
+    }
+
+    Line::from(spans)
+}
+
+fn take_up_to(s: &str, max_width: usize) -> String {
+    crate::tui::columns::take_display_width(s, max_width)
+}
+
+fn decode_html_entities(s: &str) -> String {
+    s.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -319,5 +464,90 @@ mod tests {
         // Non-archived titles carry no marker.
         let plain = super::title_line("fix auth", 40, &[], &theme, false);
         assert_ne!(plain.spans.first().map(|s| s.content.as_ref()), Some(super::ARCHIVED_MARKER));
+    }
+
+    fn card_sess() -> SessionSummary {
+        SessionSummary {
+            id: "a".into(),
+            agent: AgentId::Claude,
+            title: "fix auth bug".into(),
+            directory: "/work/api".into(),
+            timestamp: 0,
+            message_count: 12,
+            branch: Some("feat/auth".into()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn card_height_without_snippet() {
+        let s = card_sess();
+        assert!(s.snippet.is_none());
+        assert_eq!(super::card_height(&s, false), 3); // 2 content + 1 separator
+    }
+
+    #[test]
+    fn card_height_with_snippet() {
+        let mut s = card_sess();
+        s.snippet = Some("the <b>auth</b> token expired".into());
+        assert_eq!(super::card_height(&s, false), 4); // 3 content + 1 separator
+    }
+
+    #[test]
+    fn card_height_is_stable_across_selection() {
+        let s = card_sess();
+        assert_eq!(super::card_height(&s, false), super::card_height(&s, true));
+    }
+
+    #[test]
+    fn card_lines_without_snippet_has_two_lines() {
+        let theme = Theme::default();
+        let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
+        let resolved = HashMap::new();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 3600,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+        };
+        let s = card_sess();
+        let lines = super::card_lines(&s, 80, &ctx);
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn card_lines_with_snippet_has_three_lines() {
+        let theme = Theme::default();
+        let enr: Vec<Box<dyn Enricher>> = vec![];
+        let resolved = HashMap::new();
+        let ctx = RowCtx {
+            enrichers: &enr,
+            resolved: &resolved,
+            now: 3600,
+            frame: 0,
+            terms: &[],
+            theme: &theme,
+        };
+        let mut s = card_sess();
+        s.snippet = Some("the <b>auth</b> token expired".into());
+        let lines = super::card_lines(&s, 80, &ctx);
+        assert_eq!(lines.len(), 3);
+        // The snippet line should contain the matched term
+        let snippet_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(snippet_text.contains("auth"), "snippet should contain matched term");
+    }
+
+    #[test]
+    fn snippet_line_highlights_bold_tags() {
+        let theme = Theme::default();
+        let line = super::snippet_line("before <b>match</b> after", 80, &theme);
+        let bold = line.spans.iter().any(|s| {
+            s.content.contains("match")
+                && s.style.add_modifier.contains(Modifier::BOLD)
+                && s.style.fg == Some(theme.accent)
+        });
+        assert!(bold, "matched term should be bold+accent");
     }
 }

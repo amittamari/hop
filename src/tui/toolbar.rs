@@ -97,12 +97,14 @@ fn push_control(
     theme: &Theme,
 ) {
     spans.push(Span::styled(format!("{name}: "), Style::default().fg(theme.muted)));
-    let value_style = if focused {
-        Style::default().fg(theme.selection_fg).bg(theme.accent).add_modifier(Modifier::BOLD)
+    if focused {
+        spans.push(Span::styled(
+            format!("[{value}]"),
+            Style::default().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ));
     } else {
-        Style::default().fg(theme.accent)
-    };
-    spans.push(Span::styled(format!(" {value} "), value_style));
+        spans.push(Span::styled(value.to_string(), Style::default().fg(theme.accent)));
+    }
 }
 
 #[cfg(test)]

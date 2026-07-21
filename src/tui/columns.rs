@@ -249,7 +249,7 @@ pub fn fit_end(s: &str, width: u16) -> String {
     format!("…{}", &s[start_byte..])
 }
 
-fn take_display_width(s: &str, width: usize) -> String {
+pub fn take_display_width(s: &str, width: usize) -> String {
     let mut out = String::new();
     let mut used = 0usize;
     for c in s.chars() {

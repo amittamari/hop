@@ -149,38 +149,6 @@ impl ParsedQuery {
         }
         terms
     }
-
-    pub fn filter_summary(&self) -> Option<String> {
-        let mut filters = Vec::new();
-        if !self.agents.include.is_empty() {
-            filters.push(format!(
-                "agent:{}",
-                self.agents.include.iter().map(|a| a.slug()).collect::<Vec<_>>().join(",")
-            ));
-        }
-        if !self.agents.exclude.is_empty() {
-            filters.push(format!(
-                "-agent:{}",
-                self.agents.exclude.iter().map(|a| a.slug()).collect::<Vec<_>>().join(",")
-            ));
-        }
-        for dir in &self.dirs.include {
-            filters.push(format!("dir:{dir}"));
-        }
-        for dir in &self.dirs.exclude {
-            filters.push(format!("-dir:{dir}"));
-        }
-        for repo in &self.repos.include {
-            filters.push(format!("repo:{repo}"));
-        }
-        for repo in &self.repos.exclude {
-            filters.push(format!("-repo:{repo}"));
-        }
-        if let Some(date) = self.date {
-            filters.push(date.summary());
-        }
-        if filters.is_empty() { None } else { Some(filters.join(",")) }
-    }
 }
 
 /// Compose the effective query string for simple search mode: the guided repo
@@ -466,14 +434,5 @@ mod tests {
     fn free_terms_ignore_filters_and_deduplicate() {
         let q = parse("auth agent:codex auth dir:api");
         assert_eq!(q.free_terms(), vec!["auth".to_string()]);
-    }
-
-    #[test]
-    fn filter_summary_is_parsed_not_raw_text() {
-        let q = parse("auth -agent:codex dir:api -dir:vendor repo:hop date:<2d");
-        assert_eq!(
-            q.filter_summary().as_deref(),
-            Some("-agent:codex,dir:api,-dir:vendor,repo:hop,date:<2d")
-        );
     }
 }

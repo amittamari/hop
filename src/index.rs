@@ -13,6 +13,7 @@ use tantivy::query::{
 use tantivy::schema::{
     FAST, Field, INDEXED, IndexRecordOption, STORED, STRING, Schema, TEXT, Value,
 };
+use tantivy::snippet::SnippetGenerator;
 use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term};
 
 pub const SCHEMA_VERSION: u32 = 5;
@@ -330,6 +331,13 @@ impl SearchIndex {
 
         let query = BooleanQuery::new(clauses);
 
+        let has_terms = !q.free_text.trim().is_empty();
+        let snip_gen = if has_terms {
+            SnippetGenerator::create(&searcher, &query, self.f.content).ok()
+        } else {
+            None
+        };
+
         // --- collect pages until post-filters produce enough rows or hits are exhausted ---
         let total_hits = searcher.search(&query, &Count)?;
         let mut out = Vec::new();
@@ -390,9 +398,16 @@ impl SearchIndex {
 
             for addr in addrs {
                 let doc: TantivyDocument = searcher.doc(addr)?;
-                let s = self.to_summary(&doc);
+                let mut s = self.to_summary(&doc);
                 if !dir_ok(&s.directory, q) || !repo_ok(s.repo_url.as_deref(), q) {
                     continue;
+                }
+                if let Some(sg) = &snip_gen {
+                    let snip = sg.snippet_from_doc(&doc);
+                    let frag = snip.to_html();
+                    if !frag.is_empty() {
+                        s.snippet = Some(frag);
+                    }
                 }
                 out.push(s);
                 if out.len() >= limit {
@@ -450,6 +465,7 @@ impl SearchIndex {
             // `source` is a pre-index filter signal only; indexed sessions are
             // all interactive, so it is never persisted or read back.
             source: None,
+            snippet: None,
         }
     }
 }

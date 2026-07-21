@@ -65,7 +65,11 @@ rows and surface as sync status warnings.
   concerns. `App` also owns the `SearchMode` (simple vs raw): simple mode treats
   the query line as free text and exposes a `toolbar` of Scope/Sort controls that
   compose into the same search the raw DSL drives (`query::compose_simple` +
-  `engine.set_sort`), so the Tantivy layer is unaware of the mode.
+  `engine.set_sort`), so the Tantivy layer is unaware of the mode. The results
+  list has two rendering paths controlled by `[display] row_style`: `card` (default)
+  renders multi-line cards with metadata and optional KWIC snippets via manual
+  `Rect` layout; `compact` uses the legacy single-line `Table` with the column
+  solver.
 - `src/enrich/`: per-session display enrichment. Fast enrichers are local and
   synchronous; slow enrichers run through `EnrichmentService`.
 - `src/tui/columns.rs`: column definitions and responsive width solving.
@@ -74,7 +78,7 @@ rows and surface as sync status warnings.
   sessions) executed after terminal restore and before the resume `exec`.
 - `src/config.rs`: optional TOML config, persisted UI state, and launcher
   override (`[launcher]` section with `{agent}` template for custom resume
-  binaries).
+  binaries). `[display]` section controls `row_style` (card/compact).
 - `src/update.rs`: background update checker. Queries GitHub releases API at
   startup (cached 24 hours), detects install method (Homebrew vs cargo), and
   prints an upgrade notice to stderr after the TUI exits.

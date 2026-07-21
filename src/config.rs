@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 pub struct PreviewConfig {
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub visible: bool,
     #[serde(default = "default_width_pct")]
     pub width_pct: u16,
@@ -23,7 +23,7 @@ fn default_width_pct() -> u16 {
 
 impl Default for PreviewConfig {
     fn default() -> Self {
-        PreviewConfig { visible: true, width_pct: 50, metadata_header: true }
+        PreviewConfig { visible: false, width_pct: 50, metadata_header: true }
     }
 }
 
@@ -34,6 +34,43 @@ pub struct ColumnsConfig {
     /// Optional explicit order (column ids); empty = default order.
     #[serde(default)]
     pub order: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowStyle {
+    Card,
+    Compact,
+}
+
+impl RowStyle {
+    pub fn from_config(s: &str) -> RowStyle {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "compact" => RowStyle::Compact,
+            _ => RowStyle::Card,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DisplayConfig {
+    #[serde(default = "default_row_style")]
+    pub row_style: String,
+}
+
+fn default_row_style() -> String {
+    "card".to_string()
+}
+
+impl Default for DisplayConfig {
+    fn default() -> Self {
+        DisplayConfig { row_style: "card".to_string() }
+    }
+}
+
+impl DisplayConfig {
+    pub fn resolved_row_style(&self) -> RowStyle {
+        RowStyle::from_config(&self.row_style)
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -86,6 +123,8 @@ pub struct Config {
     pub columns: ColumnsConfig,
     #[serde(default)]
     pub launcher: LauncherConfig,
+    #[serde(default)]
+    pub display: DisplayConfig,
     /// Initial search mode: `"simple"` (guided toolbar, the default) or `"raw"`
     /// (type the query DSL directly). Unknown/empty values resolve to simple.
     /// Interpreted by `tui::SearchMode::from_config`.
@@ -178,7 +217,7 @@ mod tests {
     #[test]
     fn preview_defaults() {
         let cfg = Config::default();
-        assert!(cfg.preview.visible);
+        assert!(!cfg.preview.visible);
         assert_eq!(cfg.preview.width_pct, 50);
         assert!(cfg.preview.metadata_header);
     }

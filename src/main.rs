@@ -300,6 +300,7 @@ fn run_tui(
     app.set_preview_header(config.preview.metadata_header);
     sync_results_into_app(engine, &mut app);
 
+    let row_style = config.display.resolved_row_style();
     let columns = hop::tui::columns::configured_columns(
         hop::tui::columns::default_columns(),
         &config.columns.disabled,
@@ -322,20 +323,33 @@ fn run_tui(
             } else {
                 1
             };
-            app.set_viewport_metrics(list_rows_height, preview_height);
+            let effective_list_rows = if row_style == hop::config::RowStyle::Card {
+                list_rows_height / 3
+            } else {
+                list_rows_height
+            };
+            app.set_viewport_metrics(effective_list_rows, preview_height);
             app.tick();
 
             let terms = engine.parsed_query().free_terms();
             let selected_for_preview = app.results().get(app.selected()).cloned();
+            let preview_w = if app.preview_visible() {
+                let pct = app.preview_width_pct() as u32;
+                (area.width as u32 * pct / 100).saturating_sub(3) as u16
+            } else {
+                area.width
+            };
             state.preview.update(
                 &mut app,
                 selected_for_preview.as_ref(),
                 &terms,
                 |s| engine.transcript_for(s),
                 |s| engine.indexed_content(s),
+                row_style == hop::config::RowStyle::Card,
+                preview_w,
             );
             let now = jiff::Timestamp::now().as_second();
-            let status = state.build_status(&app, engine, selected_for_preview.is_some());
+            let status = state.build_status(&app, selected_for_preview.is_some());
             let modal_command = app.yolo_modal().and_then(|(index, yolo)| {
                 app.results()
                     .get(index)
@@ -357,6 +371,7 @@ fn run_tui(
                         status: &status,
                         modal_command: modal_command.as_deref(),
                         theme: *app.theme(),
+                        row_style,
                     },
                 )
             })?;
@@ -437,7 +452,7 @@ impl LoopState {
         }
     }
 
-    fn build_status(&self, app: &App, engine: &Engine, has_selected: bool) -> StatusLine {
+    fn build_status(&self, app: &App, has_selected: bool) -> StatusLine {
         StatusLine {
             sync: self.sync_status.clone(),
             pr_pending: self.enrichment.pr_pending(),
@@ -446,7 +461,6 @@ impl LoopState {
             } else {
                 None
             },
-            filters: engine.parsed_query().filter_summary(),
         }
     }
 

@@ -421,6 +421,7 @@ impl Adapter for CodexAdapter {
                 model: ex.model,
                 commit: ex.commit,
                 source: ex.source,
+                snippet: None,
             },
             content,
             mtime: 0,

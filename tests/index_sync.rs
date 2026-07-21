@@ -288,3 +288,40 @@ fn recency_boosts_recent_over_old_with_similar_text() {
     assert_eq!(results[0].id, "new");
     assert_eq!(results[1].id, "old");
 }
+
+#[test]
+fn search_with_query_produces_snippets() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    idx.upsert(&sess(
+        "a",
+        "auth refresh",
+        "the refresh token was expired so I refreshed the credential store",
+        AgentId::Claude,
+        100,
+        1,
+    ))
+    .unwrap();
+    idx.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("refresh");
+    let results = idx.search(&q, query::SortOrder::Relevance, 1000, 50).unwrap();
+    assert_eq!(results.len(), 1);
+    let snippet = results[0].snippet.as_deref().expect("snippet should be Some for a query match");
+    assert!(snippet.contains("refresh"), "snippet should contain the query term, got: {snippet:?}");
+}
+
+#[test]
+fn empty_query_produces_no_snippets() {
+    let dir = tempfile::tempdir().unwrap();
+    let idx = SearchIndex::open_or_create(dir.path()).unwrap();
+    idx.upsert(&sess("a", "auth refresh", "token content", AgentId::Claude, 100, 1)).unwrap();
+    idx.commit().unwrap();
+    idx.reload().unwrap();
+
+    let q = query::parse("");
+    let results = idx.search(&q, query::SortOrder::Recent, 1000, 50).unwrap();
+    assert_eq!(results.len(), 1);
+    assert!(results[0].snippet.is_none(), "empty query should produce no snippet");
+}

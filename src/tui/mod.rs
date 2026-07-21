@@ -110,7 +110,7 @@ impl App {
             selected: 0,
             mode: Mode::Main,
             yolo_supported: Vec::new(),
-            preview_visible: true,
+            preview_visible: false,
             preview_width_pct: 50,
             preview_header_visible: true,
             preview_scroll: 0,
@@ -752,9 +752,9 @@ mod tests {
     #[test]
     fn ctrl_p_toggles_preview() {
         let mut app = app_with(1);
-        assert!(app.preview_visible());
-        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
         assert!(!app.preview_visible());
+        app.handle_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        assert!(app.preview_visible());
     }
 
     #[test]

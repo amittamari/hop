@@ -215,6 +215,7 @@ impl Adapter for ClaudeAdapter {
                 model: ex.model,
                 commit: None,
                 source: None,
+                snippet: None,
             },
             content,
             mtime: 0,

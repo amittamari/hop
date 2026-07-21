@@ -1,3 +1,4 @@
+use crate::config::RowStyle;
 use crate::core::SessionSummary;
 use crate::enrich::{BranchEnricher, Enricher};
 use crate::tui::columns::Column;
@@ -31,7 +32,6 @@ pub struct StatusLine {
     pub sync: Option<String>,
     pub pr_pending: usize,
     pub warning: Option<String>,
-    pub filters: Option<String>,
 }
 
 pub struct RenderModel<'a> {
@@ -44,6 +44,7 @@ pub struct RenderModel<'a> {
     pub status: &'a StatusLine,
     pub modal_command: Option<&'a [String]>,
     pub theme: Theme,
+    pub row_style: RowStyle,
 }
 
 const SELECTION_MARKER: &str = "❯ ";
@@ -140,28 +141,18 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         (body_area, None)
     };
 
-    // results table (Table owns its header; no separate header pane)
+    // results list: card mode or compact (table) mode
     let cols = model.columns;
-    let marker_w = crate::tui::columns::display_width(SELECTION_MARKER) as u16;
-    let list_inner_w = list_area.width.saturating_sub(marker_w);
-    let visible = visible_result_range(
-        app.results().len(),
-        app.selected(),
-        list_area.height.saturating_sub(1) as usize,
-    );
-    let visible_start = visible.start;
-    let visible_results = app.results().get(visible).unwrap_or(&[]);
-    if visible_results.is_empty() {
+    if app.results().is_empty() {
         let msg = empty_state_message(app.query().is_empty());
         let para = Paragraph::new(msg)
             .style(Style::default().fg(model.theme.muted))
             .alignment(Alignment::Center);
-        // Vertically center the single line within the list area.
         let y = list_area.y.saturating_add(list_area.height / 2);
         let centered =
             Rect { x: list_area.x, y, width: list_area.width, height: 1.min(list_area.height) };
         f.render_widget(para, centered);
-    } else {
+    } else if model.row_style == RowStyle::Card {
         let ctx = results_list::RowCtx {
             enrichers: model.enrichers,
             resolved: model.resolved,
@@ -170,8 +161,41 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             terms: model.query_terms,
             theme: &model.theme,
         };
-        // Compute cells once, then feed the same grid to the width solver and the
-        // row builder so `cell()` runs a single time per visible cell per frame.
+        let visible = card_visible_range(app.results(), app.selected(), list_area.height as usize);
+        let visible_start = visible.start;
+        let visible_results = app.results().get(visible).unwrap_or(&[]);
+        let sel_in_view = app.selected().saturating_sub(visible_start);
+
+        let mut y = list_area.y;
+        for (vi, session) in visible_results.iter().enumerate() {
+            let is_selected = vi == sel_in_view;
+            let h = results_list::card_height(session, is_selected);
+            if y + h > list_area.y + list_area.height {
+                break;
+            }
+            let card_area = Rect { x: list_area.x, y, width: list_area.width, height: h };
+            render_card(f, session, card_area, is_selected, &ctx);
+            y += h;
+        }
+    } else {
+        // Compact (legacy table) mode
+        let marker_w = crate::tui::columns::display_width(SELECTION_MARKER) as u16;
+        let list_inner_w = list_area.width.saturating_sub(marker_w);
+        let visible = visible_result_range(
+            app.results().len(),
+            app.selected(),
+            list_area.height.saturating_sub(1) as usize,
+        );
+        let visible_start = visible.start;
+        let visible_results = app.results().get(visible).unwrap_or(&[]);
+        let ctx = results_list::RowCtx {
+            enrichers: model.enrichers,
+            resolved: model.resolved,
+            now: model.now,
+            frame: app.frame(),
+            terms: model.query_terms,
+            theme: &model.theme,
+        };
         let grid = results_list::compute_cells(cols, visible_results, &ctx);
         let layout = results_list::layout_from_cells(cols, list_inner_w, &grid);
         let rows: Vec<Row> = visible_results
@@ -206,8 +230,9 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         f.render_widget(preview_block, area);
 
         let selected = app.results().get(app.selected());
+        let show_header = app.preview_header_visible() && model.row_style != RowStyle::Card;
         let (preview_header_area, transcript_area) =
-            if app.preview_header_visible() && selected.is_some() && inner.height >= 5 {
+            if show_header && selected.is_some() && inner.height >= 5 {
                 let [head, body] =
                     Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(inner);
                 (Some(head), body)
@@ -238,7 +263,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
 
     // footer: static hints on the left, volatile status on the right. The two
     // halves share the footer row via SpaceBetween so right-aligned status
-    // (sync/pr/filters/warning) survives clipping ahead of the static hints.
+    // (sync/pr/warning) survives clipping ahead of the static hints.
     // Build the status line once and size its region from it, rather than
     // building it a second time just to measure the width.
     let status_line = footer_status_line(model.status, &model.theme);
@@ -318,10 +343,6 @@ fn footer_status_line(status: &StatusLine, theme: &Theme) -> Line<'static> {
             format!("pr {} pending", status.pr_pending),
             Style::default().fg(theme.muted),
         ));
-    }
-    if let Some(filters) = status.filters.as_deref().filter(|s| !s.is_empty()) {
-        push_sep(&mut spans);
-        spans.push(Span::styled(format!("filters {filters}"), Style::default().fg(theme.muted)));
     }
     if let Some(warning) = status.warning.as_deref().filter(|s| !s.is_empty()) {
         push_sep(&mut spans);
@@ -438,6 +459,80 @@ fn preview_header_lines(
     vec![title_line, meta_line, rule_line]
 }
 
+const ACCENT_BAR: &str = "▎";
+
+/// Render a single card. Selected cards get a left accent bar; unselected
+/// cards get a space in the same column. Content is inset by the bar width.
+fn render_card(
+    f: &mut Frame,
+    session: &SessionSummary,
+    area: Rect,
+    selected: bool,
+    ctx: &results_list::RowCtx<'_>,
+) {
+    let content_h = area.height.saturating_sub(1); // strip trailing separator
+    let bar_w = 2u16; // accent bar + 1 space
+    let content_area = Rect {
+        x: area.x + bar_w,
+        y: area.y,
+        width: area.width.saturating_sub(bar_w),
+        height: content_h,
+    };
+    if selected {
+        for row in 0..content_h {
+            let bar_area = Rect { x: area.x, y: area.y + row, width: bar_w, height: 1 };
+            f.render_widget(
+                Paragraph::new(Span::styled(ACCENT_BAR, Style::default().fg(ctx.theme.accent))),
+                bar_area,
+            );
+        }
+    }
+    let lines = results_list::card_lines(session, content_area.width, ctx);
+    f.render_widget(Paragraph::new(lines), content_area);
+}
+
+/// Compute the visible range of cards that fit in `height` rows, keeping
+/// the selected card in view. Cards have variable height (2 or 3 content
+/// lines + border + separator).
+fn card_visible_range(results: &[SessionSummary], selected: usize, height: usize) -> Range<usize> {
+    if results.is_empty() || height == 0 {
+        return 0..0;
+    }
+    let sel = selected.min(results.len() - 1);
+
+    // Try starting from the selected card and expanding backward as far as
+    // we can fill the viewport. First, ensure the selected card fits.
+    let sel_h = results_list::card_height(&results[sel], true) as usize;
+    if sel_h > height {
+        return sel..sel + 1;
+    }
+
+    // Greedily add cards before the selected card.
+    let mut start = sel;
+    let mut used = sel_h;
+    while start > 0 {
+        let h = results_list::card_height(&results[start - 1], false) as usize;
+        if used + h > height {
+            break;
+        }
+        start -= 1;
+        used += h;
+    }
+
+    // Greedily add cards after the selected card.
+    let mut end = sel + 1;
+    while end < results.len() {
+        let h = results_list::card_height(&results[end], false) as usize;
+        if used + h > height {
+            break;
+        }
+        end += 1;
+        used += h;
+    }
+
+    start..end
+}
+
 pub fn visible_result_range(total: usize, selected: usize, height: usize) -> Range<usize> {
     if total == 0 || height == 0 {
         return 0..0;
@@ -480,6 +575,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -537,6 +633,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -572,6 +669,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -617,6 +715,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -663,6 +762,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -704,6 +804,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -730,6 +831,7 @@ mod tests {
         use std::collections::HashMap;
 
         let mut app = App::new();
+        app.set_preview(true, 50);
         app.set_results(vec![SessionSummary {
             id: "a".into(),
             agent: AgentId::Claude,
@@ -769,6 +871,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -808,7 +911,6 @@ mod tests {
             sync: Some("sync complete; parse errors 2".to_string()),
             pr_pending: 1,
             warning: Some("source unavailable".to_string()),
-            filters: Some("agent:claude".to_string()),
         };
         let command = vec![
             "claude".to_string(),
@@ -833,6 +935,7 @@ mod tests {
                     status: &status,
                     modal_command: Some(&command),
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -849,7 +952,6 @@ mod tests {
         assert!(text.contains("claude"));
         assert!(text.contains("parse errors 2"));
         assert!(text.contains("pr 1 pending"));
-        assert!(text.contains("filters agent:claude"));
         assert!(text.contains("source unavailable"));
     }
 
@@ -889,6 +991,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -934,6 +1037,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -987,6 +1091,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1055,6 +1160,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1101,6 +1207,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1149,6 +1256,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1203,6 +1311,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1263,6 +1372,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1310,6 +1420,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1366,6 +1477,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1424,6 +1536,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1486,6 +1599,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1513,12 +1627,8 @@ mod tests {
         let enr: Vec<Box<dyn Enricher>> = vec![];
         let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
         let cols = crate::tui::columns::default_columns();
-        let status = StatusLine {
-            sync: None,
-            pr_pending: 0,
-            warning: Some("WARNTOKEN".to_string()),
-            filters: None,
-        };
+        let status =
+            StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
 
         // 50 cols is too narrow for the full static hint + warning on one line;
         // the warning must still be present.
@@ -1538,6 +1648,7 @@ mod tests {
                     status: &status,
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1584,6 +1695,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: None,
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1634,6 +1746,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: Some(&command),
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })
@@ -1682,6 +1795,7 @@ mod tests {
                     status: &StatusLine::default(),
                     modal_command: Some(&command),
                     theme: Theme::default(),
+                    row_style: RowStyle::Compact,
                 },
             )
         })

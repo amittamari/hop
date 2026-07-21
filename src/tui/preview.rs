@@ -221,6 +221,63 @@ pub fn render_transcript_with_terms(
     out
 }
 
+/// Render a transcript with thin-rule message separators:
+/// `── user ────────` / `── claude ────────` with bold role name.
+pub fn render_transcript_with_separators(
+    msgs: &[Message],
+    terms: &[String],
+    agent: AgentId,
+    theme: &Theme,
+    width: u16,
+) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::new();
+
+    for m in msgs {
+        let role_label = match m.role {
+            Role::User => "user".to_string(),
+            Role::Agent => agent.badge().to_lowercase(),
+        };
+        out.push(thin_rule(&role_label, width, theme));
+        for b in &m.blocks {
+            match b {
+                Block::Prose(s) => {
+                    let prose = render_prose(s, theme);
+                    out.extend(prose);
+                }
+                Block::Code { lang, text } => {
+                    out.extend(highlight_code(text, lang.as_deref()));
+                }
+            }
+        }
+        out.push(Line::from(""));
+    }
+    if !terms.is_empty() {
+        for line in &mut out {
+            *line = highlight_terms(line, terms, theme);
+        }
+    }
+    out
+}
+
+/// Build a thin rule line: `── role ────────────────`
+fn thin_rule(role: &str, width: u16, theme: &Theme) -> Line<'static> {
+    let prefix = "── ";
+    let suffix = " ";
+    let dw = crate::tui::columns::display_width;
+    let used = dw(prefix) + dw(role) + dw(suffix);
+    let fill = (width as usize).saturating_sub(used);
+    let rule_char = "─";
+    Line::from(vec![
+        Span::styled(prefix, Style::default().fg(theme.border)),
+        Span::styled(
+            role.to_string(),
+            Style::default().fg(theme.preview_text).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(suffix, Style::default().fg(theme.border)),
+        Span::styled(rule_char.repeat(fill), Style::default().fg(theme.border)),
+    ])
+}
+
 pub fn render_indexed_fallback(content: &str, query: &str, theme: &Theme) -> Vec<Line<'static>> {
     let parsed = crate::query::parse(query);
     render_indexed_fallback_with_terms(content, &parsed.free_terms(), theme)
@@ -355,6 +412,7 @@ impl PreviewState {
         self.source_unavailable = false;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &mut self,
         app: &mut crate::tui::App,
@@ -362,6 +420,8 @@ impl PreviewState {
         terms: &[String],
         load_transcript: impl FnOnce(&SessionSummary) -> Option<Transcript>,
         load_indexed_content: impl FnOnce(&SessionSummary) -> Option<String>,
+        use_separators: bool,
+        preview_width: u16,
     ) {
         let sel_key = selected.map(|s| s.document_key());
         if app.preview_visible() && sel_key != self.transcript_for {
@@ -394,7 +454,17 @@ impl PreviewState {
                     .unwrap_or_default()
             } else {
                 let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
-                render_transcript_with_terms(&self.transcript, terms, agent, &theme)
+                if use_separators {
+                    render_transcript_with_separators(
+                        &self.transcript,
+                        terms,
+                        agent,
+                        &theme,
+                        preview_width,
+                    )
+                } else {
+                    render_transcript_with_terms(&self.transcript, terms, agent, &theme)
+                }
             };
             app.set_preview_matches(match_lines(&self.lines, terms));
             self.key = Some(preview_key);
@@ -554,6 +624,7 @@ mod tests {
     #[test]
     fn invalidate_clears_all_stale_state() {
         let mut app = crate::tui::App::new();
+        app.set_preview(true, 50);
         let session = crate::core::SessionSummary {
             id: "sess-1".into(),
             agent: crate::core::AgentId::Claude,
@@ -568,7 +639,7 @@ mod tests {
         let mut ps = PreviewState::default();
         let terms: Vec<String> = vec!["auth".into()];
         let t = transcript.clone();
-        ps.update(&mut app, Some(&session), &terms, |_| Some(t), |_| None);
+        ps.update(&mut app, Some(&session), &terms, |_| Some(t), |_| None, false, 80);
         assert!(!ps.transcript.is_empty());
         assert!(!ps.lines.is_empty());
         assert!(ps.transcript_for.is_some());
@@ -597,5 +668,42 @@ mod tests {
                 && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
         });
         assert!(any_rev);
+    }
+
+    #[test]
+    fn separator_rendering_has_role_rules() {
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript_with_separators(
+            &msgs(),
+            &[],
+            crate::core::AgentId::Claude,
+            &theme,
+            80,
+        );
+        let joined: String = lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined.contains("── user"), "user separator should be present");
+        assert!(joined.contains("── claude"), "agent separator should be present");
+        assert!(joined.contains("fix the auth bug"));
+        assert!(joined.contains("fn refresh"));
+    }
+
+    #[test]
+    fn separator_role_name_is_bold() {
+        let theme = crate::tui::theme::Theme::default();
+        let lines = render_transcript_with_separators(
+            &msgs(),
+            &[],
+            crate::core::AgentId::Claude,
+            &theme,
+            80,
+        );
+        let bold_role = lines.iter().flat_map(|l| &l.spans).any(|s| {
+            s.content == "user" && s.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
+        });
+        assert!(bold_role, "role name in separator should be bold");
     }
 }
