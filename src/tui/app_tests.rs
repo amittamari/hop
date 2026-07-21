@@ -353,10 +353,10 @@ fn esc_clears_query_then_quits() {
 fn ctrl_arrows_resize_preview() {
     let mut app = app_with(1);
     let before = app.preview_width_pct();
-    app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+    app.handle_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL));
     assert!(app.preview_width_pct() > before);
-    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
-    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+    app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
+    app.handle_key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL));
     assert!(app.preview_width_pct() < before);
 }
 
@@ -442,7 +442,7 @@ fn binding_event(keys: &str) -> Option<KeyEvent> {
         "Ctrl+U/Ctrl+D" => ev(Char('d'), ctrl),
         "Ctrl+N/Ctrl+B" => ev(Char('n'), ctrl),
         "Ctrl+P" => ev(Char('p'), ctrl),
-        "Ctrl+←/Ctrl+→" => ev(Left, ctrl),
+        "Ctrl+K/Ctrl+L" => ev(Char('l'), ctrl),
         "Ctrl+O" => ev(Char('o'), ctrl),
         "Ctrl+R" => ev(Char('r'), ctrl),
         "←/→" => ev(Left, none),

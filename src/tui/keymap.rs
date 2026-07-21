@@ -71,12 +71,12 @@ fn chord_specs() -> Vec<ChordSpec> {
         },
         ChordSpec {
             name: "resize_preview_smaller",
-            default: (ctrl, KeyCode::Left),
+            default: (ctrl, KeyCode::Char('k')),
             command: Command::ResizePreview(-1),
         },
         ChordSpec {
             name: "resize_preview_larger",
-            default: (ctrl, KeyCode::Right),
+            default: (ctrl, KeyCode::Char('l')),
             command: Command::ResizePreview(1),
         },
         ChordSpec {
@@ -372,8 +372,8 @@ mod tests {
     #[test]
     fn ctrl_arrows_resize_preview() {
         let km = Keymap::defaults();
-        assert_eq!(km.chord_action(&ctrl(KeyCode::Left)), Some(Command::ResizePreview(-1)));
-        assert_eq!(km.chord_action(&ctrl(KeyCode::Right)), Some(Command::ResizePreview(1)));
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('k'))), Some(Command::ResizePreview(-1)));
+        assert_eq!(km.chord_action(&ctrl(KeyCode::Char('l'))), Some(Command::ResizePreview(1)));
     }
 
     #[test]

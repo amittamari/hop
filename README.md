@@ -151,7 +151,7 @@ below are rebindable via `[keybindings]` in `config.toml` (see
 | `Ctrl + U` / `D` | Scroll preview pane up / down by viewport |
 | Mouse / trackpad scroll | Scroll the preview pane (when it's open) |
 | `Ctrl + N` / `B` | Go to next / previous preview match |
-| `Ctrl + ←` / `→` | Resize the preview pane |
+| `Ctrl + K` / `L` | Resize the preview pane |
 | `?` | Show help menu |
 | `Esc` | Clear the query, or quit when it's already empty |
 | `Ctrl + C` | Quit |
@@ -269,8 +269,8 @@ scroll_preview_up     = "ctrl+u"
 scroll_preview_down   = "ctrl+d"
 jump_match_prev       = "ctrl+b"
 jump_match_next       = "ctrl+n"
-resize_preview_smaller = "ctrl+left"
-resize_preview_larger  = "ctrl+right"
+resize_preview_smaller = "ctrl+k"
+resize_preview_larger  = "ctrl+l"
 open_pr                = "ctrl+o"
 toggle_search_mode     = "ctrl+r"
 quit                  = "ctrl+c"

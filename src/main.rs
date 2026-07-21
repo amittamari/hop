@@ -11,7 +11,10 @@ use hop::enrich::{BranchEnricher, Enricher, RepoEnricher};
 use hop::resume;
 use hop::tui::toolbar::Scope;
 use hop::tui::{Action, App, SearchMode, preview, view::RenderModel, view::StatusLine};
-use ratatui::crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event};
+use ratatui::crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use ratatui::crossterm::execute;
 use std::time::Duration;
 
@@ -301,9 +304,24 @@ fn run_tui(
     }
 
     let mut terminal = ratatui::init();
+
+    // Replace ratatui's panic hook with one that also cleans up mouse capture
+    // and the Kitty keyboard protocol flag we are about to push.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags, DisableMouseCapture);
+        prev_hook(info);
+    }));
+
     // `ratatui::init()` enables raw mode + the alternate screen but not mouse
     // capture, so wheel/trackpad scroll events would otherwise never reach us.
-    let _ = execute!(std::io::stdout(), EnableMouseCapture);
+    // The Kitty keyboard protocol improves modifier-key detection in supporting
+    // terminals; non-supporting terminals silently ignore the escape sequence.
+    let _ = execute!(
+        std::io::stdout(),
+        EnableMouseCapture,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    );
     let mut app = App::new();
     app.set_glyphs(glyphs);
     app.set_keymap(keymap);
@@ -439,11 +457,11 @@ fn run_tui(
         }
     })();
 
-    // Release mouse capture before restoring the terminal. This runs on every
-    // exit path (quit and resume): the caller exec-resumes only after `run_tui`
-    // returns, so the resumed agent CLI inherits a terminal with normal mouse
-    // behavior.
-    let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    // Release keyboard enhancement and mouse capture before restoring the
+    // terminal. This runs on every exit path (quit and resume): the caller
+    // exec-resumes only after `run_tui` returns, so the resumed agent CLI
+    // inherits a terminal with normal mouse and keyboard behavior.
+    let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags, DisableMouseCapture);
     ratatui::restore();
     outcome
 }
