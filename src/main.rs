@@ -348,7 +348,6 @@ fn run_tui(
                 &terms,
                 |s| engine.transcript_for(s),
                 |s| engine.indexed_content(s),
-                row_style == hop::config::RowStyle::Card,
                 preview_w,
             );
             let now = jiff::Timestamp::now().as_second();

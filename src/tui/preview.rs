@@ -155,78 +155,9 @@ pub fn render_prose(text: &str, theme: &Theme) -> Vec<Line<'static>> {
     lines
 }
 
-/// Render a full transcript into lines, applying query-term highlighting.
+/// Render a transcript into styled lines with thin-rule message separators
+/// (`── user ──────` / `── claude ──────`) and query-term highlighting.
 pub fn render_transcript(
-    msgs: &[Message],
-    query: &str,
-    agent: AgentId,
-    theme: &Theme,
-) -> Vec<Line<'static>> {
-    let parsed = crate::query::parse(query);
-    render_transcript_with_terms(msgs, &parsed.free_terms(), agent, theme)
-}
-
-pub fn render_transcript_with_terms(
-    msgs: &[Message],
-    terms: &[String],
-    agent: AgentId,
-    theme: &Theme,
-) -> Vec<Line<'static>> {
-    let mut out: Vec<Line<'static>> = Vec::new();
-
-    for (mi, m) in msgs.iter().enumerate() {
-        if mi > 0 {
-            out.push(Line::from(""));
-        }
-        match m.role {
-            Role::User => {
-                for b in &m.blocks {
-                    match b {
-                        Block::Prose(s) => {
-                            let mut prose = render_prose(s, theme);
-                            prefix_first(&mut prose, "› ", theme.accent);
-                            out.extend(prose);
-                        }
-                        Block::Code { lang, text } => {
-                            out.extend(highlight_code(text, lang.as_deref()));
-                        }
-                    }
-                }
-            }
-            Role::Agent => {
-                out.push(Line::from(vec![
-                    Span::styled("● ", Style::default().fg(theme.agent_color(agent))),
-                    Span::styled(
-                        agent.badge(),
-                        Style::default().fg(theme.agent_color(agent)).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-                for b in &m.blocks {
-                    match b {
-                        Block::Prose(s) => {
-                            let mut prose = render_prose(s, theme);
-                            indent(&mut prose, "  ");
-                            out.extend(prose);
-                        }
-                        Block::Code { lang, text } => {
-                            out.extend(highlight_code(text, lang.as_deref()));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    if !terms.is_empty() {
-        for line in &mut out {
-            *line = highlight_terms(line, terms, theme);
-        }
-    }
-    out
-}
-
-/// Render a transcript with thin-rule message separators:
-/// `── user ────────` / `── claude ────────` with bold role name.
-pub fn render_transcript_with_separators(
     msgs: &[Message],
     terms: &[String],
     agent: AgentId,
@@ -306,22 +237,6 @@ pub fn render_indexed_fallback_with_terms(
     }
     out.extend(body);
     out
-}
-
-fn prefix_first(lines: &mut [Line<'static>], prefix: &'static str, color: Color) {
-    if let Some(first) = lines.first_mut() {
-        let mut spans = vec![Span::styled(prefix, Style::default().fg(color))];
-        spans.append(&mut first.spans);
-        *first = Line::from(spans);
-    }
-}
-
-fn indent(lines: &mut [Line<'static>], pad: &'static str) {
-    for l in lines.iter_mut() {
-        let mut spans = vec![Span::raw(pad)];
-        spans.append(&mut l.spans);
-        *l = Line::from(spans);
-    }
 }
 
 /// Highlight query terms inside a line. Term matches use `Modifier::REVERSED`
@@ -423,7 +338,6 @@ impl PreviewState {
         terms: &[String],
         load_transcript: impl FnOnce(&SessionSummary) -> Option<Transcript>,
         load_indexed_content: impl FnOnce(&SessionSummary) -> Option<String>,
-        use_separators: bool,
         preview_width: u16,
     ) {
         let sel_key = selected.map(|s| s.document_key());
@@ -457,17 +371,7 @@ impl PreviewState {
                     .unwrap_or_default()
             } else {
                 let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
-                if use_separators {
-                    render_transcript_with_separators(
-                        &self.transcript,
-                        terms,
-                        agent,
-                        &theme,
-                        preview_width,
-                    )
-                } else {
-                    render_transcript_with_terms(&self.transcript, terms, agent, &theme)
-                }
+                render_transcript(&self.transcript, terms, agent, &theme, preview_width)
             };
             app.set_preview_matches(match_lines(&self.lines, terms));
             self.key = Some(preview_key);
@@ -494,23 +398,25 @@ mod tests {
     }
 
     #[test]
-    fn transcript_has_role_prefixes() {
+    fn transcript_has_role_separators() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), "", crate::core::AgentId::Claude, &theme);
+        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
         let joined: String = lines
             .iter()
             .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(joined.contains("› fix the auth bug"));
-        assert!(joined.contains("● CLAUDE"));
+        assert!(joined.contains("── user"), "user separator should be present");
+        assert!(joined.contains("── claude"), "agent separator should be present");
+        assert!(joined.contains("fix the auth bug"));
         assert!(joined.contains("fn refresh"));
     }
 
     #[test]
     fn first_match_line_is_found() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), "refresh", crate::core::AgentId::Claude, &theme);
+        let terms = vec!["refresh".into()];
+        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
         let idx = first_match_line(&lines, "refresh");
         assert!(idx.is_some());
     }
@@ -518,15 +424,16 @@ mod tests {
     #[test]
     fn filter_tokens_are_not_match_terms() {
         let theme = crate::tui::theme::Theme::default();
-        let lines =
-            render_transcript(&msgs(), "agent:claude", crate::core::AgentId::Claude, &theme);
+        let terms = crate::query::parse("agent:claude").free_terms();
+        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
         assert_eq!(first_match_line(&lines, "agent:claude"), None);
     }
 
     #[test]
     fn match_terms_highlighted() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript(&msgs(), "auth", crate::core::AgentId::Claude, &theme);
+        let terms = vec!["auth".into()];
+        let lines = render_transcript(&msgs(), &terms, crate::core::AgentId::Claude, &theme, 80);
         let any_reverse = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("auth")
                 && s.style.add_modifier.contains(ratatui::style::Modifier::REVERSED)
@@ -642,7 +549,7 @@ mod tests {
         let mut ps = PreviewState::default();
         let terms: Vec<String> = vec!["auth".into()];
         let t = transcript.clone();
-        ps.update(&mut app, Some(&session), &terms, |_| Some(t), |_| None, false, 80);
+        ps.update(&mut app, Some(&session), &terms, |_| Some(t), |_| None, 80);
         assert!(!ps.transcript.is_empty());
         assert!(!ps.lines.is_empty());
         assert!(ps.transcript_for.is_some());
@@ -664,7 +571,8 @@ mod tests {
             role: Role::User,
             blocks: vec![Block::Prose("café au lait latte".into())],
         }];
-        let lines = render_transcript(&msgs, "latte", crate::core::AgentId::Claude, &theme);
+        let terms = vec!["latte".into()];
+        let lines = render_transcript(&msgs, &terms, crate::core::AgentId::Claude, &theme, 80);
         // did not panic; and the ASCII term is still reverse-highlighted
         let any_rev = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content.contains("latte")
@@ -676,13 +584,7 @@ mod tests {
     #[test]
     fn separator_rendering_has_role_rules() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript_with_separators(
-            &msgs(),
-            &[],
-            crate::core::AgentId::Claude,
-            &theme,
-            80,
-        );
+        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
         let joined: String = lines
             .iter()
             .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
@@ -697,13 +599,7 @@ mod tests {
     #[test]
     fn separator_role_name_is_bold() {
         let theme = crate::tui::theme::Theme::default();
-        let lines = render_transcript_with_separators(
-            &msgs(),
-            &[],
-            crate::core::AgentId::Claude,
-            &theme,
-            80,
-        );
+        let lines = render_transcript(&msgs(), &[], crate::core::AgentId::Claude, &theme, 80);
         let bold_role = lines.iter().flat_map(|l| &l.spans).any(|s| {
             s.content == "user" && s.style.add_modifier.contains(ratatui::style::Modifier::BOLD)
         });
