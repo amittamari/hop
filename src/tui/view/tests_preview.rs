@@ -90,9 +90,8 @@ fn wraps_long_preview_prose() {
     let enr: Vec<Box<dyn Enricher>> = vec![];
     let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let cols = crate::tui::columns::default_columns();
-    let preview_lines = vec![Line::from(
-        "wrap-start one two three four five six seven eight nine ten wrap-end",
-    )];
+    let preview_lines =
+        vec![Line::from("wrap-start one two three four five six seven eight nine ten wrap-end")];
 
     let backend = TestBackend::new(140, 8);
     let mut term = Terminal::new(backend).unwrap();
@@ -143,10 +142,8 @@ fn narrow_width_drops_preview() {
     let enr: Vec<Box<dyn Enricher>> = vec![];
     let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let cols = crate::tui::columns::default_columns();
-    let transcript = vec![Message {
-        role: Role::User,
-        blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
-    }];
+    let transcript =
+        vec![Message { role: Role::User, blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())] }];
     let lines = crate::tui::preview::render_transcript(
         &transcript,
         app.query(),
@@ -206,10 +203,8 @@ fn wide_width_keeps_preview_and_list_floor() {
     let enr: Vec<Box<dyn Enricher>> = vec![Box::new(RepoEnricher), Box::new(BranchEnricher)];
     let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let cols = crate::tui::columns::default_columns();
-    let transcript = vec![Message {
-        role: Role::User,
-        blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())],
-    }];
+    let transcript =
+        vec![Message { role: Role::User, blocks: vec![Block::Prose("PREVIEWBODYTOKEN".into())] }];
     let lines = crate::tui::preview::render_transcript(
         &transcript,
         app.query(),

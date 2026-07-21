@@ -13,17 +13,21 @@
       `view/*.rs` ≤ 500. `cargo test` green, clippy `-D warnings` clean.
 
 ## 2. Split mod.rs
-- [ ] 2.1 Keep `tui/mod.rs` as module root: submodule decls, re-exports, shared
-      types (`SearchMode`, `Action`, `Mode`), `App` struct + `new()`.
-- [ ] 2.2 Move state accessors/mutators (`init_search`, `effective_query`, query
+- [x] 2.1 Keep `tui/mod.rs` as module root: submodule decls, shared types
+      (`SearchMode`, `Action`, `Mode`), `App` struct + `new()` + `Default`.
+- [x] 2.2 Move state accessors/mutators (`init_search`, `effective_query`, query
       and preview/selection getters/setters) into `tui/app_state.rs` as an
-      `impl App` block (+ their tests).
-- [ ] 2.3 Move key→`Action` dispatch, navigation, and modal transitions into
-      `tui/input.rs` as an `impl App` block (+ their tests).
-- [ ] 2.4 `cargo test` green; `crate::tui::{App, Action, SearchMode}` imports
-      unchanged; every resulting `.rs` file ≤ 500.
+      `impl App` block. (Child modules reach `App`'s private fields, so no
+      visibility widening was needed.)
+- [x] 2.3 Move key→`Action` dispatch, navigation, modal transitions, and the
+      `prev/next_boundary` helpers into `tui/input.rs` as an `impl App` block.
+- [x] 2.4 App behavior tests moved to `tui/app_tests.rs`. `cargo test` green;
+      `crate::tui::{App, Action, SearchMode}` imports unchanged; every resulting
+      `.rs` file ≤ 500 (mod 144, app_state 194, input 301, app_tests 491).
 
 ## 3. Verify
-- [ ] 3.1 `cargo test` and `cargo test --lib` pass.
-- [ ] 3.2 Confirm no file in `src/tui/` exceeds 500 lines (`wc -l`).
-- [ ] 3.3 Commit view split and mod split separately so a regression is bisectable.
+- [x] 3.1 `cargo test` (296) and `cargo test --lib` (244) pass.
+- [x] 3.2 Both split targets (`view.rs`, `mod.rs`) are gone/≤500. The `src/tui/`
+      files still over 500 (`preview.rs`, `results_list.rs`) are the breadcrumbed
+      test-dominated exceptions, out of scope for this change.
+- [x] 3.3 View split and mod split committed separately (bisectable).

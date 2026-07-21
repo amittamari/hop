@@ -12,12 +12,7 @@ use ratatui::backend::TestBackend;
 #[test]
 fn simple_mode_renders_scope_and_sort_toolbar() {
     let mut app = App::new();
-    app.init_search(
-        SearchMode::Simple,
-        Scope::ThisRepo,
-        Some("me/web".to_string()),
-        String::new(),
-    );
+    app.init_search(SearchMode::Simple, Scope::ThisRepo, Some("me/web".to_string()), String::new());
     let text = render_to_text(&app);
     assert!(text.contains("Scope"), "toolbar Scope control missing");
     assert!(text.contains("This repo"), "Scope value missing");

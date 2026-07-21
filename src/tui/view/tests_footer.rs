@@ -91,8 +91,7 @@ fn footer_warning_survives_narrow_width() {
     let enr: Vec<Box<dyn Enricher>> = vec![];
     let resolved: HashMap<(String, &'static str), Option<String>> = HashMap::new();
     let cols = crate::tui::columns::default_columns();
-    let status =
-        StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
+    let status = StatusLine { sync: None, pr_pending: 0, warning: Some("WARNTOKEN".to_string()) };
 
     // 50 cols is too narrow for the full static hint + warning on one line;
     // the warning must still be present.

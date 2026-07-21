@@ -47,7 +47,11 @@ pub(super) fn footer_hints_line(
 
 /// Volatile, high-priority status shown on the right of the footer. Rendered
 /// right-aligned so it survives clipping ahead of the static hints.
-pub(super) fn footer_status_line(status: &StatusLine, theme: &Theme, glyphs: &Glyphs) -> Line<'static> {
+pub(super) fn footer_status_line(
+    status: &StatusLine,
+    theme: &Theme,
+    glyphs: &Glyphs,
+) -> Line<'static> {
     let sep = glyphs.sep();
     let mut spans = Vec::new();
     let push_sep = |spans: &mut Vec<Span<'static>>| {

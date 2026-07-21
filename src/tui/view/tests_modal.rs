@@ -228,10 +228,7 @@ fn confirm_modal_for_archived_session_explains_unarchive() {
     .unwrap();
     let buf = term.backend().buffer().clone();
     let text: String = buf.content().iter().map(|c| c.symbol()).collect();
-    assert!(
-        text.contains("unarchive & resume"),
-        "archived modal title should mention unarchive"
-    );
+    assert!(text.contains("unarchive & resume"), "archived modal title should mention unarchive");
     assert!(
         text.contains("it will be unarchived first"),
         "archived modal should explain the unarchive step"
