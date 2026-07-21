@@ -154,14 +154,6 @@ impl App {
     pub fn has_repo(&self) -> bool {
         self.repo_slug.is_some()
     }
-    /// Extra body rows the simple-mode toolbar occupies (1 in simple, 0 in raw).
-    /// The run loop subtracts this from the list/preview heights it computes.
-    pub fn toolbar_rows(&self) -> u16 {
-        match self.search_mode {
-            SearchMode::Simple => 1,
-            SearchMode::Raw => 0,
-        }
-    }
 
     /// Initialize the search state from CLI/config resolution. `input` is what the
     /// query line shows (free text in simple mode, full DSL in raw mode).

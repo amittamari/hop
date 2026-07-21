@@ -74,20 +74,30 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
         return;
     }
 
-    let [header_area, toolbar_area, body_area, footer_area] = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(app.toolbar_rows()),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    let [header_area, body_area, footer_area] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(0), Constraint::Length(1)])
+            .areas(area);
+
+    // Build the toolbar line first so we can measure it and split the header.
+    let toolbar_line = if app.search_mode() == crate::tui::SearchMode::Simple {
+        crate::tui::toolbar::line(
+            app.scope(),
+            app.sort(),
+            app.toolbar_focus(),
+            app.has_repo(),
+            &model.theme,
+        )
+    } else {
+        Line::default()
+    };
+    let toolbar_w = line_display_width(&toolbar_line);
+    let [query_area, toolbar_area] =
+        Layout::horizontal([Constraint::Min(0), Constraint::Length(toolbar_w)]).areas(header_area);
 
     // search input
     let total = app.results().len();
     let pos = if total == 0 { 0 } else { app.selected() + 1 };
 
-    // The query input is always live, so the prompt and query stay bright and
-    // the caret is shown whenever no overlay is covering the input.
     let mut header = Line::from(vec![
         Span::styled(" ❯ ", Style::default().fg(model.theme.accent)),
         Span::styled(app.query().to_string(), Style::default().fg(model.theme.selection_fg)),
@@ -99,28 +109,18 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
             Style::default().fg(model.theme.muted),
         ));
     }
-    f.render_widget(Paragraph::new(header), header_area);
+    f.render_widget(Paragraph::new(header), query_area);
+    if toolbar_w > 0 {
+        f.render_widget(Paragraph::new(toolbar_line), toolbar_area);
+    }
     if !app.help_open() && !app.modal_open() {
         let query_prefix = app.query().get(..app.query_cursor()).unwrap_or(app.query());
-        let x = header_area
+        let x = query_area
             .x
             .saturating_add(crate::tui::columns::display_width(" ❯ ") as u16)
             .saturating_add(crate::tui::columns::display_width(query_prefix) as u16);
-        let x = x.min(header_area.right().saturating_sub(1));
-        f.set_cursor_position(Position::new(x, header_area.y));
-    }
-
-    // Simple-mode guided toolbar (Scope + Sort). Raw mode reserves zero rows, so
-    // `toolbar_area` is empty and nothing renders.
-    if app.toolbar_rows() > 0 {
-        let toolbar_line = crate::tui::toolbar::line(
-            app.scope(),
-            app.sort(),
-            app.toolbar_focus(),
-            app.has_repo(),
-            &model.theme,
-        );
-        f.render_widget(Paragraph::new(toolbar_line), toolbar_area);
+        let x = x.min(query_area.right().saturating_sub(1));
+        f.set_cursor_position(Position::new(x, query_area.y));
     }
 
     // body: list (| preview). The preview only appears when both requested AND
