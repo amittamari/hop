@@ -281,11 +281,18 @@ pub fn card_lines(session: &SessionSummary, width: u16, ctx: &RowCtx<'_>) -> Vec
 #[allow(unused_assignments)]
 fn snippet_line(html: &str, width: u16, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
-    let mut remaining = html;
     let muted = Style::default().fg(theme.muted);
     let highlight = Style::default().fg(theme.accent).add_modifier(Modifier::BOLD);
     let mut total_w = 0usize;
     let max_w = width as usize;
+
+    // Leading ellipsis
+    if max_w > 2 {
+        spans.push(Span::styled("...", muted));
+        total_w += 3;
+    }
+
+    let mut remaining = html;
 
     while !remaining.is_empty() && total_w < max_w {
         if let Some(start) = remaining.find("<b>") {
@@ -320,6 +327,11 @@ fn snippet_line(html: &str, width: u16, theme: &Theme) -> Line<'static> {
             spans.push(Span::styled(fitted, muted));
             break;
         }
+    }
+
+    // Trailing ellipsis
+    if total_w + 3 <= max_w {
+        spans.push(Span::styled("...", muted));
     }
 
     Line::from(spans)
@@ -569,6 +581,34 @@ mod tests {
         // The snippet line should contain the matched term
         let snippet_text: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(snippet_text.contains("auth"), "snippet should contain matched term");
+    }
+
+    #[test]
+    fn snippet_line_has_leading_and_trailing_ellipsis() {
+        let theme = Theme::default();
+        let line = super::snippet_line("the <b>auth</b> token expired", 80, &theme);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.starts_with("..."), "snippet must start with '...': {text:?}");
+        assert!(text.ends_with("..."), "snippet must end with '...': {text:?}");
+        assert!(text.contains("auth"), "snippet must contain matched term");
+    }
+
+    #[test]
+    fn snippet_line_preserves_inter_fragment_separator() {
+        let theme = Theme::default();
+        let line = super::snippet_line("first <b>match</b>...second <b>hit</b>", 80, &theme);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("...second"), "inter-fragment ... preserved from Tantivy: {text:?}");
+    }
+
+    #[test]
+    fn snippet_line_ellipsis_fits_within_width_budget() {
+        let theme = Theme::default();
+        let line = super::snippet_line("the <b>auth</b> token expired", 10, &theme);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let w = crate::tui::columns::display_width(&text);
+        assert!(w <= 10, "snippet must fit within width budget: {text:?} (w={w})");
+        assert!(text.starts_with("..."), "leading ... even on narrow: {text:?}");
     }
 
     fn line_text(lines: &[Line<'static>], i: usize) -> String {
