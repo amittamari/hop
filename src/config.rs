@@ -67,7 +67,7 @@ impl Default for DisplayConfig {
             row_style: "card".to_string(),
             icons: true,
             visible: false,
-            width_pct: 50,
+            width_pct: 30,
             metadata_header: true,
         }
     }
@@ -200,7 +200,7 @@ mod tests {
     fn preview_defaults() {
         let cfg = Config::default();
         assert!(!cfg.display.visible);
-        assert_eq!(cfg.display.width_pct, 50);
+        assert_eq!(cfg.display.width_pct, 30);
         assert!(cfg.display.metadata_header);
     }
 
