@@ -1,6 +1,6 @@
 use crate::core::AgentId;
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -11,7 +11,11 @@ fn default_width_pct() -> u16 {
     50
 }
 
-#[derive(Debug, Default, Deserialize)]
+fn is_default<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+#[derive(Debug, Default, PartialEq, Deserialize, Serialize)]
 pub struct ColumnsConfig {
     #[serde(default)]
     pub disabled: Vec<String>,
@@ -35,7 +39,7 @@ impl RowStyle {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DisplayConfig {
     #[serde(default = "default_row_style")]
     pub row_style: String,
@@ -79,8 +83,9 @@ impl DisplayConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, PartialEq, Deserialize, Serialize)]
 pub struct LauncherConfig {
+    #[serde(default)]
     pub command: Option<String>,
 }
 
@@ -112,28 +117,87 @@ fn rewrite_argv_inner(tmpl: &str, agent: AgentId, argv: &[String]) -> anyhow::Re
     Ok(prefix)
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct Config {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub data_dirs: HashMap<String, PathBuf>,
     // theme reserved for later tasks; parsed leniently.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub theme: HashMap<String, String>,
     /// Ctrl-chord overrides, keyed by command name (e.g. `toggle_preview`).
     /// Resolved by `tui::keymap::Keymap::from_config`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub keybindings: HashMap<String, String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub columns: ColumnsConfig,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_default")]
     pub launcher: LauncherConfig,
     #[serde(default)]
     pub display: DisplayConfig,
     /// Initial search mode: `"simple"` (guided toolbar, the default) or `"raw"`
     /// (type the query DSL directly). Unknown/empty values resolve to simple.
     /// Interpreted by `tui::SearchMode::from_config`.
-    #[serde(default)]
+    #[serde(default = "default_search_mode")]
     pub search_mode: String,
+}
+
+fn default_search_mode() -> String {
+    "simple".to_owned()
+}
+
+pub mod commands;
+
+pub fn config_path() -> Option<PathBuf> {
+    directories::ProjectDirs::from("dev", "hop", "hop")
+        .map(|dirs| dirs.config_dir().join("config.toml"))
+}
+
+pub fn config_template() -> &'static str {
+    r#"## hop configuration
+## Uncomment and edit the settings you want to change.
+## Full documentation: https://github.com/amittamari/hop
+
+## Override default data directories per agent.
+# [data_dirs]
+# claude = "~/.claude/projects"
+# codex = "~/.codex"
+# cursor = "~/.cursor/projects"
+
+## Display settings.
+# [display]
+## Row style: "card" (multi-line, default) or "compact" (single-line table).
+# row_style = "card"
+## Nerd Font icons. Set to false if your font lacks Private Use Area glyphs.
+# icons = true
+## Whether the preview pane starts visible.
+# visible = false
+## Preview pane width as a percentage of the terminal width.
+# width_pct = 30
+## Show metadata header above the preview (compact row style only).
+# metadata_header = true
+
+## Initial search mode: "simple" (guided toolbar, default) or "raw" (DSL).
+# search_mode = "simple"
+
+## Column visibility and order.
+# [columns]
+## Hide columns by id (e.g. "pr", "msgs", "agent", "branch").
+# disabled = []
+## Explicit column order (column ids). Empty = default order.
+# order = []
+
+## Keybinding overrides, keyed by command name.
+# [keybindings]
+# toggle_preview = "ctrl+p"
+# quit = "ctrl+c"
+
+## Launcher command template. {agent} is replaced with the agent slug.
+# [launcher]
+# command = "kv --ai {agent}"
+
+## Theme overrides (reserved for future use).
+# [theme]
+"#
 }
 
 impl Config {
@@ -291,6 +355,25 @@ mod tests {
         let cfg = LauncherConfig { command: Some("kv {unknown}".into()) };
         let argv: Vec<String> = vec!["claude".into()];
         assert!(cfg.rewrite_argv(AgentId::Claude, &argv).unwrap().is_err());
+    }
+
+    #[test]
+    fn template_parses_when_uncommented() {
+        let template = super::config_template();
+        let uncommented: String = template
+            .lines()
+            .map(|line| {
+                if let Some(rest) = line.strip_prefix("# ") {
+                    rest
+                } else if line == "#" {
+                    ""
+                } else {
+                    line
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Config::from_toml_str(&uncommented).expect("template should parse as valid config");
     }
 
     #[test]

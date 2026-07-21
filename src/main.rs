@@ -42,6 +42,15 @@ fn main() -> Result<()> {
 
     if let Some(cmd) = &cli.command {
         return match cmd {
+            hop::cli::Command::Config { action } => {
+                use hop::config::commands;
+                match action {
+                    hop::cli::ConfigAction::Init => commands::cmd_init(),
+                    hop::cli::ConfigAction::Edit => commands::cmd_edit(),
+                    hop::cli::ConfigAction::Show => commands::cmd_show(),
+                    hop::cli::ConfigAction::Path => commands::cmd_path(),
+                }
+            }
             hop::cli::Command::Meta { action } => match action {
                 hop::cli::MetaAction::Capture { agent, event } => {
                     let result: anyhow::Result<()> = (|| {

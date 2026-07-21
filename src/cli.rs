@@ -39,6 +39,11 @@ pub struct Cli {
 
 #[derive(ClapSubcommand, Debug)]
 pub enum Command {
+    /// Manage configuration file.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Manage session metadata hooks.
     Hooks {
         #[command(subcommand)]
@@ -49,6 +54,18 @@ pub enum Command {
         #[command(subcommand)]
         action: MetaAction,
     },
+}
+
+#[derive(ClapSubcommand, Debug)]
+pub enum ConfigAction {
+    /// Scaffold a commented config template.
+    Init,
+    /// Open the config file in your editor.
+    Edit,
+    /// Print the effective configuration.
+    Show,
+    /// Print the config file path.
+    Path,
 }
 
 #[derive(ClapSubcommand, Debug)]
