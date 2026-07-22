@@ -8,7 +8,7 @@ fn default_true() -> bool {
     true
 }
 fn default_width_pct() -> u16 {
-    50
+    30
 }
 
 fn is_default<T: Default + PartialEq>(v: &T) -> bool {
@@ -68,10 +68,10 @@ fn default_row_style() -> String {
 impl Default for DisplayConfig {
     fn default() -> Self {
         DisplayConfig {
-            row_style: "card".to_string(),
+            row_style: default_row_style(),
             icons: true,
             visible: false,
-            width_pct: 30,
+            width_pct: default_width_pct(),
             metadata_header: true,
         }
     }
@@ -295,6 +295,16 @@ mod tests {
         // Unset icons with an otherwise-present [display] stays on.
         let cfg = Config::from_toml_str("[display]\nrow_style = \"compact\"\n").unwrap();
         assert!(cfg.display.icons);
+    }
+
+    #[test]
+    fn preview_width_same_with_or_without_config_file() {
+        let no_file = Config::default().display.width_pct;
+        let partial = Config::from_toml_str("[display]\nrow_style = \"compact\"\n")
+            .unwrap()
+            .display
+            .width_pct;
+        assert_eq!(no_file, partial);
     }
 
     #[test]
