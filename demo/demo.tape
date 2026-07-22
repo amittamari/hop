@@ -39,9 +39,13 @@ Sleep 2.8s
 Type "preview"
 Sleep 2.6s
 
-# --- Browse results; the preview pane updates per selection ------------------
+# --- Browse results without preview -----------------------------------------
 Down
 Sleep 1.2s
+
+# --- Toggle the preview pane on; it renders for the selected session --------
+Ctrl+P
+Sleep 1.8s
 
 # --- Preview: jump to the next highlighted match, then scroll ----------------
 Ctrl+N

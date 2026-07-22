@@ -104,7 +104,7 @@ def write_config(root):
     with open(os.path.join(cfg_dir, "config.toml"), "w") as f:
         # Disable background PR resolution so the demo stays deterministic and
         # makes no network/gh calls mid-recording.
-        f.write("[columns]\ndisabled = [\"pr\"]\n\n[preview]\nvisible = true\nwidth_pct = 50\n")
+        f.write("[columns]\ndisabled = [\"pr\"]\n")
 
 
 def main():
