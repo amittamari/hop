@@ -510,6 +510,56 @@ fn every_binding_is_handled() {
     }
 }
 
+#[test]
+fn scroll_preview_clamps_at_content_end() {
+    let mut app = app_with(1);
+    app.set_viewport_metrics(6, 10); // scroll_step = 9
+    app.set_preview_line_count(20);
+    // Scroll twice: 0 + 9 = 9, 9 + 9 = 18; both within 19 (max).
+    app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert_eq!(app.preview_scroll(), 9);
+    app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert_eq!(app.preview_scroll(), 18);
+    // Third scroll would hit 27, but clamped to 19.
+    app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert_eq!(app.preview_scroll(), 19);
+}
+
+#[test]
+fn jump_match_then_scroll_clamps() {
+    let mut app = app_with(1);
+    app.set_viewport_metrics(6, 10); // scroll_step = 9
+    app.set_preview_line_count(15);
+    app.set_preview_matches(vec![12]);
+    // Match jumps to line 12; Ctrl+D adds 9 → 21, clamped to 14.
+    app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert_eq!(app.preview_scroll(), 14);
+}
+
+#[test]
+fn mouse_scroll_clamps_at_content_end() {
+    let mut app = app_with(1);
+    app.set_preview(true, 50);
+    app.set_preview_line_count(5);
+    for _ in 0..10 {
+        app.handle_mouse(scroll(MouseEventKind::ScrollDown));
+    }
+    assert_eq!(app.preview_scroll(), 4);
+}
+
+#[test]
+fn smaller_line_count_reclamps_scroll() {
+    let mut app = app_with(1);
+    app.set_preview_line_count(100);
+    app.set_viewport_metrics(6, 50);
+    // Scroll deep.
+    app.handle_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL));
+    assert_eq!(app.preview_scroll(), 49);
+    // Shrink content — scroll must re-clamp.
+    app.set_preview_line_count(10);
+    assert_eq!(app.preview_scroll(), 9);
+}
+
 /// H3 decision (documented): the yolo confirm modal owns its own inline
 /// legend ("Tab toggles yolo · Enter resumes · Esc cancels"). `?` is NOT
 /// routed to help from the modal — it intentionally does nothing. The

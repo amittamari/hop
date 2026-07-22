@@ -29,6 +29,7 @@ impl App {
         };
         let next = self.preview_scroll as i32 + delta;
         self.preview_scroll = next.max(0) as u16;
+        self.clamp_preview_scroll();
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Action {
@@ -177,6 +178,7 @@ impl App {
                 let delta = d as i32 * i32::from(self.preview_scroll_step);
                 let next = self.preview_scroll as i32 + delta;
                 self.preview_scroll = next.max(0) as u16;
+                self.clamp_preview_scroll();
                 Action::None
             }
             keymap::Command::JumpPreviewMatch(d) => {
@@ -292,6 +294,7 @@ impl App {
         let next = (self.preview_match_index as i32 + delta as i32).rem_euclid(len);
         self.preview_match_index = next as usize;
         self.preview_scroll = self.preview_matches[self.preview_match_index];
+        self.clamp_preview_scroll();
     }
 
     /// Enter opens the confirmation modal when the session needs confirmation

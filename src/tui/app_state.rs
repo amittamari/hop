@@ -185,10 +185,23 @@ impl App {
         self.list_page_size = usize::from(list_rows_height.saturating_sub(1).max(1));
         self.preview_scroll_step = preview_height.saturating_sub(1).max(1);
     }
+    pub fn set_preview_line_count(&mut self, n: usize) {
+        self.preview_line_count = n.min(u16::MAX as usize) as u16;
+        self.clamp_preview_scroll();
+    }
+
+    pub(super) fn clamp_preview_scroll(&mut self) {
+        if self.preview_line_count > 0 {
+            let max = self.preview_line_count.saturating_sub(1);
+            self.preview_scroll = self.preview_scroll.min(max);
+        }
+    }
+
     pub fn set_preview_matches(&mut self, matches: Vec<usize>) {
         self.preview_matches =
             matches.into_iter().map(|line| line.min(u16::MAX as usize) as u16).collect();
         self.preview_match_index = 0;
         self.preview_scroll = self.preview_matches.first().copied().unwrap_or(0);
+        self.clamp_preview_scroll();
     }
 }

@@ -392,6 +392,7 @@ impl PreviewState {
                 let agent = selected.map(|s| s.agent).unwrap_or(AgentId::Claude);
                 render_transcript(&self.transcript, terms, agent, &theme, &glyphs, preview_width)
             };
+            app.set_preview_line_count(self.lines.len());
             app.set_preview_matches(match_lines(&self.lines, terms));
             self.key = Some(preview_key);
         }
