@@ -251,3 +251,38 @@ fn min_height_keeps_header_body_footer() {
     assert!(text.contains("fix auth"), "list row missing: {text:?}");
     assert!(text.contains("type to search"), "footer missing: {text:?}");
 }
+
+#[test]
+fn preview_inner_width_normal_split() {
+    // 200 cols at 50%: layout gives 100 to preview, minus 2 for border+padding.
+    let w = preview_inner_width(200, 50);
+    assert_eq!(w, 98);
+}
+
+#[test]
+fn preview_inner_width_list_min_dominates() {
+    // 100 cols at 70%: layout would give 70 to preview, but LIST_MIN_WIDTH (48)
+    // forces the list to keep 48, leaving only 52 for preview → inner 50.
+    let w = preview_inner_width(100, 70);
+    assert_eq!(w, 50);
+}
+
+#[test]
+fn preview_inner_width_below_threshold_returns_zero() {
+    let w = preview_inner_width(80, 50);
+    assert_eq!(w, 0);
+}
+
+#[test]
+fn preview_inner_width_border_padding_deduction() {
+    // Verify the deduction is exactly 2 (1 border + 1 padding).
+    let w_full = {
+        let body = Rect { x: 0, y: 0, width: 140, height: 1 };
+        let [_, preview] =
+            Layout::horizontal([Constraint::Min(LIST_MIN_WIDTH), Constraint::Percentage(50)])
+                .areas(body);
+        preview.width
+    };
+    let w_inner = preview_inner_width(140, 50);
+    assert_eq!(w_full - w_inner, 2);
+}

@@ -51,6 +51,23 @@ pub struct RenderModel<'a> {
     pub row_style: RowStyle,
 }
 
+pub const PREVIEW_MIN_WIDTH: u16 = 100;
+pub const LIST_MIN_WIDTH: u16 = 48;
+
+/// The inner width of the preview pane after layout, border, and padding,
+/// matching the geometry used by `render()`.
+pub fn preview_inner_width(body_width: u16, preview_pct: u16) -> u16 {
+    if body_width < PREVIEW_MIN_WIDTH {
+        return 0;
+    }
+    let body = Rect { x: 0, y: 0, width: body_width, height: 1 };
+    let [_, preview] =
+        Layout::horizontal([Constraint::Min(LIST_MIN_WIDTH), Constraint::Percentage(preview_pct)])
+            .areas(body);
+    // Block::borders(LEFT) = 1 col, Padding::left(1) = 1 col
+    preview.width.saturating_sub(2)
+}
+
 /// Braille throbber frames. The vocabulary now lives in the `glyphs` module
 /// (centralized glyph ownership); re-exported here so existing call sites and
 /// tests keep referring to `view::SPINNER_FRAMES`.
@@ -123,9 +140,7 @@ pub fn render(f: &mut Frame, app: &App, model: RenderModel<'_>) {
     // body: list (| preview). The preview only appears when both requested AND
     // there is room for it without starving the list grid. Below the width
     // threshold the list takes the whole body. When shown, the list side is
-    // floored at Min(48) so its columns never collapse.
-    const PREVIEW_MIN_WIDTH: u16 = 100;
-    const LIST_MIN_WIDTH: u16 = 48;
+    // floored at LIST_MIN_WIDTH so its columns never collapse.
     let (list_area, preview_area) = if app.preview_visible() && body_area.width >= PREVIEW_MIN_WIDTH
     {
         let pw = app.preview_width_pct();

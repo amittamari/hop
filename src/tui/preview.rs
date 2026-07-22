@@ -330,7 +330,7 @@ pub fn match_lines(lines: &[Line<'static>], terms: &[String]) -> Vec<usize> {
 pub struct PreviewState {
     transcript: Vec<Message>,
     transcript_for: Option<String>,
-    key: Option<(String, String)>,
+    key: Option<(String, String, u16)>,
     source_unavailable: bool,
     pub lines: Vec<Line<'static>>,
 }
@@ -381,7 +381,7 @@ impl PreviewState {
 
         let theme = *app.theme();
         let glyphs = app.glyphs().clone();
-        let preview_key = (sel_key.unwrap_or_default(), app.query().to_string());
+        let preview_key = (sel_key.unwrap_or_default(), app.query().to_string(), preview_width);
         if app.preview_visible() && self.key.as_ref() != Some(&preview_key) {
             self.lines = if self.source_unavailable {
                 selected

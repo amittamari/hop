@@ -363,12 +363,12 @@ fn run_tui(
 
             let terms = engine.parsed_query().free_terms();
             let selected_for_preview = app.results().get(app.selected()).cloned();
-            let preview_w = if app.preview_visible() {
-                let pct = app.preview_width_pct() as u32;
-                (area.width as u32 * pct / 100).saturating_sub(3) as u16
-            } else {
-                area.width
-            };
+            let preview_w =
+                if app.preview_visible() && area.width >= hop::tui::view::PREVIEW_MIN_WIDTH {
+                    hop::tui::view::preview_inner_width(area.width, app.preview_width_pct())
+                } else {
+                    area.width
+                };
             state.preview.update(
                 &mut app,
                 selected_for_preview.as_ref(),
