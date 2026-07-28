@@ -146,10 +146,13 @@ fn default_search_mode() -> String {
 }
 
 pub mod commands;
+pub mod paths;
 
+pub use paths::ConfigPathInputs;
+
+/// The config file path, whether or not it exists. See `paths` for the rules.
 pub fn config_path() -> Option<PathBuf> {
-    directories::ProjectDirs::from("dev", "hop", "hop")
-        .map(|dirs| dirs.config_dir().join("config.toml"))
+    paths::resolve(&ConfigPathInputs::from_env())
 }
 
 pub fn config_template() -> &'static str {
@@ -201,18 +204,23 @@ pub fn config_template() -> &'static str {
 }
 
 impl Config {
-    /// Load from the platform config dir; missing file => defaults.
+    /// Load from the resolved config path; missing file => defaults.
     pub fn load() -> Result<Config> {
-        let Some(dirs) = directories::ProjectDirs::from("dev", "hop", "hop") else {
+        Config::load_from_inputs(&ConfigPathInputs::from_env())
+    }
+
+    /// `load` with resolution inputs supplied, so loading is testable without
+    /// touching the real environment or home directory.
+    pub fn load_from_inputs(inputs: &ConfigPathInputs) -> Result<Config> {
+        let Some(path) = paths::resolve(inputs) else {
             return Ok(Config::default());
         };
-        let path = dirs.config_dir().join("config.toml");
         if !path.exists() {
             return Ok(Config::default());
         }
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        Config::from_toml_str(&text)
+        Config::from_toml_str(&text).with_context(|| format!("reading {}", path.display()))
     }
 
     pub fn from_toml_str(s: &str) -> Result<Config> {
@@ -239,6 +247,82 @@ impl Config {
 mod tests {
     use super::*;
     use crate::core::AgentId;
+
+    /// Writes `body` to `<home>/<rel>` and returns inputs rooted at that home.
+    fn home_with_config(home: &std::path::Path, rel: &str, body: &str) -> ConfigPathInputs {
+        let path = home.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, body).unwrap();
+        ConfigPathInputs { home: Some(home.to_path_buf()), ..ConfigPathInputs::default() }
+    }
+
+    #[test]
+    fn loads_config_from_documented_xdg_path() {
+        let home = tempfile::tempdir().unwrap();
+        let inputs = home_with_config(
+            home.path(),
+            ".config/hop/config.toml",
+            "[launcher]\ncommand = \"kv --ai {agent}\"\n",
+        );
+        let cfg = Config::load_from_inputs(&inputs).unwrap();
+        assert_eq!(cfg.launcher.command.as_deref(), Some("kv --ai {agent}"));
+    }
+
+    /// The legacy macOS location is no longer read; a config there yields defaults.
+    #[test]
+    fn ignores_legacy_macos_config() {
+        let home = tempfile::tempdir().unwrap();
+        let inputs = home_with_config(
+            home.path(),
+            "Library/Application Support/dev.hop.hop/config.toml",
+            "[launcher]\ncommand = \"kv --ai {agent}\"\n",
+        );
+        let cfg = Config::load_from_inputs(&inputs).unwrap();
+        assert_eq!(cfg.launcher.command, None);
+    }
+
+    #[test]
+    fn defaults_when_resolved_path_is_missing() {
+        let home = tempfile::tempdir().unwrap();
+        let inputs =
+            ConfigPathInputs { home: Some(home.path().to_path_buf()), ..Default::default() };
+        let cfg = Config::load_from_inputs(&inputs).unwrap();
+        assert_eq!(cfg.launcher.command, None);
+        assert_eq!(cfg.display.width_pct, Config::default().display.width_pct);
+    }
+
+    #[test]
+    fn defaults_when_no_path_resolves() {
+        let cfg = Config::load_from_inputs(&ConfigPathInputs::default()).unwrap();
+        assert_eq!(cfg.launcher.command, None);
+        assert_eq!(cfg.display.width_pct, Config::default().display.width_pct);
+    }
+
+    /// A malformed config must fail loudly with its path, not silently default —
+    /// silent fallback is the failure mode this whole change exists to remove.
+    #[test]
+    fn malformed_config_errors_with_path() {
+        let home = tempfile::tempdir().unwrap();
+        let inputs =
+            home_with_config(home.path(), ".config/hop/config.toml", "this is not = valid = toml");
+        let err = Config::load_from_inputs(&inputs).unwrap_err();
+        let rendered = format!("{err:#}");
+        assert!(rendered.contains("config.toml"), "error lacked the path: {rendered}");
+    }
+
+    #[test]
+    fn load_honors_hop_config_override() {
+        let dir = tempfile::tempdir().unwrap();
+        let explicit = dir.path().join("alt.toml");
+        std::fs::write(&explicit, "search_mode = \"raw\"\n").unwrap();
+        let inputs = ConfigPathInputs {
+            hop_config: Some(explicit),
+            home: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let cfg = Config::load_from_inputs(&inputs).unwrap();
+        assert_eq!(cfg.search_mode, "raw");
+    }
 
     #[test]
     fn defaults_when_no_file() {

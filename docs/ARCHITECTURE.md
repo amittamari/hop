@@ -86,10 +86,12 @@ rows and surface as sync status warnings.
 - `src/resume.rs`: terminal-safe process handoff through `exec`, plus an
   optional run-and-wait prepare step (e.g. `codex unarchive <id>` for archived
   sessions) executed after terminal restore and before the resume `exec`.
-- `src/config.rs`: optional TOML config, persisted UI state, and launcher
+- `src/config/`: optional TOML config, persisted UI state, and launcher
   override (`[launcher]` section with `{agent}` template for custom resume
   binaries). `[display]` section controls `row_style` (card/compact) and `icons`
-  (nerd-font icon layer, default on / opt-out).
+  (nerd-font icon layer, default on / opt-out). `config/paths.rs` owns config file
+  location as a pure function over injected inputs (see `P-004`);
+  `config/commands.rs` backs the `hop config` subcommands.
 - `src/update.rs`: background update checker. Queries GitHub releases API at
   startup (cached 24 hours), detects install method (Homebrew vs cargo), and
   shows a compact upgrade indicator (`↑ v<version>`) in the TUI footer status.
@@ -215,6 +217,16 @@ These are current architectural seams worth tracking before expanding the app:
   through `Adapter::agent_glyph` instead; realigning `agent_color` the same way
   (adapter-provided brand color injected into `Theme`) is the intended fix but is
   out of scope for the icon facelift.
+- **P-004 Config And Cache Dirs Use Different Conventions:** Config resolution
+  (`config/paths.rs`) is XDG-only and identical on macOS and Linux —
+  `$HOP_CONFIG`, else `$XDG_CONFIG_HOME/hop/config.toml`, else
+  `~/.config/hop/config.toml`. Cache and data paths (`hop_dirs()` in `main.rs`)
+  still use `directories::ProjectDirs`, so on macOS they land in
+  `~/Library/Caches/dev.hop.hop`. The asymmetry is deliberate, not an oversight:
+  the config file is hand-edited and documented, so it must live where the README
+  says, while caches are machine-managed and invisible. `ProjectDirs::config_dir()`
+  was what put macOS configs in `~/Library/Application Support` and made a config
+  at the documented path silently ignored — do not reintroduce it for config.
 
 Pressure points are not permanent architecture. Do not fix them opportunistically
 during unrelated work, but when a pressure point is resolved, update or remove

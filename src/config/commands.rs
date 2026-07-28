@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-use super::{Config, config_path, config_template};
+use super::{Config, ConfigPathInputs, config_path, config_template, paths};
 
 fn resolve_path() -> Result<std::path::PathBuf> {
     config_path().context("could not determine config directory")
@@ -26,11 +26,37 @@ pub fn cmd_path() -> Result<()> {
     Ok(())
 }
 
+/// Notice shown when scaffolding a config while a pre-0.4.0 macOS config is
+/// still sitting in `~/Library/Application Support`. Kept as a pure formatter so
+/// it is testable on every platform, not just macOS.
+fn stale_legacy_notice(legacy: &Path, current: &Path) -> String {
+    format!(
+        "note: found an old config at {}\n      \
+         hop no longer reads that location. To keep those settings:\n      \
+         mv {legacy:?} {current:?}",
+        legacy.display()
+    )
+}
+
+/// The stale-config notice for this machine, if one applies. The macOS gate
+/// lives here rather than in `paths` so the path helper stays platform-neutral.
+fn legacy_notice_for_env(current: &Path) -> Option<String> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let home = ConfigPathInputs::from_env().home?;
+    let legacy = paths::legacy_macos_config(&home)?;
+    Some(stale_legacy_notice(&legacy, current))
+}
+
 pub fn cmd_init() -> Result<()> {
     let path = resolve_path()?;
     if path.exists() {
         eprintln!("config already exists: {}", path.display());
         return Ok(());
+    }
+    if let Some(notice) = legacy_notice_for_env(&path) {
+        eprintln!("{notice}");
     }
     write_template(&path)?;
     eprintln!("created {}", path.display());
@@ -105,6 +131,44 @@ mod tests {
         let reparsed: Config = toml::from_str(&text).unwrap();
         assert!(!reparsed.display.icons);
         assert_eq!(reparsed.display.width_pct, 60);
+    }
+
+    #[test]
+    fn stale_legacy_notice_names_both_paths() {
+        let legacy = Path::new("/Users/x/Library/Application Support/dev.hop.hop/config.toml");
+        let current = Path::new("/Users/x/.config/hop/config.toml");
+        let notice = stale_legacy_notice(legacy, current);
+        assert!(notice.contains("Application Support/dev.hop.hop/config.toml"), "{notice}");
+        assert!(notice.contains("/Users/x/.config/hop/config.toml"), "{notice}");
+        assert!(notice.contains("no longer reads"), "{notice}");
+        // The move hint must quote the path — `Application Support` has a space.
+        assert!(notice.contains("mv \"/Users/x/Library/Application Support"), "{notice}");
+    }
+
+    /// The notice is advisory: scaffolding still happens and the old file is
+    /// left untouched.
+    #[test]
+    fn init_still_scaffolds_alongside_a_legacy_config() {
+        let home = tempfile::tempdir().unwrap();
+        let legacy_dir = home.path().join("Library/Application Support/dev.hop.hop");
+        std::fs::create_dir_all(&legacy_dir).unwrap();
+        let legacy = legacy_dir.join("config.toml");
+        std::fs::write(&legacy, "search_mode = \"raw\"").unwrap();
+
+        let current = home.path().join(".config/hop/config.toml");
+        assert!(paths::legacy_macos_config(home.path()).is_some());
+        assert!(!stale_legacy_notice(&legacy, &current).is_empty());
+
+        write_template(&current).unwrap();
+        assert!(current.exists());
+        // The legacy file is never read, moved, or rewritten.
+        assert_eq!(std::fs::read_to_string(&legacy).unwrap(), "search_mode = \"raw\"");
+    }
+
+    #[test]
+    fn no_legacy_notice_without_a_legacy_file() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(paths::legacy_macos_config(home.path()), None);
     }
 
     #[test]

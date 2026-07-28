@@ -240,7 +240,20 @@ Leftover width is dynamically allocated to the conversation Title.
 
 ## ⚙️ Configuration
 
-An optional configuration file can be created in your platform's config directory (e.g., `~/.config/hop/config.toml`).
+An optional configuration file lives at `~/.config/hop/config.toml`, on both macOS and Linux.
+`hop` resolves it in this order:
+
+1. `$HOP_CONFIG`, if set — an explicit path to a config *file*, used as-is.
+2. `$XDG_CONFIG_HOME/hop/config.toml`, if `$XDG_CONFIG_HOME` is set to an absolute path.
+3. `~/.config/hop/config.toml` otherwise.
+
+Run `hop config path` to print the file `hop` will read, whether or not it exists yet, or
+`hop config init` to create it from a commented template.
+
+> ⚠️ **Upgrading from 0.3.x on macOS:** older versions read the config from
+> `~/Library/Application Support/dev.hop.hop/config.toml`. That location is no longer used. If you
+> have a config there, move it:
+> `mv "$HOME/Library/Application Support/dev.hop.hop/config.toml" "$HOME/.config/hop/config.toml"`
 
 ```toml
 # Startup search mode: "simple" (guided toolbar, the default) or "raw" (query DSL).

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- *(config)* read the config from `~/.config/hop/config.toml` on macOS. Previously the path came
+  from `directories::ProjectDirs`, which resolves to
+  `~/Library/Application Support/dev.hop.hop/config.toml` on macOS while the README documented
+  `~/.config/hop/config.toml` — so a config written at the documented path was silently ignored and
+  every section (`[launcher]`, `[data_dirs]`, `[display]`, `[keybindings]`, `[columns]`,
+  `search_mode`) had no effect.
+
+### Added
+
+- *(config)* `$HOP_CONFIG` overrides the config file path; `$XDG_CONFIG_HOME` is honored when
+  absolute.
+
+### Changed
+
+- **BREAKING** *(config, macOS only)* `~/Library/Application Support/dev.hop.hop/config.toml` is no
+  longer read. If you have a config there, move it:
+  `mv "$HOME/Library/Application Support/dev.hop.hop/config.toml" "$HOME/.config/hop/config.toml"`.
+  `hop config init` prints a notice when it finds one. Cache and index directories are unchanged.
+
 ## [0.3.0](https://github.com/amittamari/hop/compare/v0.2.9...v0.3.0) - 2026-07-22
 
 ### Added
