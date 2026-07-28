@@ -70,7 +70,7 @@ impl Default for DisplayConfig {
         DisplayConfig {
             row_style: default_row_style(),
             icons: true,
-            visible: false,
+            visible: true,
             width_pct: default_width_pct(),
             metadata_header: true,
         }
@@ -347,7 +347,7 @@ mod tests {
     #[test]
     fn preview_defaults() {
         let cfg = Config::default();
-        assert!(!cfg.display.visible);
+        assert!(cfg.display.visible);
         assert_eq!(cfg.display.width_pct, 30);
         assert!(cfg.display.metadata_header);
     }
